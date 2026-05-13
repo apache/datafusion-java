@@ -32,7 +32,8 @@ API will change before the first release.
 ## Data sources
 
 - [x] Parquet via `registerParquet` / `readParquet`, with `ParquetReadOptions`
-- [ ] CSV, JSON, Avro
+- [x] CSV via `registerCsv` / `readCsv`, with `CsvReadOptions`
+- [ ] JSON, Avro
 - [ ] Custom catalog and table providers
 
 ## Results
