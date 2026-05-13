@@ -20,8 +20,14 @@
 package org.apache.datafusion;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.channels.Channels;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -92,16 +98,76 @@ public final class SessionContext implements AutoCloseable {
     try {
       return MessageSerializer.deserializeSchema(
           new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))));
-    } catch (java.io.IOException e) {
+    } catch (IOException e) {
       throw new RuntimeException("Failed to deserialize IPC schema", e);
     }
   }
 
   public void registerParquet(String name, String path) {
+    registerParquet(name, path, new ParquetReadOptions());
+  }
+
+  /**
+   * Register a parquet file as a table with the supplied {@link ParquetReadOptions}.
+   *
+   * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
+   */
+  public void registerParquet(String name, String path, ParquetReadOptions options) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
-    registerParquet(nativeHandle, name, path);
+    registerParquetWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.fileExtension(),
+        options.parquetPruning() != null,
+        options.parquetPruning() != null && options.parquetPruning(),
+        options.skipMetadata() != null,
+        options.skipMetadata() != null && options.skipMetadata(),
+        options.metadataSizeHint() != null ? options.metadataSizeHint() : -1L,
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read a parquet file as a {@link DataFrame} without registering it. */
+  public DataFrame readParquet(String path) {
+    return readParquet(path, new ParquetReadOptions());
+  }
+
+  /**
+   * Read a parquet file as a {@link DataFrame} with the supplied {@link ParquetReadOptions}.
+   *
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readParquet(String path, ParquetReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long dfHandle =
+        readParquetWithOptions(
+            nativeHandle,
+            path,
+            options.fileExtension(),
+            options.parquetPruning() != null,
+            options.parquetPruning() != null && options.parquetPruning(),
+            options.skipMetadata() != null,
+            options.skipMetadata() != null && options.skipMetadata(),
+            options.metadataSizeHint() != null ? options.metadataSizeHint() : -1L,
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
+  private static byte[] serializeSchemaIpc(Schema schema) {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    try (BufferAllocator allocator = new RootAllocator();
+        VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
+        ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(baos))) {
+      writer.start();
+      writer.end();
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to serialize Arrow schema for JNI", e);
+    }
+    return baos.toByteArray();
   }
 
   @Override
@@ -120,7 +186,28 @@ public final class SessionContext implements AutoCloseable {
 
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
-  private static native void registerParquet(long handle, String name, String path);
+  private static native void registerParquetWithOptions(
+      long handle,
+      String name,
+      String path,
+      String fileExtension,
+      boolean parquetPruningSet,
+      boolean parquetPruningValue,
+      boolean skipMetadataSet,
+      boolean skipMetadataValue,
+      long metadataSizeHint,
+      byte[] schemaIpcBytes);
+
+  private static native long readParquetWithOptions(
+      long handle,
+      String path,
+      String fileExtension,
+      boolean parquetPruningSet,
+      boolean parquetPruningValue,
+      boolean skipMetadataSet,
+      boolean skipMetadataValue,
+      long metadataSizeHint,
+      byte[] schemaIpcBytes);
 
   private static native void closeSessionContext(long handle);
 }
