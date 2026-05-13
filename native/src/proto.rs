@@ -32,7 +32,9 @@ use crate::errors::{try_unwrap_or_throw, JniResult};
 use crate::runtime;
 
 #[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrameFromProto<'local>(
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrameFromProto<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
@@ -60,22 +62,26 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableSchemaIpc<
     handle: jlong,
     name: JString<'local>,
 ) -> jbyteArray {
-    try_unwrap_or_throw(&mut env, std::ptr::null_mut(), |env| -> JniResult<jbyteArray> {
-        if handle == 0 {
-            return Err("SessionContext handle is null".into());
-        }
-        let ctx = unsafe { &*(handle as *const SessionContext) };
-        let name: String = env.get_string(&name)?.into();
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jbyteArray> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            let ctx = unsafe { &*(handle as *const SessionContext) };
+            let name: String = env.get_string(&name)?.into();
 
-        let df = runtime().block_on(ctx.table(name.as_str()))?;
-        let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
+            let df = runtime().block_on(ctx.table(name.as_str()))?;
+            let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
 
-        let mut buf: Vec<u8> = Vec::new();
-        {
-            let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
-            writer.finish()?;
-        }
-        let arr = env.byte_array_from_slice(&buf)?;
-        Ok(arr.into_raw())
-    })
+            let mut buf: Vec<u8> = Vec::new();
+            {
+                let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
+                writer.finish()?;
+            }
+            let arr = env.byte_array_from_slice(&buf)?;
+            Ok(arr.into_raw())
+        },
+    )
 }
