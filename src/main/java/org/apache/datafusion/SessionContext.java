@@ -19,6 +19,7 @@
 
 package org.apache.datafusion;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
@@ -27,6 +28,8 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.arrow.vector.ipc.ReadChannel;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -61,6 +64,43 @@ public final class SessionContext implements AutoCloseable {
     }
     long dfHandle = createDataFrame(nativeHandle, query);
     return new DataFrame(dfHandle);
+  }
+
+  /**
+   * Decode a DataFusion-Proto {@code LogicalPlanNode} and return a lazy {@link DataFrame}. The plan
+   * is not executed until {@link DataFrame#collect} is called.
+   *
+   * <p>The bytes must be a serialized {@code datafusion.LogicalPlanNode} (see {@code
+   * org.apache.datafusion.protobuf.LogicalPlanNode}).
+   *
+   * @throws RuntimeException if the bytes are not a valid {@code LogicalPlanNode} or if logical
+   *     planning fails.
+   */
+  public DataFrame fromProto(byte[] planBytes) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long dfHandle = createDataFrameFromProto(nativeHandle, planBytes);
+    return new DataFrame(dfHandle);
+  }
+
+  /**
+   * Return the Arrow {@link Schema} of a registered table. Transferred via Arrow IPC; no {@link
+   * org.apache.arrow.memory.BufferAllocator} is required because a schema carries no buffer data.
+   *
+   * @throws RuntimeException if {@code tableName} is not registered in this context.
+   */
+  public Schema tableSchema(String tableName) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    byte[] ipcBytes = tableSchemaIpc(nativeHandle, tableName);
+    try {
+      return MessageSerializer.deserializeSchema(
+          new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))));
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to deserialize IPC schema", e);
+    }
   }
 
   public void registerParquet(String name, String path) {
@@ -141,6 +181,10 @@ public final class SessionContext implements AutoCloseable {
   private static native long createSessionContext();
 
   private static native long createDataFrame(long handle, String sql);
+
+  private static native long createDataFrameFromProto(long handle, byte[] planBytes);
+
+  private static native byte[] tableSchemaIpc(long handle, String tableName);
 
   private static native void registerParquetWithOptions(
       long handle,

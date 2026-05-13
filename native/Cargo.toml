@@ -27,5 +27,7 @@ crate-type = ["cdylib"]
 [dependencies]
 arrow = { version = "58", features = ["ffi"] }
 datafusion = "53.1.0"
+datafusion-proto = "53.1.0"
 jni = "0.21"
+prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread"] }

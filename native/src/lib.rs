@@ -16,6 +16,7 @@
 // under the License.
 
 mod errors;
+mod proto;
 
 use std::sync::{Arc, OnceLock};
 
@@ -33,7 +34,7 @@ use tokio::runtime::Runtime;
 
 use crate::errors::{try_unwrap_or_throw, JniResult};
 
-fn runtime() -> &'static Runtime {
+pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
     RT.get_or_init(|| Runtime::new().expect("failed to create Tokio runtime"))
 }
