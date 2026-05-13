@@ -103,6 +103,77 @@ public final class SessionContext implements AutoCloseable {
     }
   }
 
+  public void registerCsv(String name, String path) {
+    registerCsv(name, path, new CsvReadOptions());
+  }
+
+  /**
+   * Register a CSV file (or directory of CSV files) as a table with the supplied {@link
+   * CsvReadOptions}.
+   *
+   * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
+   */
+  public void registerCsv(String name, String path, CsvReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    registerCsvWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.hasHeader(),
+        options.delimiter(),
+        options.quote(),
+        options.terminator() != null,
+        options.terminator() != null ? options.terminator() : 0,
+        options.escape() != null,
+        options.escape() != null ? options.escape() : 0,
+        options.comment() != null,
+        options.comment() != null ? options.comment() : 0,
+        options.newlinesInValues() != null,
+        options.newlinesInValues() != null && options.newlinesInValues(),
+        options.schemaInferMaxRecords() != null ? options.schemaInferMaxRecords() : -1L,
+        options.fileExtension(),
+        options.fileCompressionType().name(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read a CSV file as a {@link DataFrame} without registering it. */
+  public DataFrame readCsv(String path) {
+    return readCsv(path, new CsvReadOptions());
+  }
+
+  /**
+   * Read a CSV file as a {@link DataFrame} with the supplied {@link CsvReadOptions}.
+   *
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readCsv(String path, CsvReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long dfHandle =
+        readCsvWithOptions(
+            nativeHandle,
+            path,
+            options.hasHeader(),
+            options.delimiter(),
+            options.quote(),
+            options.terminator() != null,
+            options.terminator() != null ? options.terminator() : 0,
+            options.escape() != null,
+            options.escape() != null ? options.escape() : 0,
+            options.comment() != null,
+            options.comment() != null ? options.comment() : 0,
+            options.newlinesInValues() != null,
+            options.newlinesInValues() != null && options.newlinesInValues(),
+            options.schemaInferMaxRecords() != null ? options.schemaInferMaxRecords() : -1L,
+            options.fileExtension(),
+            options.fileCompressionType().name(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
   public void registerParquet(String name, String path) {
     registerParquet(name, path, new ParquetReadOptions());
   }
@@ -207,6 +278,45 @@ public final class SessionContext implements AutoCloseable {
       boolean skipMetadataSet,
       boolean skipMetadataValue,
       long metadataSizeHint,
+      byte[] schemaIpcBytes);
+
+  private static native void registerCsvWithOptions(
+      long handle,
+      String name,
+      String path,
+      boolean hasHeader,
+      byte delimiter,
+      byte quote,
+      boolean terminatorSet,
+      byte terminatorValue,
+      boolean escapeSet,
+      byte escapeValue,
+      boolean commentSet,
+      byte commentValue,
+      boolean newlinesInValuesSet,
+      boolean newlinesInValuesValue,
+      long schemaInferMaxRecords,
+      String fileExtension,
+      String fileCompressionType,
+      byte[] schemaIpcBytes);
+
+  private static native long readCsvWithOptions(
+      long handle,
+      String path,
+      boolean hasHeader,
+      byte delimiter,
+      byte quote,
+      boolean terminatorSet,
+      byte terminatorValue,
+      boolean escapeSet,
+      byte escapeValue,
+      boolean commentSet,
+      byte commentValue,
+      boolean newlinesInValuesSet,
+      boolean newlinesInValuesValue,
+      long schemaInferMaxRecords,
+      String fileExtension,
+      String fileCompressionType,
       byte[] schemaIpcBytes);
 
   private static native void closeSessionContext(long handle);
