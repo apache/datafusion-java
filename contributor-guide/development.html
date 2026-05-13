@@ -449,8 +449,42 @@ disk space.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">mvnw</span></code>, <code class="docutils literal notranslate"><span class="pre">mvnw.cmd</span></code> — bundled Maven wrapper.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">src/</span></code> — Java sources and tests.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">native/</span></code> — Rust crate (JNI + Arrow C Data Interface).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">proto/</span></code> — Protobuf definitions shared between Java and Rust.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">docs/</span></code> — Sphinx documentation source and build scripts.</p></li>
 </ul>
+</section>
+<section id="passing-structured-options-across-the-jni-boundary">
+<h2>Passing structured options across the JNI boundary<a class="headerlink" href="#passing-structured-options-across-the-jni-boundary" title="Link to this heading">#</a></h2>
+<p>When a JNI call needs to carry more than a handful of scalar arguments —
+for example, a struct of nullable knobs like <code class="docutils literal notranslate"><span class="pre">CsvReadOptions</span></code> or
+<code class="docutils literal notranslate"><span class="pre">SessionOptions</span></code> — encode the call’s configuration as a protobuf message
+rather than expanding the JNI signature with one parameter per field.</p>
+<p>Add a <code class="docutils literal notranslate"><span class="pre">.proto</span></code> file under <code class="docutils literal notranslate"><span class="pre">proto/</span></code>, declare <code class="docutils literal notranslate"><span class="pre">package</span> <span class="pre">datafusion_java;</span></code>,
+and follow the conventions already in use:</p>
+<ul class="simple">
+<li><p>One message per logical bundle of options.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">optional</span></code> for fields whose unset-ness must survive the boundary
+(so the Rust side can leave a DataFusion default in place).</p></li>
+<li><p>Use proto enums for closed sets of choices instead of strings.
+Prefix every value with the enum’s name (e.g.
+<code class="docutils literal notranslate"><span class="pre">FILE_COMPRESSION_TYPE_GZIP</span></code>, not bare <code class="docutils literal notranslate"><span class="pre">GZIP</span></code>) because proto3 enum
+values are scoped at the package level, and the zero value must be a
+<code class="docutils literal notranslate"><span class="pre">_UNSPECIFIED</span></code> sentinel — the Rust side should reject <code class="docutils literal notranslate"><span class="pre">UNSPECIFIED</span></code>
+rather than silently default it.</p></li>
+<li><p>Keep large opaque payloads (Arrow IPC schemas, plan nodes) as separate
+<code class="docutils literal notranslate"><span class="pre">byte[]</span></code> JNI arguments next to the options proto, not inside it.</p></li>
+<li><p>Suffix the message name with <code class="docutils literal notranslate"><span class="pre">Proto</span></code> if a sibling Java class would
+otherwise shadow it (e.g. <code class="docutils literal notranslate"><span class="pre">CsvReadOptionsProto</span></code> vs the public
+<code class="docutils literal notranslate"><span class="pre">CsvReadOptions</span></code>).</p></li>
+</ul>
+<p>The proto is compiled by both <code class="docutils literal notranslate"><span class="pre">prost-build</span></code> (Rust, via <code class="docutils literal notranslate"><span class="pre">native/build.rs</span></code>)
+and the Maven <code class="docutils literal notranslate"><span class="pre">protobuf-maven-plugin</span></code> (Java). The Java side builds the
+message, serializes to bytes, and passes the byte array through JNI; the
+Rust side decodes once and folds the fields into the corresponding
+DataFusion struct.</p>
+<p>This pattern keeps JNI signatures short, makes nullable and enum fields
+explicit in a single typed schema, and lets new fields be added without
+touching the signature on either side.</p>
 </section>
 </section>
 
@@ -505,6 +539,7 @@ disk space.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-test">Build and test</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#test-data">Test data</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#repository-layout">Repository layout</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passing-structured-options-across-the-jni-boundary">Passing structured options across the JNI boundary</a></li>
 </ul>
   </nav></div>
 
