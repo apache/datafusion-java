@@ -70,6 +70,14 @@ public final class DataFrame implements AutoCloseable {
     }
   }
 
+  /** Execute the plan and return the number of rows. */
+  public long count() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return countRows(nativeHandle);
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -81,4 +89,6 @@ public final class DataFrame implements AutoCloseable {
   private static native void collectDataFrame(long handle, long ffiStreamAddr);
 
   private static native void closeDataFrame(long handle);
+
+  private static native long countRows(long handle);
 }
