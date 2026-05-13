@@ -47,10 +47,7 @@ class ParquetReadOptionsTest {
   @Test
   void fluentSettersChainAndMutate() {
     Schema schema =
-        new Schema(
-            List.of(
-                new Field(
-                    "x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
+        new Schema(List.of(new Field("x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
 
     ParquetReadOptions opts =
         new ParquetReadOptions()
