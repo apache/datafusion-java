@@ -21,6 +21,7 @@ package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.arrow.memory.BufferAllocator;
@@ -113,6 +114,51 @@ class DataFrameTransformationsTest {
             ctx.sql("SELECT 1 AS a, 2 AS b UNION ALL SELECT 10 AS a, 20 AS b");
         DataFrame chained = source.filter("a > 5").select("b")) {
       assertEquals(1L, chained.count());
+    }
+  }
+
+  @Test
+  void methodsThrowAfterClose() {
+    try (SessionContext ctx = new SessionContext()) {
+      DataFrame df = ctx.sql("SELECT 1 AS x");
+      df.close();
+      assertThrows(IllegalStateException.class, () -> df.select("x"));
+      assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, df::count);
+      assertThrows(IllegalStateException.class, df::show);
+      assertThrows(IllegalStateException.class, () -> df.show(5));
+    }
+  }
+
+  @Test
+  void methodsThrowAfterCollect() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      try (ArrowReader reader = df.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+      }
+      assertThrows(IllegalStateException.class, () -> df.select("x"));
+      assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, df::count);
+      assertThrows(IllegalStateException.class, df::show);
+      assertThrows(IllegalStateException.class, () -> df.show(5));
+    }
+  }
+
+  @Test
+  void selectInvalidColumnThrows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(RuntimeException.class, () -> df.select("not_a_column"));
+    }
+  }
+
+  @Test
+  void filterMalformedPredicateThrows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(RuntimeException.class, () -> df.filter("this is not sql"));
     }
   }
 }
