@@ -47,6 +47,8 @@ github:
   features:
     issues: true
     discussions: true
+  protected_branches:
+    main: ~
   pull_requests:
     allow_update_branch: true
     allow_auto_merge: true
