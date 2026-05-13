@@ -115,8 +115,7 @@ class DataFrameTransformationsTest {
   @Test
   void chainFilterSelectCount() {
     try (SessionContext ctx = new SessionContext();
-        DataFrame source =
-            ctx.sql("SELECT 1 AS a, 2 AS b UNION ALL SELECT 10 AS a, 20 AS b");
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b UNION ALL SELECT 10 AS a, 20 AS b");
         DataFrame chained = source.filter("a > 5").select("b")) {
       assertEquals(1L, chained.count());
     }
