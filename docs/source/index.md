@@ -19,11 +19,77 @@ under the License.
 
 # Apache DataFusion Java
 
+Java bindings for [Apache DataFusion]. Queries run in native Rust and results
+return to the JVM as [Apache Arrow] batches via the Arrow C Data Interface.
+
+[Apache DataFusion]: https://datafusion.apache.org/
+[Apache Arrow]: https://arrow.apache.org/
+
+> Early development: no releases yet, API will change. Bug reports and
+> contributions welcome.
+
+## Quickstart
+
+```java
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.datafusion.DataFrame;
+import org.apache.datafusion.SessionContext;
+
+try (var allocator = new RootAllocator();
+     var ctx = new SessionContext()) {
+
+    ctx.registerParquet("orders", "/path/to/orders.parquet");
+
+    try (DataFrame df = ctx.sql(
+            "SELECT o_orderpriority, COUNT(*) AS n " +
+            "FROM orders GROUP BY o_orderpriority");
+         ArrowReader reader = df.collect(allocator)) {
+        while (reader.loadNextBatch()) {
+            var batch = reader.getVectorSchemaRoot();
+            // ...
+        }
+    }
+}
+```
+
+See the [User Guide](user-guide/index.md) for installation, the DataFrame and
+SQL APIs, and Parquet ingestion. See the [Contributor Guide](contributor-guide/index.md)
+for build, test, and release workflows.
+
 ```{toctree}
 :maxdepth: 1
-:caption: Documentation
+:caption: Links
 :hidden:
 
-User Guide <user-guide/index>
-Contributor Guide <contributor-guide/index>
+GitHub Repository <https://github.com/apache/datafusion-java>
+Issue Tracker <https://github.com/apache/datafusion-java/issues>
+Apache DataFusion <https://datafusion.apache.org/>
+Code of Conduct <https://github.com/apache/datafusion/blob/main/CODE_OF_CONDUCT.md>
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: User Guide
+:hidden:
+
+user-guide/index
+user-guide/installation
+user-guide/quickstart
+user-guide/sessioncontext
+user-guide/dataframe
+user-guide/parquet
+user-guide/project-status
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Contributor Guide
+:hidden:
+
+contributor-guide/index
+contributor-guide/development
+contributor-guide/code-style
+contributor-guide/releasing
+contributor-guide/updating-datafusion-version
 ```
