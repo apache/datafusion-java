@@ -24,11 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.protobuf.SessionOptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SessionContextBuilderTest {
 
@@ -89,6 +92,25 @@ class SessionContextBuilderTest {
       assertThrows(
           RuntimeException.class,
           () -> ctx.sql("SELECT table_name FROM information_schema.tables"));
+    }
+  }
+
+  @Test
+  void buildWithEveryKnobSetCanExecuteSelectOne(@TempDir Path tempDir) throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx =
+            SessionContext.builder()
+                .batchSize(8192)
+                .targetPartitions(4)
+                .collectStatistics(true)
+                .informationSchema(true)
+                .memoryLimit(1L << 30, 0.8)
+                .tempDirectory(tempDir.toAbsolutePath().toString())
+                .build();
+        DataFrame df = ctx.sql("SELECT 1");
+        ArrowReader reader = df.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      assertEquals(1, reader.getVectorSchemaRoot().getRowCount());
     }
   }
 }
