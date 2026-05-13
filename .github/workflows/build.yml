@@ -41,12 +41,19 @@ jobs:
           cache: maven
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          rustup update stable
+          rustup default stable
 
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          workspaces: native
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build native and run JVM tests
         run: make test
