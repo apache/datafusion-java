@@ -1,0 +1,11 @@
+target/
+*.class
+.idea/
+.vscode/
+*.iml
+.DS_Store
+tpch-data/
+.claude
+docs/superpowers
+docs/build/
+docs/venv/
