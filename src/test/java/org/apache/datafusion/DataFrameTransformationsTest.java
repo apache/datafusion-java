@@ -128,6 +128,11 @@ class DataFrameTransformationsTest {
       df.close();
       assertThrows(IllegalStateException.class, () -> df.select("x"));
       assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, () -> df.limit(1));
+      assertThrows(IllegalStateException.class, () -> df.limit(0, 1));
+      assertThrows(IllegalStateException.class, df::distinct);
+      assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -144,6 +149,11 @@ class DataFrameTransformationsTest {
       }
       assertThrows(IllegalStateException.class, () -> df.select("x"));
       assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, () -> df.limit(1));
+      assertThrows(IllegalStateException.class, () -> df.limit(0, 1));
+      assertThrows(IllegalStateException.class, df::distinct);
+      assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
