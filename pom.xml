@@ -192,7 +192,16 @@ under the License.
                 </configuration>
                 <executions>
                     <execution>
+                        <id>compile-upstream</id>
                         <goals><goal>compile</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>compile-local</id>
+                        <goals><goal>compile</goal></goals>
+                        <configuration>
+                            <protoSourceRoot>${project.basedir}/proto</protoSourceRoot>
+                            <clearOutputDirectory>false</clearOutputDirectory>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
