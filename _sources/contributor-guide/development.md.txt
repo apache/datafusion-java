@@ -69,13 +69,44 @@ disk space.
 
 ## Repository layout
 
-- `pom.xml` — Maven build descriptor.
-- `Makefile` — top-level build orchestration (`make test`, `make tpch-data`).
-- `mvnw`, `mvnw.cmd` — bundled Maven wrapper.
-- `src/` — Java sources and tests.
+The repository is a multi-module Maven build:
+
+- `pom.xml` — parent POM declaring the `core` and `examples` modules and
+  shared plugin/dependency versions.
+- `core/` — `datafusion-java` library module (Java sources, tests, and
+  generated protobuf classes).
+- `examples/` — `datafusion-java-examples` module containing runnable
+  examples that depend on the library; built alongside the library so they
+  cannot fall out of sync with the API.
 - `native/` — Rust crate (JNI + Arrow C Data Interface).
 - `proto/` — Protobuf definitions shared between Java and Rust.
+- `Makefile` — top-level build orchestration (`make test`, `make tpch-data`).
+- `mvnw`, `mvnw.cmd` — bundled Maven wrapper.
 - `docs/` — Sphinx documentation source and build scripts.
+
+## Running an example
+
+The examples module wires `exec-maven-plugin` with the right
+`java.library.path` and `--add-opens` flags. Install the library to the
+local Maven repository once, then run any example by main class:
+
+```sh
+./mvnw install -DskipTests
+./mvnw -pl :datafusion-java-examples exec:exec \
+    -Dexec.mainClass=org.apache.datafusion.examples.SqlQueryExample
+```
+
+The bundled examples (under
+`examples/src/main/java/org/apache/datafusion/examples/`):
+
+- `SqlQueryExample` — register a CSV and run a SQL aggregation.
+- `DataFrameExample` — read CSV → filter / select / rename / distinct →
+  write Parquet → read back.
+- `ProtoPlanExample` — build a DataFusion `LogicalPlanNode` directly via
+  the generated protobuf classes and execute it through
+  `SessionContext.fromProto`.
+
+Re-run `mvnw install -DskipTests` whenever you change the library.
 
 ## Passing structured options across the JNI boundary
 

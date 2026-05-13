@@ -443,15 +443,43 @@ disk space.</p>
 </section>
 <section id="repository-layout">
 <h2>Repository layout<a class="headerlink" href="#repository-layout" title="Link to this heading">#</a></h2>
+<p>The repository is a multi-module Maven build:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">pom.xml</span></code> — Maven build descriptor.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — top-level build orchestration (<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">tpch-data</span></code>).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">mvnw</span></code>, <code class="docutils literal notranslate"><span class="pre">mvnw.cmd</span></code> — bundled Maven wrapper.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">src/</span></code> — Java sources and tests.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pom.xml</span></code> — parent POM declaring the <code class="docutils literal notranslate"><span class="pre">core</span></code> and <code class="docutils literal notranslate"><span class="pre">examples</span></code> modules and
+shared plugin/dependency versions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">core/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-java</span></code> library module (Java sources, tests, and
+generated protobuf classes).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">examples/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-java-examples</span></code> module containing runnable
+examples that depend on the library; built alongside the library so they
+cannot fall out of sync with the API.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">native/</span></code> — Rust crate (JNI + Arrow C Data Interface).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">proto/</span></code> — Protobuf definitions shared between Java and Rust.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — top-level build orchestration (<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">tpch-data</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mvnw</span></code>, <code class="docutils literal notranslate"><span class="pre">mvnw.cmd</span></code> — bundled Maven wrapper.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">docs/</span></code> — Sphinx documentation source and build scripts.</p></li>
 </ul>
+</section>
+<section id="running-an-example">
+<h2>Running an example<a class="headerlink" href="#running-an-example" title="Link to this heading">#</a></h2>
+<p>The examples module wires <code class="docutils literal notranslate"><span class="pre">exec-maven-plugin</span></code> with the right
+<code class="docutils literal notranslate"><span class="pre">java.library.path</span></code> and <code class="docutils literal notranslate"><span class="pre">--add-opens</span></code> flags. Install the library to the
+local Maven repository once, then run any example by main class:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./mvnw<span class="w"> </span>install<span class="w"> </span>-DskipTests
+./mvnw<span class="w"> </span>-pl<span class="w"> </span>:datafusion-java-examples<span class="w"> </span>exec:exec<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-Dexec.mainClass<span class="o">=</span>org.apache.datafusion.examples.SqlQueryExample
+</pre></div>
+</div>
+<p>The bundled examples (under
+<code class="docutils literal notranslate"><span class="pre">examples/src/main/java/org/apache/datafusion/examples/</span></code>):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">SqlQueryExample</span></code> — register a CSV and run a SQL aggregation.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DataFrameExample</span></code> — read CSV → filter / select / rename / distinct →
+write Parquet → read back.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ProtoPlanExample</span></code> — build a DataFusion <code class="docutils literal notranslate"><span class="pre">LogicalPlanNode</span></code> directly via
+the generated protobuf classes and execute it through
+<code class="docutils literal notranslate"><span class="pre">SessionContext.fromProto</span></code>.</p></li>
+</ul>
+<p>Re-run <code class="docutils literal notranslate"><span class="pre">mvnw</span> <span class="pre">install</span> <span class="pre">-DskipTests</span></code> whenever you change the library.</p>
 </section>
 <section id="passing-structured-options-across-the-jni-boundary">
 <h2>Passing structured options across the JNI boundary<a class="headerlink" href="#passing-structured-options-across-the-jni-boundary" title="Link to this heading">#</a></h2>
@@ -539,6 +567,7 @@ touching the signature on either side.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-and-test">Build and test</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#test-data">Test data</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#repository-layout">Repository layout</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-an-example">Running an example</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passing-structured-options-across-the-jni-boundary">Passing structured options across the JNI boundary</a></li>
 </ul>
   </nav></div>
