@@ -24,10 +24,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class DataFrameTransformationsTest {
@@ -159,6 +164,34 @@ class DataFrameTransformationsTest {
     try (SessionContext ctx = new SessionContext();
         DataFrame df = ctx.sql("SELECT 1 AS x")) {
       assertThrows(RuntimeException.class, () -> df.filter("this is not sql"));
+    }
+  }
+
+  @Test
+  void lineitemFilterCountAgainstSqlBaseline() throws Exception {
+    Path lineitem = Path.of("tpch-data/sf1/lineitem.parquet");
+    Assumptions.assumeTrue(
+        Files.exists(lineitem), "TPC-H SF1 data not found; run `make tpch-data` first");
+
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.registerParquet("lineitem", lineitem.toAbsolutePath().toString());
+
+      long viaDataFrame;
+      try (DataFrame df = ctx.sql("SELECT * FROM lineitem");
+          DataFrame filtered = df.filter("l_orderkey < 100")) {
+        viaDataFrame = filtered.count();
+      }
+
+      long viaSql;
+      try (BufferAllocator allocator = new RootAllocator();
+          DataFrame df = ctx.sql("SELECT COUNT(*) FROM lineitem WHERE l_orderkey < 100");
+          ArrowReader reader = df.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+        VectorSchemaRoot root = reader.getVectorSchemaRoot();
+        viaSql = ((BigIntVector) root.getVector(0)).get(0);
+      }
+
+      assertEquals(viaSql, viaDataFrame);
     }
   }
 }
