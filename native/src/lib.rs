@@ -25,7 +25,9 @@ use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::record_batch::RecordBatchIterator;
+use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
+use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
@@ -192,6 +194,42 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_filterRows<'local>(
         let expr = df.parse_sql_expr(&predicate)?;
         let new_df = df.filter(expr)?;
         Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    path: JString<'local>,
+    compression: JString<'local>,
+    single_file_output_set: jboolean,
+    single_file_output_value: jboolean,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let path: String = env.get_string(&path)?.into();
+
+        let mut write_opts = DataFrameWriteOptions::new();
+        if single_file_output_set != 0 {
+            write_opts = write_opts.with_single_file_output(single_file_output_value != 0);
+        }
+
+        let writer_opts: Option<TableParquetOptions> = if !compression.is_null() {
+            let c: String = env.get_string(&compression)?.into();
+            let mut tpo = TableParquetOptions::default();
+            tpo.global.compression = Some(c);
+            Some(tpo)
+        } else {
+            None
+        };
+
+        runtime().block_on(df.write_parquet(&path, write_opts, writer_opts))?;
+        Ok(())
     })
 }
 
