@@ -17,9 +17,6 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=../proto/session_options.proto");
-    prost_build::compile_protos(
-        &["../proto/session_options.proto"],
-        &["../proto"],
-    )
-    .expect("failed to compile session_options.proto");
+    prost_build::compile_protos(&["../proto/session_options.proto"], &["../proto"])
+        .expect("failed to compile session_options.proto");
 }
