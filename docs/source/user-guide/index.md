@@ -36,6 +36,7 @@ quickstart
 sessioncontext
 dataframe
 parquet
+proto-plans
 project-status
 ```
 
