@@ -116,6 +116,36 @@ public final class DataFrame implements AutoCloseable {
     return new DataFrame(filterRows(nativeHandle, predicate));
   }
 
+  /**
+   * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
+   * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
+   * remains usable and must still be closed independently.
+   *
+   * @throws RuntimeException if the write fails.
+   */
+  public void writeParquet(String path) {
+    writeParquet(path, new ParquetWriteOptions());
+  }
+
+  /**
+   * Materialize this DataFrame as Parquet at {@code path} with the supplied {@link
+   * ParquetWriteOptions}. The receiver remains usable and must still be closed independently.
+   *
+   * @throws RuntimeException if the write fails (path inaccessible, invalid compression spec,
+   *     etc.).
+   */
+  public void writeParquet(String path, ParquetWriteOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    writeParquetWithOptions(
+        nativeHandle,
+        path,
+        options.compression(),
+        options.singleFileOutput() != null,
+        options.singleFileOutput() != null && options.singleFileOutput());
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -137,4 +167,11 @@ public final class DataFrame implements AutoCloseable {
   private static native long selectColumns(long handle, String[] columnNames);
 
   private static native long filterRows(long handle, String predicate);
+
+  private static native void writeParquetWithOptions(
+      long handle,
+      String path,
+      String compression,
+      boolean singleFileOutputSet,
+      boolean singleFileOutputValue);
 }
