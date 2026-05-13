@@ -19,14 +19,15 @@ mod errors;
 
 use std::sync::{Arc, OnceLock};
 
-use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
+use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::record_batch::RecordBatchIterator;
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use jni::objects::{JClass, JString};
-use jni::sys::jlong;
+use jni::objects::{JByteArray, JClass, JString};
+use jni::sys::{jboolean, jlong};
 use jni::JNIEnv;
 use tokio::runtime::Runtime;
 
@@ -129,13 +130,61 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_closeSessionCon
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn with_parquet_options<R>(
+    env: &mut JNIEnv,
+    file_extension: JString,
+    parquet_pruning_set: jboolean,
+    parquet_pruning_value: jboolean,
+    skip_metadata_set: jboolean,
+    skip_metadata_value: jboolean,
+    metadata_size_hint: jlong,
+    schema_ipc_bytes: JByteArray,
+    f: impl FnOnce(ParquetReadOptions) -> JniResult<R>,
+) -> JniResult<R> {
+    let file_ext: String = env.get_string(&file_extension)?.into();
+
+    let schema: Option<Schema> = if !schema_ipc_bytes.is_null() {
+        let bytes: Vec<u8> = env.convert_byte_array(&schema_ipc_bytes)?;
+        let reader = StreamReader::try_new(std::io::Cursor::new(bytes), None)?;
+        Some((*reader.schema()).clone())
+    } else {
+        None
+    };
+
+    let mut opts = ParquetReadOptions::default().file_extension(&file_ext);
+    if parquet_pruning_set != 0 {
+        opts = opts.parquet_pruning(parquet_pruning_value != 0);
+    }
+    if skip_metadata_set != 0 {
+        opts = opts.skip_metadata(skip_metadata_value != 0);
+    }
+    if metadata_size_hint >= 0 {
+        opts = opts.metadata_size_hint(Some(metadata_size_hint as usize));
+    }
+    if let Some(ref s) = schema {
+        opts = opts.schema(s);
+    }
+
+    f(opts)
+}
+
 #[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerParquet<'local>(
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerParquetWithOptions<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
     name: JString<'local>,
     path: JString<'local>,
+    file_extension: JString<'local>,
+    parquet_pruning_set: jboolean,
+    parquet_pruning_value: jboolean,
+    skip_metadata_set: jboolean,
+    skip_metadata_value: jboolean,
+    metadata_size_hint: jlong,
+    schema_ipc_bytes: JByteArray<'local>,
 ) {
     try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
         if handle == 0 {
@@ -144,11 +193,59 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerParquet
         let ctx = unsafe { &*(handle as *const SessionContext) };
         let name: String = env.get_string(&name)?.into();
         let path: String = env.get_string(&path)?.into();
-        runtime().block_on(async {
-            ctx.register_parquet(&name, &path, ParquetReadOptions::default())
-                .await?;
-            Ok::<(), DataFusionError>(())
-        })?;
-        Ok(())
+        with_parquet_options(
+            env,
+            file_extension,
+            parquet_pruning_set,
+            parquet_pruning_value,
+            skip_metadata_set,
+            skip_metadata_value,
+            metadata_size_hint,
+            schema_ipc_bytes,
+            |opts| {
+                runtime().block_on(async {
+                    ctx.register_parquet(&name, &path, opts).await?;
+                    Ok::<(), DataFusionError>(())
+                })?;
+                Ok(())
+            },
+        )
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_readParquetWithOptions<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    path: JString<'local>,
+    file_extension: JString<'local>,
+    parquet_pruning_set: jboolean,
+    parquet_pruning_value: jboolean,
+    skip_metadata_set: jboolean,
+    skip_metadata_value: jboolean,
+    metadata_size_hint: jlong,
+    schema_ipc_bytes: JByteArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let path: String = env.get_string(&path)?.into();
+        with_parquet_options(
+            env,
+            file_extension,
+            parquet_pruning_set,
+            parquet_pruning_value,
+            skip_metadata_set,
+            skip_metadata_value,
+            metadata_size_hint,
+            schema_ipc_bytes,
+            |opts| {
+                let df = runtime().block_on(ctx.read_parquet(path, opts))?;
+                Ok(Box::into_raw(Box::new(df)) as jlong)
+            },
+        )
     })
 }
