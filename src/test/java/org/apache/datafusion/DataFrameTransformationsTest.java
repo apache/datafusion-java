@@ -193,4 +193,43 @@ class DataFrameTransformationsTest {
       assertEquals(viaSql, viaDataFrame);
     }
   }
+
+  @Test
+  void limitTakesFirstNRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame limited = source.limit(2)) {
+      assertEquals(2L, limited.count());
+    }
+  }
+
+  @Test
+  void limitWithSkipDropsLeadingRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame limited = source.limit(2, 2)) {
+      assertEquals(2L, limited.count());
+    }
+  }
+
+  @Test
+  void limitIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
+      try (DataFrame limited = source.limit(1)) {
+        assertEquals(1L, limited.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void limitRejectsNegativeArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.limit(-1));
+      assertThrows(IllegalArgumentException.class, () -> df.limit(-1, 0));
+      assertThrows(IllegalArgumentException.class, () -> df.limit(0, -1));
+    }
+  }
 }
