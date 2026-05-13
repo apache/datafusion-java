@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Quickstart &#8212; Apache DataFusion Java  documentation</title>
+    <title>API Reference &#8212; Apache DataFusion Java  documentation</title>
   
   
   
@@ -41,11 +41,11 @@
     <script src="../_static/documentation_options.js?v=5929fcd5"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/quickstart';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/api-reference';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="SessionContext" href="sessioncontext.html" />
-    <link rel="prev" title="Installation" href="installation.html" />
+    <link rel="next" title="Contributor Guide" href="../contributor-guide/index.html" />
+    <link rel="prev" title="Project status" href="project-status.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -318,13 +318,13 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quickstart</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sessioncontext.html">SessionContext</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dataframe.html">DataFrame and SQL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="parquet.html">Parquet</a></li>
 <li class="toctree-l1"><a class="reference internal" href="proto-plans.html">Logical plans via datafusion-proto</a></li>
 <li class="toctree-l1"><a class="reference internal" href="project-status.html">Project status</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api-reference.html">API Reference</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">API Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -368,7 +368,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">User Guide</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Quickstart</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">API Reference</span></li>
   </ul>
 </nav>
 </div>
@@ -403,56 +403,18 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<section id="quickstart">
-<h1>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h1>
-<p>This page walks through a complete query end-to-end.</p>
-<section id="the-full-example">
-<h2>The full example<a class="headerlink" href="#the-full-example" title="Link to this heading">#</a></h2>
-<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.RootAllocator</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.ipc.ArrowReader</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.DataFrame</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.SessionContext</span><span class="p">;</span>
-
-<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="kd">var</span><span class="w"> </span><span class="n">allocator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RootAllocator</span><span class="p">();</span>
-<span class="w">     </span><span class="kd">var</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-
-<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">);</span>
-
-<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span>
-<span class="w">            </span><span class="s">&quot;SELECT o_orderpriority, COUNT(*) AS n &quot;</span><span class="w"> </span><span class="o">+</span>
-<span class="w">            </span><span class="s">&quot;FROM orders GROUP BY o_orderpriority&quot;</span><span class="p">);</span>
-<span class="w">         </span><span class="n">ArrowReader</span><span class="w"> </span><span class="n">reader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">df</span><span class="p">.</span><span class="na">collect</span><span class="p">(</span><span class="n">allocator</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">reader</span><span class="p">.</span><span class="na">loadNextBatch</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="kd">var</span><span class="w"> </span><span class="n">batch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="p">.</span><span class="na">getVectorSchemaRoot</span><span class="p">();</span>
-<span class="w">            </span><span class="c1">// ...</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="p">}</span>
-</pre></div>
-</div>
-</section>
-<section id="walkthrough">
-<h2>Walkthrough<a class="headerlink" href="#walkthrough" title="Link to this heading">#</a></h2>
-<p><strong>Allocator.</strong> <code class="docutils literal notranslate"><span class="pre">RootAllocator</span></code> is the Arrow off-heap memory allocator. Every
-JVM-side Arrow buffer is tracked under an allocator; when the allocator is
-closed, leaked buffers are reported. Use one allocator per query (or one
-per application) and close it in a <code class="docutils literal notranslate"><span class="pre">try</span></code>-with-resources.</p>
-<p><strong>Session context.</strong> <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> is the entry point into DataFusion. It
-holds the catalog of registered tables and the query planner. It is
-<code class="docutils literal notranslate"><span class="pre">AutoCloseable</span></code> and <strong>not thread-safe</strong> — use one per thread, or guard
-access externally.</p>
-<p><strong>Registering data.</strong> <code class="docutils literal notranslate"><span class="pre">registerParquet(name,</span> <span class="pre">path)</span></code> reads the file’s footer
-on call and exposes it under the given table name. See
-<a class="reference internal" href="parquet.html"><span class="std std-doc">Parquet</span></a> for the options form.</p>
-<p><strong>SQL.</strong> <code class="docutils literal notranslate"><span class="pre">ctx.sql(&quot;...&quot;)</span></code> plans the query and returns a <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>. The
-query is not executed until results are pulled.</p>
-<p><strong>Collecting results.</strong> <code class="docutils literal notranslate"><span class="pre">df.collect(allocator)</span></code> starts native execution and
-returns an <code class="docutils literal notranslate"><span class="pre">ArrowReader</span></code>. Each <code class="docutils literal notranslate"><span class="pre">loadNextBatch()</span></code> call pulls the next
-<code class="docutils literal notranslate"><span class="pre">VectorSchemaRoot</span></code>; iterate until it returns <code class="docutils literal notranslate"><span class="pre">false</span></code>.</p>
-<p><strong>Cleanup.</strong> Both <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> and <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code> are <code class="docutils literal notranslate"><span class="pre">AutoCloseable</span></code>. Use
-<code class="docutils literal notranslate"><span class="pre">try</span></code>-with-resources so native resources and Arrow buffers are released
-even on exception.</p>
-</section>
+<section id="api-reference">
+<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">#</a></h1>
+<p>Generated Javadoc for the public Java API lives at</p>
+<!-- Raw HTML link: MyST resolves relative .html Markdown links as
+     cross-references, which fails sphinx-build -W. The Javadoc tree is
+     copied verbatim via html_extra_path and is unknown to Sphinx. -->
+<p><a href="../api/index.html"><strong>api/index.html</strong></a>.</p>
+<p>The reference covers the <code class="docutils literal notranslate"><span class="pre">org.apache.datafusion</span></code> package, including
+<code class="docutils literal notranslate"><span class="pre">SessionContext</span></code>, <code class="docutils literal notranslate"><span class="pre">SessionContextBuilder</span></code>, <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>, <code class="docutils literal notranslate"><span class="pre">CsvReadOptions</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ParquetReadOptions</span></code>, and <code class="docutils literal notranslate"><span class="pre">NativeLibraryLoader</span></code>, plus the
+<code class="docutils literal notranslate"><span class="pre">org.apache.datafusion.proto</span></code> helpers. Auto-generated protobuf classes are
+intentionally excluded from the Javadoc — they are an implementation detail.</p>
 </section>
 
 
@@ -466,20 +428,20 @@ even on exception.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="project-status.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation</p>
+        <p class="prev-next-title">Project status</p>
       </div>
     </a>
     <a class="right-next"
-       href="sessioncontext.html"
+       href="../contributor-guide/index.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">SessionContext</p>
+        <p class="prev-next-title">Contributor Guide</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -495,23 +457,10 @@ even on exception.</p>
 
 
   <div class="sidebar-secondary-item">
-<div
-    id="pst-page-navigation-heading-2"
-    class="page-toc tocsection onthispage">
-    <i class="fa-solid fa-list"></i> On this page
-  </div>
-  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
-    <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-full-example">The full example</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#walkthrough">Walkthrough</a></li>
-</ul>
-  </nav></div>
-
-  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="../_sources/user-guide/quickstart.md.txt"
+      <li><a href="../_sources/user-guide/api-reference.md.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
