@@ -20,7 +20,7 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,44 +30,47 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.datafusion.protobuf.ParquetReadOptionsProto;
 import org.junit.jupiter.api.Test;
+
+import com.google.protobuf.InvalidProtocolBufferException;
 
 class ParquetReadOptionsTest {
 
   @Test
-  void defaultsMatchDataFusion() {
-    ParquetReadOptions opts = new ParquetReadOptions();
-    assertEquals(".parquet", opts.fileExtension());
-    assertNull(opts.parquetPruning());
-    assertNull(opts.skipMetadata());
-    assertNull(opts.metadataSizeHint());
-    assertNull(opts.schema());
+  void defaultsRoundTripThroughProto() throws InvalidProtocolBufferException {
+    ParquetReadOptionsProto p =
+        ParquetReadOptionsProto.parseFrom(new ParquetReadOptions().toBytes());
+
+    assertEquals(".parquet", p.getFileExtension());
+    assertFalse(p.hasParquetPruning());
+    assertFalse(p.hasSkipMetadata());
+    assertFalse(p.hasMetadataSizeHint());
   }
 
   @Test
-  void fluentSettersChainAndMutate() {
-    Schema schema =
-        new Schema(List.of(new Field("x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
-
+  void fullyConfiguredRoundTripsThroughProto() throws InvalidProtocolBufferException {
     ParquetReadOptions opts =
         new ParquetReadOptions()
-            .fileExtension(".parq")
+            .fileExtension(".par")
             .parquetPruning(true)
             .skipMetadata(false)
-            .metadataSizeHint(1_048_576L)
-            .schema(schema);
+            .metadataSizeHint(4096L);
 
-    assertEquals(".parq", opts.fileExtension());
-    assertEquals(Boolean.TRUE, opts.parquetPruning());
-    assertEquals(Boolean.FALSE, opts.skipMetadata());
-    assertEquals(Long.valueOf(1_048_576L), opts.metadataSizeHint());
-    assertTrue(opts.schema() == schema);
+    ParquetReadOptionsProto p = ParquetReadOptionsProto.parseFrom(opts.toBytes());
+
+    assertEquals(".par", p.getFileExtension());
+    assertTrue(p.getParquetPruning());
+    assertFalse(p.getSkipMetadata());
+    assertEquals(4096L, p.getMetadataSizeHint());
   }
 
   @Test
-  void schemaSetterRetainsReferenceIdentity() {
-    Schema schema = new Schema(List.of());
+  void schemaIsHeldByReferenceAndNotInProto() {
+    Schema schema =
+        new Schema(List.of(new Field("x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
     ParquetReadOptions opts = new ParquetReadOptions().schema(schema);
+
     assertSame(schema, opts.schema());
   }
 }

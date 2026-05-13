@@ -20,7 +20,7 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,31 +30,34 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.datafusion.protobuf.CsvReadOptionsProto;
+import org.apache.datafusion.protobuf.FileCompressionType;
 import org.junit.jupiter.api.Test;
+
+import com.google.protobuf.InvalidProtocolBufferException;
 
 class CsvReadOptionsTest {
 
   @Test
-  void defaultsMatchDataFusion() {
-    CsvReadOptions opts = new CsvReadOptions();
-    assertTrue(opts.hasHeader());
-    assertEquals((byte) ',', opts.delimiter());
-    assertEquals((byte) '"', opts.quote());
-    assertNull(opts.terminator());
-    assertNull(opts.escape());
-    assertNull(opts.comment());
-    assertNull(opts.newlinesInValues());
-    assertNull(opts.schemaInferMaxRecords());
-    assertEquals(".csv", opts.fileExtension());
-    assertEquals(CsvReadOptions.FileCompressionType.UNCOMPRESSED, opts.fileCompressionType());
-    assertNull(opts.schema());
+  void defaultsRoundTripThroughProto() throws InvalidProtocolBufferException {
+    CsvReadOptionsProto p = CsvReadOptionsProto.parseFrom(new CsvReadOptions().toBytes());
+
+    assertTrue(p.getHasHeader());
+    assertEquals((int) ',', p.getDelimiter());
+    assertEquals((int) '"', p.getQuote());
+    assertEquals(".csv", p.getFileExtension());
+    assertEquals(
+        FileCompressionType.FILE_COMPRESSION_TYPE_UNCOMPRESSED, p.getFileCompressionType());
+
+    assertFalse(p.hasTerminator());
+    assertFalse(p.hasEscape());
+    assertFalse(p.hasComment());
+    assertFalse(p.hasNewlinesInValues());
+    assertFalse(p.hasSchemaInferMaxRecords());
   }
 
   @Test
-  void fluentSettersChainAndMutate() {
-    Schema schema =
-        new Schema(List.of(new Field("x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
-
+  void fullyConfiguredRoundTripsThroughProto() throws InvalidProtocolBufferException {
     CsvReadOptions opts =
         new CsvReadOptions()
             .hasHeader(false)
@@ -66,19 +69,40 @@ class CsvReadOptionsTest {
             .newlinesInValues(true)
             .schemaInferMaxRecords(10L)
             .fileExtension(".tsv")
-            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP)
-            .schema(schema);
+            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP);
 
-    assertEquals(false, opts.hasHeader());
-    assertEquals((byte) '|', opts.delimiter());
-    assertEquals((byte) '\'', opts.quote());
-    assertEquals(Byte.valueOf((byte) '\n'), opts.terminator());
-    assertEquals(Byte.valueOf((byte) '\\'), opts.escape());
-    assertEquals(Byte.valueOf((byte) '#'), opts.comment());
-    assertEquals(Boolean.TRUE, opts.newlinesInValues());
-    assertEquals(Long.valueOf(10L), opts.schemaInferMaxRecords());
-    assertEquals(".tsv", opts.fileExtension());
-    assertEquals(CsvReadOptions.FileCompressionType.GZIP, opts.fileCompressionType());
+    CsvReadOptionsProto p = CsvReadOptionsProto.parseFrom(opts.toBytes());
+
+    assertFalse(p.getHasHeader());
+    assertEquals((int) '|', p.getDelimiter());
+    assertEquals((int) '\'', p.getQuote());
+    assertEquals((int) '\n', p.getTerminator());
+    assertEquals((int) '\\', p.getEscape());
+    assertEquals((int) '#', p.getComment());
+    assertTrue(p.getNewlinesInValues());
+    assertEquals(10L, p.getSchemaInferMaxRecords());
+    assertEquals(".tsv", p.getFileExtension());
+    assertEquals(FileCompressionType.FILE_COMPRESSION_TYPE_GZIP, p.getFileCompressionType());
+  }
+
+  @Test
+  void schemaIsHeldByReferenceAndNotInProto() {
+    Schema schema =
+        new Schema(List.of(new Field("x", FieldType.nullable(new ArrowType.Int(32, true)), null)));
+    CsvReadOptions opts = new CsvReadOptions().schema(schema);
+
     assertSame(schema, opts.schema());
+  }
+
+  @Test
+  void allCompressionTypesMapThroughProto() throws InvalidProtocolBufferException {
+    for (CsvReadOptions.FileCompressionType t : CsvReadOptions.FileCompressionType.values()) {
+      CsvReadOptionsProto p =
+          CsvReadOptionsProto.parseFrom(new CsvReadOptions().fileCompressionType(t).toBytes());
+      assertEquals(
+          "FILE_COMPRESSION_TYPE_" + t.name(),
+          p.getFileCompressionType().name(),
+          "mismatch for " + t);
+    }
   }
 }
