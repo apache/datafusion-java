@@ -39,6 +39,7 @@ use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
+use jni::JavaVM;
 use prost::Message;
 use tokio::runtime::Runtime;
 
@@ -46,6 +47,24 @@ use crate::errors::{try_unwrap_or_throw, JniResult};
 use crate::proto_gen::ParquetReadOptionsProto;
 use crate::proto_gen::SessionOptions;
 use crate::schema::decode_optional_schema;
+
+static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
+
+#[no_mangle]
+pub extern "system" fn JNI_OnLoad(
+    vm: JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jni::sys::jint {
+    let _ = JAVA_VM.set(vm);
+    jni::sys::JNI_VERSION_1_8
+}
+
+#[allow(dead_code)]
+pub(crate) fn jvm() -> &'static JavaVM {
+    JAVA_VM
+        .get()
+        .expect("JNI_OnLoad has not been called; JavaVM unavailable")
+}
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
