@@ -91,6 +91,11 @@ and follow the conventions already in use:
 - Use `optional` for fields whose unset-ness must survive the boundary
   (so the Rust side can leave a DataFusion default in place).
 - Use proto enums for closed sets of choices instead of strings.
+  Prefix every value with the enum's name (e.g.
+  `FILE_COMPRESSION_TYPE_GZIP`, not bare `GZIP`) because proto3 enum
+  values are scoped at the package level, and the zero value must be a
+  `_UNSPECIFIED` sentinel — the Rust side should reject `UNSPECIFIED`
+  rather than silently default it.
 - Keep large opaque payloads (Arrow IPC schemas, plan nodes) as separate
   `byte[]` JNI arguments next to the options proto, not inside it.
 - Suffix the message name with `Proto` if a sibling Java class would
