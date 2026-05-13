@@ -54,6 +54,11 @@ public final class SessionContext implements AutoCloseable {
     }
   }
 
+  /** Start configuring a {@link SessionContext}. */
+  public static SessionContextBuilder builder() {
+    return new SessionContextBuilder();
+  }
+
   /**
    * Parse and plan {@code query}, returning a lazy {@link DataFrame}. The query is not executed
    * until {@link DataFrame#collect} is called.
