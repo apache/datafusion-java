@@ -70,4 +70,43 @@ class DataFrameWriteParquetTest {
 
     assertEquals(LINEITEM_ROWS, countRowsAt(out));
   }
+
+  @Test
+  void writeParquetSingleFileProducesOneFile(@TempDir Path tempDir) throws Exception {
+    assumeLineitem();
+    Path out = tempDir.resolve("out.parquet");
+
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.readParquet(LINEITEM.toAbsolutePath().toString())) {
+      df.writeParquet(out.toString(), new ParquetWriteOptions().singleFileOutput(true));
+    }
+
+    assertTrue(Files.isRegularFile(out), "expected single file at " + out);
+    assertEquals(LINEITEM_ROWS, countRowsAt(out));
+  }
+
+  @Test
+  void writeParquetWithCompressionRoundTrips(@TempDir Path tempDir) throws Exception {
+    assumeLineitem();
+    Path out = tempDir.resolve("zstd-out");
+
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.readParquet(LINEITEM.toAbsolutePath().toString())) {
+      df.writeParquet(out.toString(), new ParquetWriteOptions().compression("zstd(3)"));
+    }
+
+    assertEquals(LINEITEM_ROWS, countRowsAt(out));
+  }
+
+  @Test
+  void writeParquetRetainsDataFrame(@TempDir Path tempDir) throws Exception {
+    assumeLineitem();
+    Path out = tempDir.resolve("retained");
+
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.readParquet(LINEITEM.toAbsolutePath().toString())) {
+      df.writeParquet(out.toString());
+      assertEquals(LINEITEM_ROWS, df.count());
+    }
+  }
 }
