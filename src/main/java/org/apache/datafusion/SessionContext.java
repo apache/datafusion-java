@@ -54,8 +54,8 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
-   * Decode a DataFusion-Proto {@code LogicalPlanNode} and return a lazy {@link DataFrame}. The
-   * plan is not executed until {@link DataFrame#collect} is called.
+   * Decode a DataFusion-Proto {@code LogicalPlanNode} and return a lazy {@link DataFrame}. The plan
+   * is not executed until {@link DataFrame#collect} is called.
    *
    * <p>The bytes must be a serialized {@code datafusion.LogicalPlanNode} (see {@code
    * org.apache.datafusion.protobuf.LogicalPlanNode}).

@@ -34,12 +34,12 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import datafusion_common.DatafusionCommon;
 
 /**
- * Convert between Arrow Java {@link Schema} and the {@code datafusion_common.Schema} protobuf
- * shape used by DataFusion plan messages such as {@code ListingTableScanNode.schema}.
+ * Convert between Arrow Java {@link Schema} and the {@code datafusion_common.Schema} protobuf shape
+ * used by DataFusion plan messages such as {@code ListingTableScanNode.schema}.
  *
  * <p>Supports the primitive Arrow types this project's tests exercise (Bool, signed/unsigned Int
- * 8..64, Float32/64, Utf8, Date32, Decimal128). Anything else raises
- * {@link UnsupportedOperationException} with a message naming the offending type.
+ * 8..64, Float32/64, Utf8, Date32, Decimal128). Anything else raises {@link
+ * UnsupportedOperationException} with a message naming the offending type.
  */
 public final class SchemaConverter {
 
@@ -94,23 +94,35 @@ public final class SchemaConverter {
       ArrowType.Int i = (ArrowType.Int) t;
       if (i.getIsSigned()) {
         switch (i.getBitWidth()) {
-          case 8: return b.setINT8(empty).build();
-          case 16: return b.setINT16(empty).build();
-          case 32: return b.setINT32(empty).build();
-          case 64: return b.setINT64(empty).build();
+          case 8:
+            return b.setINT8(empty).build();
+          case 16:
+            return b.setINT16(empty).build();
+          case 32:
+            return b.setINT32(empty).build();
+          case 64:
+            return b.setINT64(empty).build();
           default:
             throw new UnsupportedOperationException(
-                "Arrow type Int signed width " + i.getBitWidth() + " not yet supported by SchemaConverter");
+                "Arrow type Int signed width "
+                    + i.getBitWidth()
+                    + " not yet supported by SchemaConverter");
         }
       } else {
         switch (i.getBitWidth()) {
-          case 8: return b.setUINT8(empty).build();
-          case 16: return b.setUINT16(empty).build();
-          case 32: return b.setUINT32(empty).build();
-          case 64: return b.setUINT64(empty).build();
+          case 8:
+            return b.setUINT8(empty).build();
+          case 16:
+            return b.setUINT16(empty).build();
+          case 32:
+            return b.setUINT32(empty).build();
+          case 64:
+            return b.setUINT64(empty).build();
           default:
             throw new UnsupportedOperationException(
-                "Arrow type Int unsigned width " + i.getBitWidth() + " not yet supported by SchemaConverter");
+                "Arrow type Int unsigned width "
+                    + i.getBitWidth()
+                    + " not yet supported by SchemaConverter");
         }
       }
     }
@@ -134,7 +146,9 @@ public final class SchemaConverter {
       ArrowType.Decimal d = (ArrowType.Decimal) t;
       if (d.getBitWidth() != 128) {
         throw new UnsupportedOperationException(
-            "Arrow type Decimal bit width " + d.getBitWidth() + " not yet supported by SchemaConverter");
+            "Arrow type Decimal bit width "
+                + d.getBitWidth()
+                + " not yet supported by SchemaConverter");
       }
       return b.setDECIMAL128(
               DatafusionCommon.Decimal128Type.newBuilder()
@@ -151,24 +165,38 @@ public final class SchemaConverter {
     switch (p.getArrowTypeEnumCase()) {
       case BOOL:
         return ArrowType.Bool.INSTANCE;
-      case INT8: return new ArrowType.Int(8, true);
-      case INT16: return new ArrowType.Int(16, true);
-      case INT32: return new ArrowType.Int(32, true);
-      case INT64: return new ArrowType.Int(64, true);
-      case UINT8: return new ArrowType.Int(8, false);
-      case UINT16: return new ArrowType.Int(16, false);
-      case UINT32: return new ArrowType.Int(32, false);
-      case UINT64: return new ArrowType.Int(64, false);
-      case FLOAT32: return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
-      case FLOAT64: return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
-      case UTF8: return ArrowType.Utf8.INSTANCE;
-      case DATE32: return new ArrowType.Date(DateUnit.DAY);
+      case INT8:
+        return new ArrowType.Int(8, true);
+      case INT16:
+        return new ArrowType.Int(16, true);
+      case INT32:
+        return new ArrowType.Int(32, true);
+      case INT64:
+        return new ArrowType.Int(64, true);
+      case UINT8:
+        return new ArrowType.Int(8, false);
+      case UINT16:
+        return new ArrowType.Int(16, false);
+      case UINT32:
+        return new ArrowType.Int(32, false);
+      case UINT64:
+        return new ArrowType.Int(64, false);
+      case FLOAT32:
+        return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
+      case FLOAT64:
+        return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
+      case UTF8:
+        return ArrowType.Utf8.INSTANCE;
+      case DATE32:
+        return new ArrowType.Date(DateUnit.DAY);
       case DECIMAL128:
         DatafusionCommon.Decimal128Type d = p.getDECIMAL128();
         return new ArrowType.Decimal(d.getPrecision(), d.getScale(), 128);
       default:
         throw new UnsupportedOperationException(
-            "datafusion_common.ArrowType " + p.getArrowTypeEnumCase() + " not yet supported by SchemaConverter");
+            "datafusion_common.ArrowType "
+                + p.getArrowTypeEnumCase()
+                + " not yet supported by SchemaConverter");
     }
   }
 }

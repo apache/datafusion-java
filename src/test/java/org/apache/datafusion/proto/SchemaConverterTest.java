@@ -77,10 +77,7 @@ class SchemaConverterTest {
     Schema original =
         new Schema(
             List.of(
-                new Field(
-                    "amount",
-                    FieldType.nullable(new ArrowType.Decimal(18, 5, 128)),
-                    null)));
+                new Field("amount", FieldType.nullable(new ArrowType.Decimal(18, 5, 128)), null)));
 
     DatafusionCommon.Schema proto = SchemaConverter.toProto(original);
     Schema roundTripped = SchemaConverter.fromProto(proto);
