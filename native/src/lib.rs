@@ -248,6 +248,87 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_filterRows<'local>(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_limitRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    skip: jint,
+    fetch: jint,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.limit(skip as usize, Some(fetch as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_distinctRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.distinct()?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_dropColumns<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    column_names: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&column_names)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&column_names, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+        let new_df = df.drop_columns(&refs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_renameColumn<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    old_name: JString<'local>,
+    new_name: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let old: String = env.get_string(&old_name)?.into();
+        let new: String = env.get_string(&new_name)?.into();
+        let new_df = df.with_column_renamed(&old, &new)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,

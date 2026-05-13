@@ -128,6 +128,11 @@ class DataFrameTransformationsTest {
       df.close();
       assertThrows(IllegalStateException.class, () -> df.select("x"));
       assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, () -> df.limit(1));
+      assertThrows(IllegalStateException.class, () -> df.limit(0, 1));
+      assertThrows(IllegalStateException.class, df::distinct);
+      assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -144,6 +149,11 @@ class DataFrameTransformationsTest {
       }
       assertThrows(IllegalStateException.class, () -> df.select("x"));
       assertThrows(IllegalStateException.class, () -> df.filter("x > 0"));
+      assertThrows(IllegalStateException.class, () -> df.limit(1));
+      assertThrows(IllegalStateException.class, () -> df.limit(0, 1));
+      assertThrows(IllegalStateException.class, df::distinct);
+      assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -191,6 +201,156 @@ class DataFrameTransformationsTest {
       }
 
       assertEquals(viaSql, viaDataFrame);
+    }
+  }
+
+  @Test
+  void limitTakesFirstNRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame limited = source.limit(2)) {
+      assertEquals(2L, limited.count());
+    }
+  }
+
+  @Test
+  void limitWithSkipDropsLeadingRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame limited = source.limit(2, 2)) {
+      assertEquals(2L, limited.count());
+    }
+  }
+
+  @Test
+  void limitIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
+      try (DataFrame limited = source.limit(1)) {
+        assertEquals(1L, limited.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void limitRejectsNegativeArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.limit(-1));
+      assertThrows(IllegalArgumentException.class, () -> df.limit(-1, 0));
+      assertThrows(IllegalArgumentException.class, () -> df.limit(0, -1));
+    }
+  }
+
+  @Test
+  void distinctRemovesDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source =
+            ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
+        DataFrame deduped = source.distinct()) {
+      assertEquals(3L, deduped.count());
+    }
+  }
+
+  @Test
+  void distinctIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (1), (2)) AS t(x)")) {
+      try (DataFrame deduped = source.distinct()) {
+        assertEquals(2L, deduped.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void dropColumnsRemovesNamedColumns() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b, 3 AS c");
+        DataFrame dropped = source.dropColumns("b");
+        ArrowReader reader = dropped.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"a", "c"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void dropColumnsIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame dropped = source.dropColumns("a")) {
+        assertEquals(1L, dropped.count());
+      }
+      assertEquals(1L, source.count());
+    }
+  }
+
+  @Test
+  void dropColumnsSilentlyIgnoresUnknownNames() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x");
+        DataFrame dropped = df.dropColumns("not_a_column");
+        ArrowReader reader = dropped.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"x"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void withColumnRenamedChangesColumnName() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame renamed = source.withColumnRenamed("a", "alpha");
+        ArrowReader reader = renamed.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"alpha", "b"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void withColumnRenamedIsNonDestructive() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame renamed = source.withColumnRenamed("a", "alpha")) {
+        assertEquals(1L, renamed.count());
+      }
+      try (DataFrame again = source.select("a");
+          ArrowReader reader = again.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+        VectorSchemaRoot root = reader.getVectorSchemaRoot();
+        assertArrayEquals(
+            new String[] {"a"},
+            root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+      }
+    }
+  }
+
+  @Test
+  void withColumnRenamedUnknownColumnIsNoOp() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x");
+        DataFrame renamed = df.withColumnRenamed("not_a_column", "y");
+        ArrowReader reader = renamed.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"x"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
     }
   }
 }
