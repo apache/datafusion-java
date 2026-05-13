@@ -94,6 +94,17 @@ public final class DataFrame implements AutoCloseable {
     showDataFrameWithLimit(nativeHandle, limit);
   }
 
+  /**
+   * Project the listed columns into a new DataFrame. The receiver remains usable and must still be
+   * closed independently.
+   */
+  public DataFrame select(String... columnNames) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(selectColumns(nativeHandle, columnNames));
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -111,4 +122,6 @@ public final class DataFrame implements AutoCloseable {
   private static native void showDataFrame(long handle);
 
   private static native void showDataFrameWithLimit(long handle, int limit);
+
+  private static native long selectColumns(long handle, String[] columnNames);
 }

@@ -19,8 +19,14 @@
 
 package org.apache.datafusion;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.junit.jupiter.api.Test;
 
 class DataFrameTransformationsTest {
@@ -47,6 +53,36 @@ class DataFrameTransformationsTest {
       df.show(0);
       df.show(1);
       df.show(1_000_000);
+    }
+  }
+
+  @Test
+  void selectProjectsAndReordersColumns() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b, 3 AS c");
+        DataFrame projected = source.select("b", "a");
+        ArrowReader reader = projected.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertEquals(1, root.getRowCount());
+      assertArrayEquals(
+          new String[] {"b", "a"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void selectIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame first = source.select("a")) {
+        assertEquals(1L, first.count());
+      }
+      try (DataFrame second = source.select("b")) {
+        assertEquals(1L, second.count());
+      }
+      assertEquals(1L, source.count());
     }
   }
 }

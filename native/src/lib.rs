@@ -26,7 +26,7 @@ use datafusion::arrow::record_batch::RecordBatchIterator;
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use jni::objects::{JByteArray, JClass, JString};
+use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
 use tokio::runtime::Runtime;
@@ -144,6 +144,33 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_showDataFrameWithLim
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         runtime().block_on(async { df.show_limit(limit as usize).await })?;
         Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_selectColumns<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    column_names: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&column_names)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&column_names, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+        let new_df = df.select_columns(&refs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })
 }
 
