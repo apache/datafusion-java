@@ -57,7 +57,9 @@ public final class SessionContextBuilder {
     return this;
   }
 
-  /** Cap the memory pool at {@code maxMemoryBytes}, reserving {@code fraction} of it for queries. */
+  /**
+   * Cap the memory pool at {@code maxMemoryBytes}, reserving {@code fraction} of it for queries.
+   */
   public SessionContextBuilder memoryLimit(long maxMemoryBytes, double fraction) {
     this.memoryLimitBytes = maxMemoryBytes;
     this.memoryLimitFraction = fraction;
@@ -68,6 +70,10 @@ public final class SessionContextBuilder {
   public SessionContextBuilder tempDirectory(String path) {
     this.tempDirectory = path;
     return this;
+  }
+
+  public SessionContext build() {
+    return new SessionContext(toBytes());
   }
 
   byte[] toBytes() {

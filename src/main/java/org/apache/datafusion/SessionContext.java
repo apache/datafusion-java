@@ -54,6 +54,13 @@ public final class SessionContext implements AutoCloseable {
     }
   }
 
+  SessionContext(byte[] optionsBytes) {
+    this.nativeHandle = createSessionContextWithOptions(optionsBytes);
+    if (this.nativeHandle == 0) {
+      throw new RuntimeException("Failed to create native SessionContext");
+    }
+  }
+
   /** Start configuring a {@link SessionContext}. */
   public static SessionContextBuilder builder() {
     return new SessionContextBuilder();
@@ -255,6 +262,8 @@ public final class SessionContext implements AutoCloseable {
   }
 
   private static native long createSessionContext();
+
+  private static native long createSessionContextWithOptions(byte[] optionsBytes);
 
   private static native long createDataFrame(long handle, String sql);
 

@@ -21,8 +21,12 @@ package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.protobuf.SessionOptions;
 import org.junit.jupiter.api.Test;
 
@@ -66,5 +70,25 @@ class SessionContextBuilderTest {
     assertFalse(parsed.hasInformationSchema());
     assertFalse(parsed.hasMemoryLimit());
     assertFalse(parsed.hasTempDirectory());
+  }
+
+  @Test
+  void informationSchemaEnabledMakesMetaQueryRun() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = SessionContext.builder().informationSchema(true).build();
+        DataFrame df = ctx.sql("SELECT table_name FROM information_schema.tables");
+        ArrowReader reader = df.collect(allocator)) {
+      // Loading a batch is enough to prove the query planned and executed.
+      reader.loadNextBatch();
+    }
+  }
+
+  @Test
+  void informationSchemaDisabledByDefaultThrows() {
+    try (SessionContext ctx = SessionContext.builder().build()) {
+      assertThrows(
+          RuntimeException.class,
+          () -> ctx.sql("SELECT table_name FROM information_schema.tables"));
+    }
   }
 }

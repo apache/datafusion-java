@@ -23,6 +23,7 @@ pub mod session_options {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
@@ -31,13 +32,16 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::record_batch::RecordBatchIterator;
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use jni::objects::{JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
+use prost::Message;
 use tokio::runtime::Runtime;
 
 use crate::errors::{try_unwrap_or_throw, JniResult};
+use crate::session_options::SessionOptions;
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
@@ -51,6 +55,46 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
 ) -> jlong {
     try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
         let ctx = SessionContext::new();
+        Ok(Box::into_raw(Box::new(ctx)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionContextWithOptions<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    options_bytes: JByteArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        let bytes: Vec<u8> = env.convert_byte_array(&options_bytes)?;
+        let opts = SessionOptions::decode(bytes.as_slice())?;
+
+        let mut config = SessionConfig::new();
+        if let Some(v) = opts.batch_size {
+            config = config.with_batch_size(v as usize);
+        }
+        if let Some(v) = opts.target_partitions {
+            config = config.with_target_partitions(v as usize);
+        }
+        if let Some(v) = opts.collect_statistics {
+            config = config.with_collect_statistics(v);
+        }
+        if let Some(v) = opts.information_schema {
+            config = config.with_information_schema(v);
+        }
+
+        let mut runtime = RuntimeEnvBuilder::new();
+        if let Some(mem) = opts.memory_limit {
+            runtime = runtime.with_memory_limit(mem.max_memory_bytes as usize, mem.memory_fraction);
+        }
+        if let Some(dir) = opts.temp_directory {
+            runtime = runtime.with_temp_file_path(PathBuf::from(dir));
+        }
+
+        let runtime_env = runtime.build()?;
+        let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
         Ok(Box::into_raw(Box::new(ctx)) as jlong)
     })
 }
