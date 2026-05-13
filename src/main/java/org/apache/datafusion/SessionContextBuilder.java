@@ -38,11 +38,18 @@ public final class SessionContextBuilder {
   SessionContextBuilder() {}
 
   public SessionContextBuilder batchSize(int batchSize) {
+    if (batchSize <= 0) {
+      throw new IllegalArgumentException("batchSize must be positive, got " + batchSize);
+    }
     this.batchSize = batchSize;
     return this;
   }
 
   public SessionContextBuilder targetPartitions(int targetPartitions) {
+    if (targetPartitions <= 0) {
+      throw new IllegalArgumentException(
+          "targetPartitions must be positive, got " + targetPartitions);
+    }
     this.targetPartitions = targetPartitions;
     return this;
   }
@@ -61,6 +68,13 @@ public final class SessionContextBuilder {
    * Cap the memory pool at {@code maxMemoryBytes}, reserving {@code fraction} of it for queries.
    */
   public SessionContextBuilder memoryLimit(long maxMemoryBytes, double fraction) {
+    if (maxMemoryBytes <= 0) {
+      throw new IllegalArgumentException(
+          "maxMemoryBytes must be positive, got " + maxMemoryBytes);
+    }
+    if (fraction <= 0.0 || fraction > 1.0) {
+      throw new IllegalArgumentException("fraction must be in (0, 1], got " + fraction);
+    }
     this.memoryLimitBytes = maxMemoryBytes;
     this.memoryLimitFraction = fraction;
     return this;

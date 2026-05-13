@@ -19,7 +19,7 @@ mod csv;
 mod errors;
 mod proto;
 
-pub mod session_options {
+pub(crate) mod session_options {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
