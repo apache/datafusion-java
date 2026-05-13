@@ -31,4 +31,22 @@ class DataFrameTransformationsTest {
       assertEquals(3L, df.count());
     }
   }
+
+  @Test
+  void showDoesNotThrow() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (1), (2)) AS t(x)")) {
+      df.show();
+    }
+  }
+
+  @Test
+  void showWithLimitDoesNotThrow() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
+      df.show(0);
+      df.show(1);
+      df.show(1_000_000);
+    }
+  }
 }

@@ -27,7 +27,7 @@ use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jlong};
+use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
 use tokio::runtime::Runtime;
 
@@ -111,6 +111,39 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_countRows<'local>(
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         let n = runtime().block_on(async { df.count().await })?;
         Ok(n as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_showDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        runtime().block_on(async { df.show().await })?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_showDataFrameWithLimit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    limit: jint,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        runtime().block_on(async { df.show_limit(limit as usize).await })?;
+        Ok(())
     })
 }
 

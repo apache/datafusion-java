@@ -78,6 +78,22 @@ public final class DataFrame implements AutoCloseable {
     return countRows(nativeHandle);
   }
 
+  /** Execute the plan and print formatted batches to native stdout. */
+  public void show() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    showDataFrame(nativeHandle);
+  }
+
+  /** Execute the plan and print the first {@code limit} rows to native stdout. */
+  public void show(int limit) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    showDataFrameWithLimit(nativeHandle, limit);
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -91,4 +107,8 @@ public final class DataFrame implements AutoCloseable {
   private static native void closeDataFrame(long handle);
 
   private static native long countRows(long handle);
+
+  private static native void showDataFrame(long handle);
+
+  private static native void showDataFrameWithLimit(long handle, int limit);
 }
