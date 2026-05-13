@@ -32,7 +32,7 @@ source_suffix = {
 }
 
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns = ["_extra"]
 
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
