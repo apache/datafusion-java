@@ -142,6 +142,17 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Deduplicate rows across all columns. The receiver remains usable and must still be closed
+   * independently.
+   */
+  public DataFrame distinct() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(distinctRows(nativeHandle));
+  }
+
+  /**
    * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
    * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
    * remains usable and must still be closed independently.
@@ -194,6 +205,8 @@ public final class DataFrame implements AutoCloseable {
   private static native long filterRows(long handle, String predicate);
 
   private static native long limitRows(long handle, int skip, int fetch);
+
+  private static native long distinctRows(long handle);
 
   private static native void writeParquetWithOptions(
       long handle,

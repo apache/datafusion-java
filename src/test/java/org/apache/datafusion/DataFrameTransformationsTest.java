@@ -232,4 +232,25 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalArgumentException.class, () -> df.limit(0, -1));
     }
   }
+
+  @Test
+  void distinctRemovesDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source =
+            ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
+        DataFrame deduped = source.distinct()) {
+      assertEquals(3L, deduped.count());
+    }
+  }
+
+  @Test
+  void distinctIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (1), (2)) AS t(x)")) {
+      try (DataFrame deduped = source.distinct()) {
+        assertEquals(2L, deduped.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
 }
