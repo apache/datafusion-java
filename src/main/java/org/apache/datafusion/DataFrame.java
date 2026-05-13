@@ -70,6 +70,52 @@ public final class DataFrame implements AutoCloseable {
     }
   }
 
+  /** Execute the plan and return the number of rows. */
+  public long count() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return countRows(nativeHandle);
+  }
+
+  /** Execute the plan and print formatted batches to native stdout. */
+  public void show() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    showDataFrame(nativeHandle);
+  }
+
+  /** Execute the plan and print the first {@code limit} rows to native stdout. */
+  public void show(int limit) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    showDataFrameWithLimit(nativeHandle, limit);
+  }
+
+  /**
+   * Project the listed columns into a new DataFrame. The receiver remains usable and must still be
+   * closed independently.
+   */
+  public DataFrame select(String... columnNames) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(selectColumns(nativeHandle, columnNames));
+  }
+
+  /**
+   * Apply a SQL predicate to produce a filtered DataFrame. The predicate is parsed against this
+   * DataFrame's own schema. The receiver remains usable and must still be closed independently.
+   */
+  public DataFrame filter(String predicate) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(filterRows(nativeHandle, predicate));
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -81,4 +127,14 @@ public final class DataFrame implements AutoCloseable {
   private static native void collectDataFrame(long handle, long ffiStreamAddr);
 
   private static native void closeDataFrame(long handle);
+
+  private static native long countRows(long handle);
+
+  private static native void showDataFrame(long handle);
+
+  private static native void showDataFrameWithLimit(long handle, int limit);
+
+  private static native long selectColumns(long handle, String[] columnNames);
+
+  private static native long filterRows(long handle, String predicate);
 }
