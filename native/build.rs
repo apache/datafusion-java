@@ -16,18 +16,15 @@
 // under the License.
 
 fn main() {
-    println!("cargo:rerun-if-changed=../proto/session_options.proto");
-    println!("cargo:rerun-if-changed=../proto/csv_read_options.proto");
-    println!("cargo:rerun-if-changed=../proto/parquet_read_options.proto");
+    const PROTOS: &[&str] = &[
+        "../proto/session_options.proto",
+        "../proto/csv_read_options.proto",
+        "../proto/parquet_read_options.proto",
+    ];
+    for p in PROTOS {
+        println!("cargo:rerun-if-changed={p}");
+    }
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc not available");
     std::env::set_var("PROTOC", protoc);
-    prost_build::compile_protos(
-        &[
-            "../proto/session_options.proto",
-            "../proto/csv_read_options.proto",
-            "../proto/parquet_read_options.proto",
-        ],
-        &["../proto"],
-    )
-    .expect("failed to compile protos");
+    prost_build::compile_protos(PROTOS, &["../proto"]).expect("failed to compile protos");
 }
