@@ -8,4 +8,5 @@ tpch-data/
 .claude
 docs/superpowers
 docs/build/
+docs/source/_extra/
 docs/venv/

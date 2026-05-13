@@ -205,6 +205,22 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <configuration>
+                    <source>17</source>
+                    <failOnError>true</failOnError>
+                    <failOnWarnings>false</failOnWarnings>
+                    <doctitle>Apache DataFusion Java ${project.version}</doctitle>
+                    <windowtitle>Apache DataFusion Java ${project.version}</windowtitle>
+                    <links>
+                        <link>https://docs.oracle.com/en/java/javase/17/docs/api/</link>
+                    </links>
+                    <excludePackageNames>datafusion_common:org.apache.datafusion.protobuf</excludePackageNames>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
