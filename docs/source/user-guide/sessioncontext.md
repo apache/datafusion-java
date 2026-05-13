@@ -40,9 +40,23 @@ A `SessionContext` is **not thread-safe**. Do not share one across threads
 without external synchronization. The simplest pattern is one context per
 thread.
 
-## What's configurable today
+## Configuration
 
-Today, `SessionContext` exposes only data-source registration and query
-construction. Tuning knobs that DataFusion offers natively
-(`SessionConfig`, `RuntimeEnv`) are not yet wired through the Java API.
-See [Project status](project-status.md) for the current shape of the API.
+`SessionContext.builder()` exposes a fluent builder for overriding
+DataFusion defaults — batch size, target partitions, statistics
+collection, information schema, memory pool size, and the spill
+directory. See the
+<!-- Raw HTML link: MyST resolves relative .html Markdown links as
+     cross-references, which fails sphinx-build -W. The Javadoc tree is
+     copied verbatim via html_extra_path and is unknown to Sphinx. -->
+<a href="../api/org/apache/datafusion/SessionContextBuilder.html"><code>SessionContextBuilder</code></a>
+Javadoc for the full list.
+
+```java
+try (SessionContext ctx = SessionContext.builder()
+        .batchSize(4096)
+        .targetPartitions(8)
+        .build()) {
+    // ...
+}
+```

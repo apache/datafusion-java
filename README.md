@@ -43,7 +43,7 @@ and is built with Sphinx (see [`docs/README.md`](docs/README.md) for the
 build steps):
 
 - [User guide](docs/source/user-guide/index.md) — installation, the
-  DataFrame and SQL APIs, Parquet ingestion, project status.
+  DataFrame and SQL APIs, Parquet ingestion.
 - [Contributor guide](docs/source/contributor-guide/index.md) — build,
   test, code style, and how to bump the DataFusion version.
 

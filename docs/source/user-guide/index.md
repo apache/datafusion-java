@@ -37,7 +37,6 @@ sessioncontext
 dataframe
 parquet
 proto-plans
-project-status
 api-reference
 ```
 
