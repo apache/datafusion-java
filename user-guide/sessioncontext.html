@@ -323,7 +323,6 @@
 <li class="toctree-l1"><a class="reference internal" href="dataframe.html">DataFrame and SQL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="parquet.html">Parquet</a></li>
 <li class="toctree-l1"><a class="reference internal" href="proto-plans.html">Logical plans via datafusion-proto</a></li>
-<li class="toctree-l1"><a class="reference internal" href="project-status.html">Project status</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api-reference.html">API Reference</a></li>
 </ul>
 </div>
@@ -424,12 +423,25 @@ on exception.</p>
 without external synchronization. The simplest pattern is one context per
 thread.</p>
 </section>
-<section id="what-s-configurable-today">
-<h2>What’s configurable today<a class="headerlink" href="#what-s-configurable-today" title="Link to this heading">#</a></h2>
-<p>Today, <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> exposes only data-source registration and query
-construction. Tuning knobs that DataFusion offers natively
-(<code class="docutils literal notranslate"><span class="pre">SessionConfig</span></code>, <code class="docutils literal notranslate"><span class="pre">RuntimeEnv</span></code>) are not yet wired through the Java API.
-See <a class="reference internal" href="project-status.html"><span class="std std-doc">Project status</span></a> for the current shape of the API.</p>
+<section id="configuration">
+<h2>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">SessionContext.builder()</span></code> exposes a fluent builder for overriding
+DataFusion defaults — batch size, target partitions, statistics
+collection, information schema, memory pool size, and the spill
+directory. See the</p>
+<!-- Raw HTML link: MyST resolves relative .html Markdown links as
+     cross-references, which fails sphinx-build -W. The Javadoc tree is
+     copied verbatim via html_extra_path and is unknown to Sphinx. -->
+<p><a href="../api/org/apache/datafusion/SessionContextBuilder.html"><code>SessionContextBuilder</code></a>
+Javadoc for the full list.</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">.</span><span class="na">builder</span><span class="p">()</span>
+<span class="w">        </span><span class="p">.</span><span class="na">batchSize</span><span class="p">(</span><span class="mi">4096</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">targetPartitions</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">build</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -482,7 +494,7 @@ See <a class="reference internal" href="project-status.html"><span class="std st
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle">Lifecycle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-s-configurable-today">What’s configurable today</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 </ul>
   </nav></div>
 

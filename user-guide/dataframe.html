@@ -323,7 +323,6 @@
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">DataFrame and SQL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="parquet.html">Parquet</a></li>
 <li class="toctree-l1"><a class="reference internal" href="proto-plans.html">Logical plans via datafusion-proto</a></li>
-<li class="toctree-l1"><a class="reference internal" href="project-status.html">Project status</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api-reference.html">API Reference</a></li>
 </ul>
 </div>
@@ -419,8 +418,8 @@ not start until you pull results.</p>
 </section>
 <section id="dataframe-transformations">
 <h2>DataFrame transformations<a class="headerlink" href="#dataframe-transformations" title="Link to this heading">#</a></h2>
-<p>The DataFrame API exposes <code class="docutils literal notranslate"><span class="pre">select</span></code> and <code class="docutils literal notranslate"><span class="pre">filter</span></code> today. Other
-transformations are TBD — see <a class="reference internal" href="project-status.html"><span class="std std-doc">Project status</span></a>.</p>
+<p>The DataFrame API exposes <code class="docutils literal notranslate"><span class="pre">select</span></code>, <code class="docutils literal notranslate"><span class="pre">filter</span></code>, <code class="docutils literal notranslate"><span class="pre">limit</span></code>, <code class="docutils literal notranslate"><span class="pre">distinct</span></code>,
+<code class="docutils literal notranslate"><span class="pre">dropColumns</span></code>, and <code class="docutils literal notranslate"><span class="pre">withColumnRenamed</span></code>.</p>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">readParquet</span><span class="p">(</span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">filtered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">df</span><span class="p">.</span><span class="na">filter</span><span class="p">(</span><span class="s">&quot;o_orderpriority = &#39;1-URGENT&#39;&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="n">filtered</span><span class="p">.</span><span class="na">show</span><span class="p">();</span>
