@@ -253,4 +253,45 @@ class DataFrameTransformationsTest {
       assertEquals(3L, source.count());
     }
   }
+
+  @Test
+  void dropColumnsRemovesNamedColumns() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b, 3 AS c");
+        DataFrame dropped = source.dropColumns("b");
+        ArrowReader reader = dropped.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"a", "c"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void dropColumnsIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame dropped = source.dropColumns("a")) {
+        assertEquals(1L, dropped.count());
+      }
+      assertEquals(1L, source.count());
+    }
+  }
+
+  @Test
+  void dropColumnsSilentlyIgnoresUnknownNames() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x");
+        DataFrame dropped = df.dropColumns("not_a_column");
+        ArrowReader reader = dropped.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"x"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
 }
