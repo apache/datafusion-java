@@ -41,6 +41,40 @@ to fetch the DataFusion protobuf schemas (see *Updating the DataFusion /
 protobuf schema version* below). Subsequent builds are offline — the
 `download-maven-plugin` cache under `~/.m2/repository/.cache/` satisfies them.
 
+## Build prerequisites
+
+- JDK 17 or newer.
+- Rust toolchain (stable, installed via [rustup]).
+- [`tpchgen-cli`] — only needed to generate test data for the Parquet
+  integration test (`cargo install tpchgen-cli`).
+
+Maven is bundled via the `./mvnw` wrapper; no separate Maven install required.
+
+[rustup]: https://rustup.rs/
+[`tpchgen-cli`]: https://github.com/clflushopt/tpchgen-rs
+
+## Build and test
+
+    make test
+
+This builds the native Rust crate and runs the JUnit tests. The steps can be
+run individually:
+
+    cd native && cargo build
+    ./mvnw test
+
+The native library must be built before running JVM tests.
+
+## Test data
+
+The Parquet integration test reads TPC-H SF1 data (~345 MB across 8 tables in
+Snappy-compressed Parquet). Generate it once with:
+
+    make tpch-data
+
+Tests that need this data skip cleanly if it is missing. `make clean` does
+**not** remove `tpch-data/` — delete it manually to reclaim the disk space.
+
 ## Code style
 
 - Java: run `./mvnw spotless:apply` before committing. CI fails the build if
