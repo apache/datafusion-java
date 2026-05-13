@@ -175,6 +175,25 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_selectColumns<'local
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_filterRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    predicate: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let predicate: String = env.get_string(&predicate)?.into();
+        let expr = df.parse_sql_expr(&predicate)?;
+        let new_df = df.filter(expr)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_closeDataFrame<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,

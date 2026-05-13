@@ -105,6 +105,17 @@ public final class DataFrame implements AutoCloseable {
     return new DataFrame(selectColumns(nativeHandle, columnNames));
   }
 
+  /**
+   * Apply a SQL predicate to produce a filtered DataFrame. The predicate is parsed against this
+   * DataFrame's own schema. The receiver remains usable and must still be closed independently.
+   */
+  public DataFrame filter(String predicate) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(filterRows(nativeHandle, predicate));
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -124,4 +135,6 @@ public final class DataFrame implements AutoCloseable {
   private static native void showDataFrameWithLimit(long handle, int limit);
 
   private static native long selectColumns(long handle, String[] columnNames);
+
+  private static native long filterRows(long handle, String predicate);
 }

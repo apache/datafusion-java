@@ -85,4 +85,34 @@ class DataFrameTransformationsTest {
       assertEquals(1L, source.count());
     }
   }
+
+  @Test
+  void filterRemovesRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4)) AS t(x)");
+        DataFrame filtered = source.filter("x > 2")) {
+      assertEquals(2L, filtered.count());
+    }
+  }
+
+  @Test
+  void filterIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4)) AS t(x)")) {
+      try (DataFrame filtered = source.filter("x > 2")) {
+        assertEquals(2L, filtered.count());
+      }
+      assertEquals(4L, source.count());
+    }
+  }
+
+  @Test
+  void chainFilterSelectCount() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source =
+            ctx.sql("SELECT 1 AS a, 2 AS b UNION ALL SELECT 10 AS a, 20 AS b");
+        DataFrame chained = source.filter("a > 5").select("b")) {
+      assertEquals(1L, chained.count());
+    }
+  }
 }
