@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use std::sync::Arc;
+
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::dataframe::DataFrame;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::{AsLogicalPlan, DefaultLogicalExtensionCodec};
 use datafusion_proto::protobuf::LogicalPlanNode;
-use jni::objects::{JByteArray, JClass};
-use jni::sys::jlong;
+use jni::objects::{JByteArray, JClass, JString};
+use jni::sys::{jbyteArray, jlong};
 use jni::JNIEnv;
 use prost::Message;
 
@@ -46,5 +50,32 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrame
         let plan = node.try_into_logical_plan(task_ctx.as_ref(), &codec)?;
         let df: DataFrame = runtime().block_on(ctx.execute_logical_plan(plan))?;
         Ok(Box::into_raw(Box::new(df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableSchemaIpc<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+) -> jbyteArray {
+    try_unwrap_or_throw(&mut env, std::ptr::null_mut(), |env| -> JniResult<jbyteArray> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+
+        let df = runtime().block_on(ctx.table(name.as_str()))?;
+        let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
+
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
+            writer.finish()?;
+        }
+        let arr = env.byte_array_from_slice(&buf)?;
+        Ok(arr.into_raw())
     })
 }

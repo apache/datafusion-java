@@ -91,9 +91,9 @@ class SessionContextProtoTest {
       assertEquals("l_orderkey", schema.getFields().get(0).getName());
       assertTrue(schema.getFields().get(0).getType() instanceof ArrowType.Int);
 
-      // l_extendedprice = Decimal128(12, 2)
+      // l_extendedprice = Decimal128(15, 2)
       ArrowType.Decimal price = (ArrowType.Decimal) schema.findField("l_extendedprice").getType();
-      assertEquals(12, price.getPrecision());
+      assertEquals(15, price.getPrecision());
       assertEquals(2, price.getScale());
 
       // l_shipdate = Date(DAY)
