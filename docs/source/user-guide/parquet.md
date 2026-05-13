@@ -50,12 +50,11 @@ away.
 ## ParquetReadOptions
 
 Both entry points accept a `ParquetReadOptions` to tune the underlying
-read. Construct one with the builder:
+read. Construct one directly and chain setters:
 
 ```java
-ParquetReadOptions opts = ParquetReadOptions.builder()
-    .fileExtension(".parquet")
-    .build();
+ParquetReadOptions opts = new ParquetReadOptions()
+    .fileExtension(".parquet");
 
 ctx.registerParquet("orders", "/path/to/orders.parquet", opts);
 // or
@@ -64,6 +63,6 @@ try (DataFrame df = ctx.readParquet("/path/to/orders.parquet", opts)) {
 }
 ```
 
-The supported options track what DataFusion exposes on its Rust
+The supported setters track what DataFusion exposes on its Rust
 `ParquetReadOptions` builder. Inspect the class on the Java side for the
 exact setters available in the version you are using.

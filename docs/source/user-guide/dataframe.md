@@ -79,7 +79,7 @@ production code paths.
 To get the schema of a registered table without running a query:
 
 ```java
-Schema schema = ctx.tableSchema("orders");
+org.apache.arrow.vector.types.pojo.Schema schema = ctx.tableSchema("orders");
 ```
 
 ## Plan input

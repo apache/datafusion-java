@@ -69,6 +69,9 @@ disk space.
 
 ## Repository layout
 
+- `pom.xml` — Maven build descriptor.
+- `Makefile` — top-level build orchestration (`make test`, `make tpch-data`).
+- `mvnw`, `mvnw.cmd` — bundled Maven wrapper.
 - `src/` — Java sources and tests.
 - `native/` — Rust crate (JNI + Arrow C Data Interface).
 - `docs/` — Sphinx documentation source and build scripts.
