@@ -19,4 +19,23 @@ under the License.
 
 # User Guide
 
-This guide is under construction.
+Apache DataFusion Java is a thin Java binding over the
+[Apache DataFusion](https://datafusion.apache.org/) query engine. SQL and
+DataFrame queries execute in native Rust; results return to the JVM as
+[Apache Arrow](https://arrow.apache.org/) record batches over the Arrow C
+Data Interface.
+
+This guide covers installation, the `SessionContext` and `DataFrame` APIs,
+and Parquet ingestion.
+
+- [Installation](installation.md) — JDK and Rust prerequisites, building
+  from source.
+- [Quickstart](quickstart.md) — a complete example, walked through.
+- [SessionContext](sessioncontext.md) — lifecycle and threading.
+- [DataFrame and SQL](dataframe.md) — building and executing queries.
+- [Parquet](parquet.md) — registering files and reading them with
+  `ParquetReadOptions`.
+- [Project status](project-status.md) — snapshot of what works today.
+
+> Early development: no releases yet, API will change. Bug reports and
+> contributions welcome.
