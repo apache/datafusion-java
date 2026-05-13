@@ -309,6 +309,26 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_dropColumns<'local>(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_renameColumn<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    old_name: JString<'local>,
+    new_name: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let old: String = env.get_string(&old_name)?.into();
+        let new: String = env.get_string(&new_name)?.into();
+        let new_df = df.with_column_renamed(&old, &new)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,

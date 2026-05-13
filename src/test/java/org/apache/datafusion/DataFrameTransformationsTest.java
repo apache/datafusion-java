@@ -294,4 +294,53 @@ class DataFrameTransformationsTest {
           root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
     }
   }
+
+  @Test
+  void withColumnRenamedChangesColumnName() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame renamed = source.withColumnRenamed("a", "alpha");
+        ArrowReader reader = renamed.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"alpha", "b"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void withColumnRenamedIsNonDestructive() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame renamed = source.withColumnRenamed("a", "alpha")) {
+        assertEquals(1L, renamed.count());
+      }
+      try (DataFrame again = source.select("a");
+          ArrowReader reader = again.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+        VectorSchemaRoot root = reader.getVectorSchemaRoot();
+        assertArrayEquals(
+            new String[] {"a"},
+            root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+      }
+    }
+  }
+
+  @Test
+  void withColumnRenamedUnknownColumnIsNoOp() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x");
+        DataFrame renamed = df.withColumnRenamed("not_a_column", "y");
+        ArrowReader reader = renamed.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"x"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
 }
