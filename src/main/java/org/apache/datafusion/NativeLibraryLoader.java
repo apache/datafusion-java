@@ -20,13 +20,14 @@
 package org.apache.datafusion;
 
 public final class NativeLibraryLoader {
+  private static final String LIBRARY_NAME = "datafusion_jni";
   private static boolean loaded = false;
 
   private NativeLibraryLoader() {}
 
   public static synchronized void loadLibrary() {
     if (!loaded) {
-      System.loadLibrary("datafusion_jni");
+      System.loadLibrary(LIBRARY_NAME);
       loaded = true;
     }
   }
