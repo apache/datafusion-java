@@ -53,6 +53,24 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  /**
+   * Decode a DataFusion-Proto {@code LogicalPlanNode} and return a lazy {@link DataFrame}. The
+   * plan is not executed until {@link DataFrame#collect} is called.
+   *
+   * <p>The bytes must be a serialized {@code datafusion.LogicalPlanNode} (see {@code
+   * org.apache.datafusion.protobuf.LogicalPlanNode}).
+   *
+   * @throws RuntimeException if the bytes are not a valid {@code LogicalPlanNode} or if logical
+   *     planning fails.
+   */
+  public DataFrame fromProto(byte[] planBytes) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long dfHandle = createDataFrameFromProto(nativeHandle, planBytes);
+    return new DataFrame(dfHandle);
+  }
+
   public void registerParquet(String name, String path) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
@@ -71,6 +89,8 @@ public final class SessionContext implements AutoCloseable {
   private static native long createSessionContext();
 
   private static native long createDataFrame(long handle, String sql);
+
+  private static native long createDataFrameFromProto(long handle, byte[] planBytes);
 
   private static native void registerParquet(long handle, String name, String path);
 
