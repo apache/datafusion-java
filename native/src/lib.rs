@@ -19,6 +19,10 @@ mod csv;
 mod errors;
 mod proto;
 
+pub mod session_options {
+    include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
+}
+
 use std::sync::{Arc, OnceLock};
 
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
