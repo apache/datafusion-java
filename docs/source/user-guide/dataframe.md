@@ -35,8 +35,8 @@ not start until you pull results.
 
 ## DataFrame transformations
 
-The DataFrame API exposes `select` and `filter` today. Other
-transformations are TBD — see [Project status](project-status.md).
+The DataFrame API exposes `select`, `filter`, `limit`, `distinct`,
+`dropColumns`, and `withColumnRenamed`.
 
 ```java
 try (DataFrame df = ctx.readParquet("/path/to/orders.parquet")) {
