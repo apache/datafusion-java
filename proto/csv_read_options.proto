@@ -1,0 +1,48 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto3";
+
+package datafusion_java;
+
+option java_package = "org.apache.datafusion.protobuf";
+option java_multiple_files = true;
+
+// Options used to read CSV files. Fields with non-null Java defaults are
+// always sent; fields marked `optional` preserve unset-ness so the Rust
+// side can leave a DataFusion default in place.
+message CsvReadOptionsProto {
+  bool has_header = 1;
+  uint32 delimiter = 2;            // single byte, sent as uint32
+  uint32 quote = 3;                // single byte
+  optional uint32 terminator = 4;
+  optional uint32 escape = 5;
+  optional uint32 comment = 6;
+  optional bool newlines_in_values = 7;
+  optional uint64 schema_infer_max_records = 8;
+  string file_extension = 9;
+  FileCompressionType file_compression_type = 10;
+}
+
+enum FileCompressionType {
+  FILE_COMPRESSION_TYPE_UNSPECIFIED = 0;
+  FILE_COMPRESSION_TYPE_UNCOMPRESSED = 1;
+  FILE_COMPRESSION_TYPE_GZIP = 2;
+  FILE_COMPRESSION_TYPE_BZIP2 = 3;
+  FILE_COMPRESSION_TYPE_XZ = 4;
+  FILE_COMPRESSION_TYPE_ZSTD = 5;
+}

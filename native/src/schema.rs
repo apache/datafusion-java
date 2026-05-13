@@ -15,16 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-fn main() {
-    const PROTOS: &[&str] = &[
-        "../proto/session_options.proto",
-        "../proto/csv_read_options.proto",
-        "../proto/parquet_read_options.proto",
-    ];
-    for p in PROTOS {
-        println!("cargo:rerun-if-changed={p}");
+use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::ipc::reader::StreamReader;
+use jni::objects::JByteArray;
+use jni::JNIEnv;
+
+use crate::errors::JniResult;
+
+/// Decode an optional Arrow-IPC schema byte array passed in from Java.
+/// Returns `None` if the byte-array reference is null.
+pub(crate) fn decode_optional_schema(
+    env: &mut JNIEnv,
+    bytes: JByteArray,
+) -> JniResult<Option<Schema>> {
+    if bytes.is_null() {
+        return Ok(None);
     }
-    let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc not available");
-    std::env::set_var("PROTOC", protoc);
-    prost_build::compile_protos(PROTOS, &["../proto"]).expect("failed to compile protos");
+    let buf: Vec<u8> = env.convert_byte_array(&bytes)?;
+    let reader = StreamReader::try_new(std::io::Cursor::new(buf), None)?;
+    Ok(Some((*reader.schema()).clone()))
 }

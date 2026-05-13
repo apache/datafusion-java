@@ -15,16 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-fn main() {
-    const PROTOS: &[&str] = &[
-        "../proto/session_options.proto",
-        "../proto/csv_read_options.proto",
-        "../proto/parquet_read_options.proto",
-    ];
-    for p in PROTOS {
-        println!("cargo:rerun-if-changed={p}");
-    }
-    let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc not available");
-    std::env::set_var("PROTOC", protoc);
-    prost_build::compile_protos(PROTOS, &["../proto"]).expect("failed to compile protos");
+syntax = "proto3";
+
+package datafusion_java;
+
+option java_package = "org.apache.datafusion.protobuf";
+option java_multiple_files = true;
+
+// Options used to read Parquet files. `file_extension` has a non-null
+// Java default and is always sent; the rest preserve unset-ness so the
+// Rust side can leave a DataFusion default in place.
+message ParquetReadOptionsProto {
+  string file_extension = 1;
+  optional bool parquet_pruning = 2;
+  optional bool skip_metadata = 3;
+  optional uint64 metadata_size_hint = 4;
 }

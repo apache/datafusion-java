@@ -69,8 +69,7 @@ public final class SessionContextBuilder {
    */
   public SessionContextBuilder memoryLimit(long maxMemoryBytes, double fraction) {
     if (maxMemoryBytes <= 0) {
-      throw new IllegalArgumentException(
-          "maxMemoryBytes must be positive, got " + maxMemoryBytes);
+      throw new IllegalArgumentException("maxMemoryBytes must be positive, got " + maxMemoryBytes);
     }
     if (fraction <= 0.0 || fraction > 1.0) {
       throw new IllegalArgumentException("fraction must be in (0, 1], got " + fraction);

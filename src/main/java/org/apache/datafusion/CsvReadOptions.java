@@ -109,47 +109,51 @@ public final class CsvReadOptions {
     return this;
   }
 
-  boolean hasHeader() {
-    return hasHeader;
-  }
-
-  byte delimiter() {
-    return delimiter;
-  }
-
-  byte quote() {
-    return quote;
-  }
-
-  Byte terminator() {
-    return terminator;
-  }
-
-  Byte escape() {
-    return escape;
-  }
-
-  Byte comment() {
-    return comment;
-  }
-
-  Boolean newlinesInValues() {
-    return newlinesInValues;
-  }
-
-  Long schemaInferMaxRecords() {
-    return schemaInferMaxRecords;
-  }
-
-  String fileExtension() {
-    return fileExtension;
-  }
-
-  FileCompressionType fileCompressionType() {
-    return fileCompressionType;
+  byte[] toBytes() {
+    org.apache.datafusion.protobuf.CsvReadOptionsProto.Builder b =
+        org.apache.datafusion.protobuf.CsvReadOptionsProto.newBuilder()
+            .setHasHeader(hasHeader)
+            .setDelimiter(delimiter & 0xFF)
+            .setQuote(quote & 0xFF)
+            .setFileExtension(fileExtension)
+            .setFileCompressionType(toProto(fileCompressionType));
+    if (terminator != null) {
+      b.setTerminator(terminator & 0xFF);
+    }
+    if (escape != null) {
+      b.setEscape(escape & 0xFF);
+    }
+    if (comment != null) {
+      b.setComment(comment & 0xFF);
+    }
+    if (newlinesInValues != null) {
+      b.setNewlinesInValues(newlinesInValues);
+    }
+    if (schemaInferMaxRecords != null) {
+      b.setSchemaInferMaxRecords(schemaInferMaxRecords);
+    }
+    return b.build().toByteArray();
   }
 
   Schema schema() {
     return schema;
+  }
+
+  private static org.apache.datafusion.protobuf.FileCompressionType toProto(FileCompressionType t) {
+    switch (t) {
+      case UNCOMPRESSED:
+        return org.apache.datafusion.protobuf.FileCompressionType
+            .FILE_COMPRESSION_TYPE_UNCOMPRESSED;
+      case GZIP:
+        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP;
+      case BZIP2:
+        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_BZIP2;
+      case XZ:
+        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_XZ;
+      case ZSTD:
+        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_ZSTD;
+      default:
+        throw new IllegalArgumentException("unhandled FileCompressionType: " + t);
+    }
   }
 }

@@ -133,20 +133,7 @@ public final class SessionContext implements AutoCloseable {
         nativeHandle,
         name,
         path,
-        options.hasHeader(),
-        options.delimiter(),
-        options.quote(),
-        options.terminator() != null,
-        options.terminator() != null ? options.terminator() : 0,
-        options.escape() != null,
-        options.escape() != null ? options.escape() : 0,
-        options.comment() != null,
-        options.comment() != null ? options.comment() : 0,
-        options.newlinesInValues() != null,
-        options.newlinesInValues() != null && options.newlinesInValues(),
-        options.schemaInferMaxRecords() != null ? options.schemaInferMaxRecords() : -1L,
-        options.fileExtension(),
-        options.fileCompressionType().name(),
+        options.toBytes(),
         options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
@@ -168,20 +155,7 @@ public final class SessionContext implements AutoCloseable {
         readCsvWithOptions(
             nativeHandle,
             path,
-            options.hasHeader(),
-            options.delimiter(),
-            options.quote(),
-            options.terminator() != null,
-            options.terminator() != null ? options.terminator() : 0,
-            options.escape() != null,
-            options.escape() != null ? options.escape() : 0,
-            options.comment() != null,
-            options.comment() != null ? options.comment() : 0,
-            options.newlinesInValues() != null,
-            options.newlinesInValues() != null && options.newlinesInValues(),
-            options.schemaInferMaxRecords() != null ? options.schemaInferMaxRecords() : -1L,
-            options.fileExtension(),
-            options.fileCompressionType().name(),
+            options.toBytes(),
             options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
     return new DataFrame(dfHandle);
   }
@@ -203,12 +177,7 @@ public final class SessionContext implements AutoCloseable {
         nativeHandle,
         name,
         path,
-        options.fileExtension(),
-        options.parquetPruning() != null,
-        options.parquetPruning() != null && options.parquetPruning(),
-        options.skipMetadata() != null,
-        options.skipMetadata() != null && options.skipMetadata(),
-        options.metadataSizeHint() != null ? options.metadataSizeHint() : -1L,
+        options.toBytes(),
         options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
@@ -230,12 +199,7 @@ public final class SessionContext implements AutoCloseable {
         readParquetWithOptions(
             nativeHandle,
             path,
-            options.fileExtension(),
-            options.parquetPruning() != null,
-            options.parquetPruning() != null && options.parquetPruning(),
-            options.skipMetadata() != null,
-            options.skipMetadata() != null && options.skipMetadata(),
-            options.metadataSizeHint() != null ? options.metadataSizeHint() : -1L,
+            options.toBytes(),
             options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
     return new DataFrame(dfHandle);
   }
@@ -272,66 +236,16 @@ public final class SessionContext implements AutoCloseable {
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
   private static native void registerParquetWithOptions(
-      long handle,
-      String name,
-      String path,
-      String fileExtension,
-      boolean parquetPruningSet,
-      boolean parquetPruningValue,
-      boolean skipMetadataSet,
-      boolean skipMetadataValue,
-      long metadataSizeHint,
-      byte[] schemaIpcBytes);
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native long readParquetWithOptions(
-      long handle,
-      String path,
-      String fileExtension,
-      boolean parquetPruningSet,
-      boolean parquetPruningValue,
-      boolean skipMetadataSet,
-      boolean skipMetadataValue,
-      long metadataSizeHint,
-      byte[] schemaIpcBytes);
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native void registerCsvWithOptions(
-      long handle,
-      String name,
-      String path,
-      boolean hasHeader,
-      byte delimiter,
-      byte quote,
-      boolean terminatorSet,
-      byte terminatorValue,
-      boolean escapeSet,
-      byte escapeValue,
-      boolean commentSet,
-      byte commentValue,
-      boolean newlinesInValuesSet,
-      boolean newlinesInValuesValue,
-      long schemaInferMaxRecords,
-      String fileExtension,
-      String fileCompressionType,
-      byte[] schemaIpcBytes);
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native long readCsvWithOptions(
-      long handle,
-      String path,
-      boolean hasHeader,
-      byte delimiter,
-      byte quote,
-      boolean terminatorSet,
-      byte terminatorValue,
-      boolean escapeSet,
-      byte escapeValue,
-      boolean commentSet,
-      byte commentValue,
-      boolean newlinesInValuesSet,
-      boolean newlinesInValuesValue,
-      long schemaInferMaxRecords,
-      String fileExtension,
-      String fileCompressionType,
-      byte[] schemaIpcBytes);
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native void closeSessionContext(long handle);
 }
