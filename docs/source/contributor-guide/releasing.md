@@ -17,17 +17,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributing to Apache DataFusion Java
+# Releasing
 
-Bug reports, design discussion, and patches are welcome. This project follows
-the Apache DataFusion contribution model.
+There are no releases of Apache DataFusion Java yet. Once the first
+release approaches, this page will document the Apache release process
+the project follows.
 
-- File bugs and feature requests on
-  [GitHub issues](https://github.com/apache/datafusion-java/issues).
-- For larger or design-level discussion, the mailing list is
-  [dev@datafusion.apache.org](mailto:dev@datafusion.apache.org).
-- Please open an issue before sending a PR for any significant change so
-  the approach can be agreed on first.
-
-For build, test, code style, and version-bump workflows, see the
-[contributor guide](docs/source/contributor-guide/index.md).
+In the meantime, refer to the
+[Apache DataFusion release process](https://datafusion.apache.org/contributor-guide/release/index.html)
+for the broader pattern used by sibling subprojects.

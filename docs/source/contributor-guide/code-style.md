@@ -17,17 +17,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributing to Apache DataFusion Java
+# Code style
 
-Bug reports, design discussion, and patches are welcome. This project follows
-the Apache DataFusion contribution model.
+## Java
 
-- File bugs and feature requests on
-  [GitHub issues](https://github.com/apache/datafusion-java/issues).
-- For larger or design-level discussion, the mailing list is
-  [dev@datafusion.apache.org](mailto:dev@datafusion.apache.org).
-- Please open an issue before sending a PR for any significant change so
-  the approach can be agreed on first.
+Run the Spotless formatter before committing. CI fails the build if
+formatting drifts:
 
-For build, test, code style, and version-bump workflows, see the
-[contributor guide](docs/source/contributor-guide/index.md).
+```sh
+./mvnw spotless:apply
+```
+
+## Rust
+
+Run inside `native/`:
+
+```sh
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+```
+
+`-D warnings` turns clippy warnings into build failures, matching CI.
+
+## License headers
+
+New source files need the Apache 2.0 license header. Apache RAT enforces
+this during `verify` — `./mvnw verify` will fail if a tracked file is
+missing the header.

@@ -17,17 +17,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributing to Apache DataFusion Java
+# User Guide
 
-Bug reports, design discussion, and patches are welcome. This project follows
-the Apache DataFusion contribution model.
+Apache DataFusion Java is a thin Java binding over the
+[Apache DataFusion](https://datafusion.apache.org/) query engine. SQL and
+DataFrame queries execute in native Rust; results return to the JVM as
+[Apache Arrow](https://arrow.apache.org/) record batches over the Arrow C
+Data Interface.
 
-- File bugs and feature requests on
-  [GitHub issues](https://github.com/apache/datafusion-java/issues).
-- For larger or design-level discussion, the mailing list is
-  [dev@datafusion.apache.org](mailto:dev@datafusion.apache.org).
-- Please open an issue before sending a PR for any significant change so
-  the approach can be agreed on first.
+This guide covers installation, the `SessionContext` and `DataFrame` APIs,
+and Parquet ingestion.
 
-For build, test, code style, and version-bump workflows, see the
-[contributor guide](docs/source/contributor-guide/index.md).
+```{toctree}
+:maxdepth: 1
+
+installation
+quickstart
+sessioncontext
+dataframe
+parquet
+proto-plans
+project-status
+```
+
+> Early development: no releases yet, API will change. Bug reports and
+> contributions welcome.

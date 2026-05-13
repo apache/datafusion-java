@@ -17,17 +17,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributing to Apache DataFusion Java
+# Apache DataFusion Java Documentation
 
-Bug reports, design discussion, and patches are welcome. This project follows
-the Apache DataFusion contribution model.
+This directory contains the Sphinx source for the Apache DataFusion Java
+documentation site.
 
-- File bugs and feature requests on
-  [GitHub issues](https://github.com/apache/datafusion-java/issues).
-- For larger or design-level discussion, the mailing list is
-  [dev@datafusion.apache.org](mailto:dev@datafusion.apache.org).
-- Please open an issue before sending a PR for any significant change so
-  the approach can be agreed on first.
+## Build
 
-For build, test, code style, and version-bump workflows, see the
-[contributor guide](docs/source/contributor-guide/index.md).
+Building the docs requires Python 3.9 or newer. A virtual environment under
+`docs/venv/` is the recommended workflow.
+
+```sh
+cd docs
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+./build.sh
+```
+
+The generated site is written to `docs/build/html/`. Open
+`docs/build/html/index.html` in a browser to preview.
+
+Subsequent builds need only:
+
+```sh
+cd docs
+source venv/bin/activate
+./build.sh
+```
+
+`./build.sh` runs `sphinx-build` with `-W` so warnings fail the build.

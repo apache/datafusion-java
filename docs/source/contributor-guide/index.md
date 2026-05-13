@@ -17,10 +17,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Contributing to Apache DataFusion Java
+# Contributor Guide
 
 Bug reports, design discussion, and patches are welcome. This project follows
 the Apache DataFusion contribution model.
+
+## Filing issues and discussing changes
 
 - File bugs and feature requests on
   [GitHub issues](https://github.com/apache/datafusion-java/issues).
@@ -29,5 +31,18 @@ the Apache DataFusion contribution model.
 - Please open an issue before sending a PR for any significant change so
   the approach can be agreed on first.
 
-For build, test, code style, and version-bump workflows, see the
-[contributor guide](docs/source/contributor-guide/index.md).
+## Development workflow
+
+Branch from `main`, write changes with
+[conventional commit](https://www.conventionalcommits.org/) messages in
+the imperative mood (e.g. `feat: add foo`, `fix(native): handle bar`),
+and open a pull request targeting `main`.
+
+```{toctree}
+:maxdepth: 1
+
+development
+code-style
+releasing
+updating-datafusion-version
+```

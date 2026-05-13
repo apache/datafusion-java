@@ -7,3 +7,5 @@ target/
 tpch-data/
 .claude
 docs/superpowers
+docs/build/
+docs/venv/
