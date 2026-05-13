@@ -78,8 +78,8 @@ class SessionContextBuilderTest {
         SessionContext ctx = SessionContext.builder().informationSchema(true).build();
         DataFrame df = ctx.sql("SELECT table_name FROM information_schema.tables");
         ArrowReader reader = df.collect(allocator)) {
-      // Loading a batch is enough to prove the query planned and executed.
-      reader.loadNextBatch();
+      // information_schema.tables always has at least one row.
+      assertTrue(reader.loadNextBatch());
     }
   }
 

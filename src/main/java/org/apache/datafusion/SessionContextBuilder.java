@@ -72,6 +72,11 @@ public final class SessionContextBuilder {
     return this;
   }
 
+  /**
+   * Construct a {@link SessionContext} with the configured options.
+   *
+   * @throws RuntimeException if the native side fails to construct the context.
+   */
   public SessionContext build() {
     return new SessionContext(toBytes());
   }
