@@ -17,8 +17,17 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=../proto/session_options.proto");
+    println!("cargo:rerun-if-changed=../proto/csv_read_options.proto");
+    println!("cargo:rerun-if-changed=../proto/parquet_read_options.proto");
     let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc not available");
     std::env::set_var("PROTOC", protoc);
-    prost_build::compile_protos(&["../proto/session_options.proto"], &["../proto"])
-        .expect("failed to compile session_options.proto");
+    prost_build::compile_protos(
+        &[
+            "../proto/session_options.proto",
+            "../proto/csv_read_options.proto",
+            "../proto/parquet_read_options.proto",
+        ],
+        &["../proto"],
+    )
+    .expect("failed to compile protos");
 }
