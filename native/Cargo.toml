@@ -25,6 +25,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-datafusion = { version = "53.1.0", default-features = false }
+arrow = { version = "58", features = ["ffi"] }
+datafusion = "53.1.0"
 jni = "0.21"
 tokio = { version = "1", features = ["rt-multi-thread"] }
