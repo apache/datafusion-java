@@ -24,11 +24,9 @@ use jni::JNIEnv;
 use prost::Message;
 
 use crate::errors::{try_unwrap_or_throw, JniResult};
+use crate::proto_gen::{CsvReadOptionsProto, FileCompressionType as ProtoFileCompressionType};
 use crate::runtime;
 use crate::schema::decode_optional_schema;
-use crate::session_options::{
-    CsvReadOptionsProto, FileCompressionType as ProtoFileCompressionType,
-};
 
 fn with_csv_options<R>(
     env: &mut JNIEnv,

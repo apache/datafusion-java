@@ -20,7 +20,7 @@ mod errors;
 mod proto;
 mod schema;
 
-pub(crate) mod session_options {
+pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
@@ -43,9 +43,9 @@ use prost::Message;
 use tokio::runtime::Runtime;
 
 use crate::errors::{try_unwrap_or_throw, JniResult};
+use crate::proto_gen::ParquetReadOptionsProto;
+use crate::proto_gen::SessionOptions;
 use crate::schema::decode_optional_schema;
-use crate::session_options::ParquetReadOptionsProto;
-use crate::session_options::SessionOptions;
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
