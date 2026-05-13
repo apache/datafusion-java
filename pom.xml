@@ -33,6 +33,8 @@ under the License.
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.11.3</junit.version>
+        <datafusion.version>53.1.0</datafusion.version>
+        <protobuf.version>3.25.5</protobuf.version>
     </properties>
 
     <dependencies>
@@ -58,9 +60,21 @@ under the License.
             <version>19.0.0</version>
             <scope>runtime</scope>
         </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
     </dependencies>
 
     <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -118,6 +132,7 @@ under the License.
                         <exclude>NOTICE.txt</exclude>
                         <!-- Project documentation that does not require headers -->
                         <exclude>README.md</exclude>
+                        <exclude>CONTRIBUTING.md</exclude>
                         <exclude>docs/**</exclude>
                         <!-- VCS and editor metadata -->
                         <exclude>.gitignore</exclude>
@@ -137,6 +152,49 @@ under the License.
                         <exclude>native/Cargo.lock</exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.googlecode.maven-download-plugin</groupId>
+                <artifactId>download-maven-plugin</artifactId>
+                <version>1.9.0</version>
+                <executions>
+                    <execution>
+                        <id>fetch-datafusion-common-proto</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>wget</goal></goals>
+                        <configuration>
+                            <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto-common/proto/datafusion_common.proto</url>
+                            <outputDirectory>${project.build.directory}/proto/datafusion/proto-common/proto</outputDirectory>
+                            <outputFileName>datafusion_common.proto</outputFileName>
+                            <sha512>d6f3368372ea277cc23e26f196994b81616d38599357bb374cbd7eb1760e649a789e4c133d86a395ac701049a500348da2ec039d3f978ac5d8112c2876dded1f</sha512>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>fetch-datafusion-proto</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>wget</goal></goals>
+                        <configuration>
+                            <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto/proto/datafusion.proto</url>
+                            <outputDirectory>${project.build.directory}/proto/datafusion/proto/proto</outputDirectory>
+                            <outputFileName>datafusion.proto</outputFileName>
+                            <sha512>c3d162b8e2a418e03f74caceaccfd934af89bb95a12ede13d4cc1701d24c734d74b1e96372142b173db05938dab7f965ad60d476363308c441677a63ea5fbcf7</sha512>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>0.6.1</version>
+                <configuration>
+                    <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+                    <protoSourceRoot>${project.build.directory}/proto</protoSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals><goal>compile</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
