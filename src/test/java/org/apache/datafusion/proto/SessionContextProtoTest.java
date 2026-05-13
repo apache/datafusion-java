@@ -22,17 +22,24 @@ package org.apache.datafusion.proto;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.types.DateUnit;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.datafusion.DataFrame;
 import org.apache.datafusion.SessionContext;
 import org.apache.datafusion.protobuf.EmptyRelationNode;
 import org.apache.datafusion.protobuf.LogicalExprNode;
 import org.apache.datafusion.protobuf.LogicalPlanNode;
 import org.apache.datafusion.protobuf.ProjectionNode;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import datafusion_common.DatafusionCommon;
@@ -67,6 +74,31 @@ class SessionContextProtoTest {
       assertEquals(1, root.getRowCount());
       IntVector col = (IntVector) root.getVector(0);
       assertEquals(1, col.get(0));
+    }
+  }
+
+  @Test
+  void tableSchemaReturnsExpectedLineitemFields() {
+    Path lineitem = Path.of("tpch-data/sf1/lineitem.parquet");
+    Assumptions.assumeTrue(
+        Files.exists(lineitem), "TPC-H SF1 data not found; run `make tpch-data` first");
+
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.registerParquet("lineitem", lineitem.toAbsolutePath().toString());
+      Schema schema = ctx.tableSchema("lineitem");
+
+      assertEquals(16, schema.getFields().size());
+      assertEquals("l_orderkey", schema.getFields().get(0).getName());
+      assertTrue(schema.getFields().get(0).getType() instanceof ArrowType.Int);
+
+      // l_extendedprice = Decimal128(12, 2)
+      ArrowType.Decimal price = (ArrowType.Decimal) schema.findField("l_extendedprice").getType();
+      assertEquals(12, price.getPrecision());
+      assertEquals(2, price.getScale());
+
+      // l_shipdate = Date(DAY)
+      ArrowType.Date ship = (ArrowType.Date) schema.findField("l_shipdate").getType();
+      assertEquals(DateUnit.DAY, ship.getUnit());
     }
   }
 }
