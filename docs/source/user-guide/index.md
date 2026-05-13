@@ -28,14 +28,16 @@ Data Interface.
 This guide covers installation, the `SessionContext` and `DataFrame` APIs,
 and Parquet ingestion.
 
-- [Installation](installation.md) — JDK and Rust prerequisites, building
-  from source.
-- [Quickstart](quickstart.md) — a complete example, walked through.
-- [SessionContext](sessioncontext.md) — lifecycle and threading.
-- [DataFrame and SQL](dataframe.md) — building and executing queries.
-- [Parquet](parquet.md) — registering files and reading them with
-  `ParquetReadOptions`.
-- [Project status](project-status.md) — snapshot of what works today.
+```{toctree}
+:maxdepth: 1
+
+installation
+quickstart
+sessioncontext
+dataframe
+parquet
+project-status
+```
 
 > Early development: no releases yet, API will change. Bug reports and
 > contributions welcome.

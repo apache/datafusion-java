@@ -38,11 +38,11 @@ Branch from `main`, write changes with
 the imperative mood (e.g. `feat: add foo`, `fix(native): handle bar`),
 and open a pull request targeting `main`.
 
-## Topics
+```{toctree}
+:maxdepth: 1
 
-- [Development](development.md) — build prerequisites, running tests,
-  TPC-H test data, repo layout.
-- [Code style](code-style.md) — formatters and license headers.
-- [Releasing](releasing.md) — Apache release process (placeholder).
-- [Updating DataFusion / protobuf version](updating-datafusion-version.md) —
-  step-by-step recipe.
+development
+code-style
+releasing
+updating-datafusion-version
+```

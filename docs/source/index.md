@@ -69,27 +69,10 @@ Code of Conduct <https://github.com/apache/datafusion/blob/main/CODE_OF_CONDUCT.
 ```
 
 ```{toctree}
-:maxdepth: 1
-:caption: User Guide
+:maxdepth: 2
+:caption: Documentation
 :hidden:
 
-user-guide/index
-user-guide/installation
-user-guide/quickstart
-user-guide/sessioncontext
-user-guide/dataframe
-user-guide/parquet
-user-guide/project-status
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Contributor Guide
-:hidden:
-
-contributor-guide/index
-contributor-guide/development
-contributor-guide/code-style
-contributor-guide/releasing
-contributor-guide/updating-datafusion-version
+User Guide <user-guide/index>
+Contributor Guide <contributor-guide/index>
 ```
