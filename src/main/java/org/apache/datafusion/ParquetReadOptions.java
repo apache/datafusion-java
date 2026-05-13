@@ -62,20 +62,20 @@ public final class ParquetReadOptions {
     return this;
   }
 
-  String fileExtension() {
-    return fileExtension;
-  }
-
-  Boolean parquetPruning() {
-    return parquetPruning;
-  }
-
-  Boolean skipMetadata() {
-    return skipMetadata;
-  }
-
-  Long metadataSizeHint() {
-    return metadataSizeHint;
+  byte[] toBytes() {
+    org.apache.datafusion.protobuf.ParquetReadOptionsProto.Builder b =
+        org.apache.datafusion.protobuf.ParquetReadOptionsProto.newBuilder()
+            .setFileExtension(fileExtension);
+    if (parquetPruning != null) {
+      b.setParquetPruning(parquetPruning);
+    }
+    if (skipMetadata != null) {
+      b.setSkipMetadata(skipMetadata);
+    }
+    if (metadataSizeHint != null) {
+      b.setMetadataSizeHint(metadataSizeHint);
+    }
+    return b.build().toByteArray();
   }
 
   Schema schema() {
