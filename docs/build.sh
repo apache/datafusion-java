@@ -24,12 +24,12 @@ cd "$(dirname "$0")"
 rm -rf build
 rm -rf source/_extra
 
-# Generate Javadoc from the repo root. javadoc:javadoc triggers
+# Generate Javadoc for the library module. javadoc:javadoc triggers
 # generate-sources, which fetches upstream protos via wget.
-(cd .. && ./mvnw -q -DskipTests javadoc:javadoc)
+(cd .. && ./mvnw -q -DskipTests -pl :datafusion-java javadoc:javadoc)
 
 mkdir -p source/_extra
-cp -R ../target/reports/apidocs source/_extra/api
+cp -R ../core/target/reports/apidocs source/_extra/api
 
 if [ -d venv ]; then
   # shellcheck disable=SC1091

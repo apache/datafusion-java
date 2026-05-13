@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.datafusion</groupId>
+        <artifactId>datafusion-java-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>datafusion-java</artifactId>
+    <packaging>jar</packaging>
+
+    <name>Apache DataFusion Java</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-c-data</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Djava.library.path=${maven.multiModuleProjectDirectory}/native/target/debug --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.googlecode.maven-download-plugin</groupId>
+                <artifactId>download-maven-plugin</artifactId>
+                <version>1.9.0</version>
+                <executions>
+                    <execution>
+                        <id>fetch-datafusion-common-proto</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>wget</goal></goals>
+                        <configuration>
+                            <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto-common/proto/datafusion_common.proto</url>
+                            <outputDirectory>${project.build.directory}/proto/datafusion/proto-common/proto</outputDirectory>
+                            <outputFileName>datafusion_common.proto</outputFileName>
+                            <sha512>d6f3368372ea277cc23e26f196994b81616d38599357bb374cbd7eb1760e649a789e4c133d86a395ac701049a500348da2ec039d3f978ac5d8112c2876dded1f</sha512>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>fetch-datafusion-proto</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>wget</goal></goals>
+                        <configuration>
+                            <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto/proto/datafusion.proto</url>
+                            <outputDirectory>${project.build.directory}/proto/datafusion/proto/proto</outputDirectory>
+                            <outputFileName>datafusion.proto</outputFileName>
+                            <sha512>c3d162b8e2a418e03f74caceaccfd934af89bb95a12ede13d4cc1701d24c734d74b1e96372142b173db05938dab7f965ad60d476363308c441677a63ea5fbcf7</sha512>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>0.6.1</version>
+                <configuration>
+                    <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+                    <protoSourceRoot>${project.build.directory}/proto</protoSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>compile-upstream</id>
+                        <goals><goal>compile</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>compile-local</id>
+                        <goals><goal>compile</goal></goals>
+                        <configuration>
+                            <protoSourceRoot>${maven.multiModuleProjectDirectory}/proto</protoSourceRoot>
+                            <clearOutputDirectory>false</clearOutputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <source>17</source>
+                    <failOnError>true</failOnError>
+                    <failOnWarnings>false</failOnWarnings>
+                    <doctitle>Apache DataFusion Java ${project.version}</doctitle>
+                    <windowtitle>Apache DataFusion Java ${project.version}</windowtitle>
+                    <links>
+                        <link>https://docs.oracle.com/en/java/javase/17/docs/api/</link>
+                    </links>
+                    <excludePackageNames>datafusion_common:org.apache.datafusion.protobuf</excludePackageNames>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
