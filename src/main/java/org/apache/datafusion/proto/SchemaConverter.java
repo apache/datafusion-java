@@ -38,7 +38,7 @@ import datafusion_common.DatafusionCommon;
  * used by DataFusion plan messages such as {@code ListingTableScanNode.schema}.
  *
  * <p>Supports the primitive Arrow types this project's tests exercise (Bool, signed/unsigned Int
- * 8..64, Float32/64, Utf8, Date32, Decimal128). Anything else raises {@link
+ * 8..64, Float32/64, Utf8, Utf8View, LargeUtf8, Date32, Decimal128). Anything else raises {@link
  * UnsupportedOperationException} with a message naming the offending type.
  */
 public final class SchemaConverter {
@@ -136,6 +136,12 @@ public final class SchemaConverter {
     if (t instanceof ArrowType.Utf8) {
       return b.setUTF8(empty).build();
     }
+    if (t instanceof ArrowType.Utf8View) {
+      return b.setUTF8VIEW(empty).build();
+    }
+    if (t instanceof ArrowType.LargeUtf8) {
+      return b.setLARGEUTF8(empty).build();
+    }
     if (t instanceof ArrowType.Date) {
       DateUnit u = ((ArrowType.Date) t).getUnit();
       if (u == DateUnit.DAY) return b.setDATE32(empty).build();
@@ -187,6 +193,10 @@ public final class SchemaConverter {
         return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
       case UTF8:
         return ArrowType.Utf8.INSTANCE;
+      case UTF8_VIEW:
+        return ArrowType.Utf8View.INSTANCE;
+      case LARGE_UTF8:
+        return ArrowType.LargeUtf8.INSTANCE;
       case DATE32:
         return new ArrowType.Date(DateUnit.DAY);
       case DECIMAL128:
