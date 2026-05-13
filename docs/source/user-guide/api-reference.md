@@ -20,6 +20,9 @@ under the License.
 # API Reference
 
 Generated Javadoc for the public Java API lives at
+<!-- Raw HTML link: MyST resolves relative .html Markdown links as
+     cross-references, which fails sphinx-build -W. The Javadoc tree is
+     copied verbatim via html_extra_path and is unknown to Sphinx. -->
 <a href="../api/index.html"><strong>api/index.html</strong></a>.
 
 The reference covers the `org.apache.datafusion` package, including
