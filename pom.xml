@@ -132,6 +132,7 @@ under the License.
                         <exclude>NOTICE.txt</exclude>
                         <!-- Project documentation that does not require headers -->
                         <exclude>README.md</exclude>
+                        <exclude>CONTRIBUTING.md</exclude>
                         <exclude>docs/**</exclude>
                         <!-- VCS and editor metadata -->
                         <exclude>.gitignore</exclude>
