@@ -19,4 +19,30 @@ under the License.
 
 # Contributor Guide
 
-This guide is under construction.
+Bug reports, design discussion, and patches are welcome. This project follows
+the Apache DataFusion contribution model.
+
+## Filing issues and discussing changes
+
+- File bugs and feature requests on
+  [GitHub issues](https://github.com/apache/datafusion-java/issues).
+- For larger or design-level discussion, the mailing list is
+  [dev@datafusion.apache.org](mailto:dev@datafusion.apache.org).
+- Please open an issue before sending a PR for any significant change so
+  the approach can be agreed on first.
+
+## Development workflow
+
+Branch from `main`, write changes with
+[conventional commit](https://www.conventionalcommits.org/) messages in
+the imperative mood (e.g. `feat: add foo`, `fix(native): handle bar`),
+and open a pull request targeting `main`.
+
+## Topics
+
+- [Development](development.md) — build prerequisites, running tests,
+  TPC-H test data, repo layout.
+- [Code style](code-style.md) — formatters and license headers.
+- [Releasing](releasing.md) — Apache release process (placeholder).
+- [Updating DataFusion / protobuf version](updating-datafusion-version.md) —
+  step-by-step recipe.
