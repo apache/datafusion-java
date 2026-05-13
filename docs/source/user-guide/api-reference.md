@@ -17,29 +17,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# User Guide
+# API Reference
 
-Apache DataFusion Java is a thin Java binding over the
-[Apache DataFusion](https://datafusion.apache.org/) query engine. SQL and
-DataFrame queries execute in native Rust; results return to the JVM as
-[Apache Arrow](https://arrow.apache.org/) record batches over the Arrow C
-Data Interface.
+Generated Javadoc for the public Java API lives at
+<!-- Raw HTML link: MyST resolves relative .html Markdown links as
+     cross-references, which fails sphinx-build -W. The Javadoc tree is
+     copied verbatim via html_extra_path and is unknown to Sphinx. -->
+<a href="../api/index.html"><strong>api/index.html</strong></a>.
 
-This guide covers installation, the `SessionContext` and `DataFrame` APIs,
-and Parquet ingestion.
-
-```{toctree}
-:maxdepth: 1
-
-installation
-quickstart
-sessioncontext
-dataframe
-parquet
-proto-plans
-project-status
-api-reference
-```
-
-> Early development: no releases yet, API will change. Bug reports and
-> contributions welcome.
+The reference covers the `org.apache.datafusion` package, including
+`SessionContext`, `SessionContextBuilder`, `DataFrame`, `CsvReadOptions`,
+`ParquetReadOptions`, and `NativeLibraryLoader`, plus the
+`org.apache.datafusion.proto` helpers. Auto-generated protobuf classes are
+intentionally excluded from the Javadoc — they are an implementation detail.

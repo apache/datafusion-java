@@ -32,7 +32,7 @@ source_suffix = {
 }
 
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns = ["_extra"]
 
 html_theme = "pydata_sphinx_theme"
 html_theme_options = {
@@ -48,6 +48,7 @@ html_context = {
 }
 
 html_static_path = ["_static"]
+html_extra_path = ["_extra"]
 
 # Auto-generate anchor links for headings h1, h2, h3.
 myst_heading_anchors = 3

@@ -24,8 +24,11 @@ documentation site.
 
 ## Build
 
-Building the docs requires Python 3.9 or newer. A virtual environment under
-`docs/venv/` is the recommended workflow.
+Building the docs requires Python 3.9 or newer and a working `./mvnw` at the
+repo root (the build runs `./mvnw javadoc:javadoc` to generate the API
+reference, which also needs JDK 17 and one-time network access to fetch
+upstream `.proto` files). A virtual environment under `docs/venv/` is the
+recommended workflow.
 
 ```sh
 cd docs
