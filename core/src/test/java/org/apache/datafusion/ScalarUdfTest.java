@@ -441,4 +441,26 @@ class ScalarUdfTest {
       }
     }
   }
+
+  @Test
+  void volatilityBytesRoundTrip_forAllThreeKinds() throws Exception {
+    for (Volatility v : Volatility.values()) {
+      try (SessionContext ctx = new SessionContext();
+          BufferAllocator allocator = new RootAllocator()) {
+        ctx.registerUdf(
+            "add_one_" + v.name().toLowerCase(),
+            new AddOne(),
+            new ArrowType.Int(32, true),
+            List.of(new ArrowType.Int(32, true)),
+            v);
+        try (DataFrame df =
+                ctx.sql("SELECT add_one_" + v.name().toLowerCase() + "(CAST(0 AS INT))");
+            ArrowReader r = df.collect(allocator)) {
+          assertEquals(true, r.loadNextBatch());
+          IntVector y = (IntVector) r.getVectorSchemaRoot().getVector(0);
+          assertEquals(1, y.get(0));
+        }
+      }
+    }
+  }
 }
