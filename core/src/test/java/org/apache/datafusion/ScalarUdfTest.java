@@ -353,4 +353,92 @@ class ScalarUdfTest {
           "expected user message in error, got: " + msg);
     }
   }
+
+  @Test
+  void twoUdfsInOneSession_bothCallable() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "add_one",
+          new AddOne(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      ctx.registerUdf(
+          "java_square",
+          new Square(),
+          new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE),
+          List.of(
+              new ArrowType.FloatingPoint(
+                  org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
+          Volatility.IMMUTABLE);
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT add_one(CAST(10 AS INT)) AS a, java_square(CAST(3 AS DOUBLE)) AS b");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector a = (IntVector) root.getVector("a");
+        org.apache.arrow.vector.Float8Vector b =
+            (org.apache.arrow.vector.Float8Vector) root.getVector("b");
+        assertEquals(11, a.get(0));
+        assertEquals(9.0, b.get(0), 0.0);
+      }
+    }
+  }
+
+  @Test
+  void registerSameNameAfterCloseInNewSession_works() throws Exception {
+    for (int round = 0; round < 2; round++) {
+      try (SessionContext ctx = new SessionContext();
+          BufferAllocator allocator = new RootAllocator()) {
+        ctx.registerUdf(
+            "add_one",
+            new AddOne(),
+            new ArrowType.Int(32, true),
+            List.of(new ArrowType.Int(32, true)),
+            Volatility.IMMUTABLE);
+        try (DataFrame df = ctx.sql("SELECT add_one(CAST(7 AS INT))");
+            ArrowReader r = df.collect(allocator)) {
+          assertEquals(true, r.loadNextBatch());
+          IntVector v = (IntVector) r.getVectorSchemaRoot().getVector(0);
+          assertEquals(8, v.get(0));
+        }
+      }
+    }
+  }
+
+  @Test
+  void udfAppliedToMultiRowQuery_processesAllRows() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "add_one",
+          new AddOne(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      String values =
+          java.util.stream.IntStream.rangeClosed(1, 100)
+              .mapToObj(i -> "(CAST(" + i + " AS INT))")
+              .collect(java.util.stream.Collectors.joining(", "));
+      try (DataFrame df =
+              ctx.sql("SELECT add_one(x) AS y FROM (VALUES " + values + ") AS t(x) ORDER BY y");
+          ArrowReader r = df.collect(allocator)) {
+        long total = 0;
+        long rows = 0;
+        while (r.loadNextBatch()) {
+          IntVector y = (IntVector) r.getVectorSchemaRoot().getVector("y");
+          for (int i = 0; i < y.getValueCount(); i++) {
+            total += y.get(i);
+            rows++;
+          }
+        }
+        assertEquals(100, rows);
+        // Sum of 2..101 = (2+101)*100/2 = 5150
+        assertEquals(5150L, total);
+      }
+    }
+  }
 }
