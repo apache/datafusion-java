@@ -128,7 +128,8 @@ impl ScalarUDFImpl for JavaScalarUdf {
                 .map(|f| f.as_ref().clone())
                 .collect::<Vec<Field>>(),
         );
-        let struct_array = StructArray::new(fields, arrays, None);
+        let struct_array = StructArray::try_new_with_length(fields, arrays, None, number_rows)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
         let args_data = struct_array.into_data();
         let (args_ffi_array, args_ffi_schema) =
             to_ffi(&args_data).map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
@@ -158,6 +159,13 @@ impl ScalarUDFImpl for JavaScalarUdf {
         // Build the jvalue argument array for call_static_method_unchecked.
         // SAFETY: we build the args inline and pass them immediately; the JObject
         // pointed to by udf_global_ref is alive for the duration of this call.
+        let expected_rows = i32::try_from(number_rows).map_err(|_| {
+            DataFusionError::Execution(format!(
+                "batch row count {} exceeds i32::MAX; UDFs cannot handle batches larger than 2^31 - 1 rows",
+                number_rows
+            ))
+        })?;
+
         let udf_jobject = self.udf_global_ref.as_obj();
         // SAFETY: udf_jobject is derived from a GlobalRef alive for the duration of this
         // function. The raw pointer is only read by the JNI call below, which happens
@@ -182,9 +190,7 @@ impl ScalarUDFImpl for JavaScalarUdf {
                 j: result_schema_addr,
             },
             // expectedRowCount
-            jvalue {
-                i: number_rows as i32,
-            },
+            jvalue { i: expected_rows },
         ];
 
         let call_result = unsafe {
@@ -210,6 +216,10 @@ impl ScalarUDFImpl for JavaScalarUdf {
         // 8. Import result. from_ffi consumes the FFI_ArrowArray.
         let result_array = *result_array_box;
         let result_schema = *result_schema_box;
+        // SAFETY: Java's `Data.exportVector` populated `result_array_box` and
+        // `result_schema_box` in place via the C Data Interface, and the
+        // exception check above guarantees the call succeeded without
+        // throwing — so the FFI structs are fully initialized.
         let result_data = unsafe { from_ffi(result_array, &result_schema) }
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
@@ -244,17 +254,25 @@ pub(crate) fn volatility_from_byte(byte: u8) -> datafusion::error::Result<Volati
 /// Anything that goes wrong collapses to a generic message so we don't
 /// double-throw inside an error path.
 fn jthrowable_to_string(env: &mut JNIEnv, throwable: &JThrowable, udf_name: &str) -> String {
-    let class_name = (|| -> jni::errors::Result<String> {
+    let class_name_result = (|| -> jni::errors::Result<String> {
         let class = env.call_method(throwable, "getClass", "()Ljava/lang/Class;", &[])?;
         let class_obj = class.l()?;
         let name = env.call_method(&class_obj, "getName", "()Ljava/lang/String;", &[])?;
         let name_obj = name.l()?;
         let name_str: String = env.get_string(&name_obj.into())?.into();
         Ok(name_str)
-    })()
-    .unwrap_or_else(|_| "<unknown exception class>".to_string());
+    })();
+    let class_name = match class_name_result {
+        Ok(s) => s,
+        Err(_) => {
+            // A reflective call itself threw — clear that secondary exception so the
+            // thread is in a clean state when we return to the JVM.
+            env.exception_clear().ok();
+            "<unknown exception class>".to_string()
+        }
+    };
 
-    let message = (|| -> jni::errors::Result<String> {
+    let message_result = (|| -> jni::errors::Result<String> {
         let msg = env.call_method(throwable, "getMessage", "()Ljava/lang/String;", &[])?;
         let msg_obj = msg.l()?;
         if msg_obj.is_null() {
@@ -262,8 +280,14 @@ fn jthrowable_to_string(env: &mut JNIEnv, throwable: &JThrowable, udf_name: &str
         }
         let s: String = env.get_string(&msg_obj.into())?.into();
         Ok(s)
-    })()
-    .unwrap_or_else(|_| "<no message>".to_string());
+    })();
+    let message = match message_result {
+        Ok(s) => s,
+        Err(_) => {
+            env.exception_clear().ok();
+            "<no message>".to_string()
+        }
+    };
 
     format!("Java UDF '{}' threw {}: {}", udf_name, class_name, message)
 }
