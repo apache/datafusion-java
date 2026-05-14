@@ -210,4 +210,147 @@ class ScalarUdfTest {
       }
     }
   }
+
+  static final class ReturnsNull implements ScalarUdf {
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      return null;
+    }
+  }
+
+  @Test
+  void udfReturningNull_surfacesIllegalStateException() {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "bad_null",
+          new ReturnsNull(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT bad_null(CAST(1 AS INT))");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      org.junit.jupiter.api.Assertions.assertTrue(
+          ex.getMessage().contains("returned null"),
+          "expected error to mention 'returned null', got: " + ex.getMessage());
+    }
+  }
+
+  static final class WrongRowCount implements ScalarUdf {
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      IntVector in = (IntVector) args.get(0);
+      IntVector out = new IntVector("out", allocator);
+      out.allocateNew(in.getValueCount() + 1); // off by one
+      for (int i = 0; i < in.getValueCount() + 1; i++) out.set(i, 0);
+      out.setValueCount(in.getValueCount() + 1);
+      return out;
+    }
+  }
+
+  @Test
+  void udfReturningWrongRowCount_surfacesIllegalStateException() {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "bad_rows",
+          new WrongRowCount(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT bad_rows(CAST(1 AS INT))");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      org.junit.jupiter.api.Assertions.assertTrue(
+          ex.getMessage().contains("expected") && ex.getMessage().contains("rows"),
+          "expected error to mention row mismatch, got: " + ex.getMessage());
+    }
+  }
+
+  static final class WrongType implements ScalarUdf {
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      // Declared return type is Int32; return Float64.
+      org.apache.arrow.vector.Float8Vector out =
+          new org.apache.arrow.vector.Float8Vector("out", allocator);
+      out.allocateNew(args.get(0).getValueCount());
+      for (int i = 0; i < args.get(0).getValueCount(); i++) out.set(i, 0.0);
+      out.setValueCount(args.get(0).getValueCount());
+      return out;
+    }
+  }
+
+  @Test
+  void udfReturningWrongType_surfacesTypeMismatch() {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "bad_type",
+          new WrongType(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT bad_type(CAST(1 AS INT))");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      org.junit.jupiter.api.Assertions.assertTrue(
+          ex.getMessage().toLowerCase().contains("type"),
+          "expected error to mention type mismatch, got: " + ex.getMessage());
+    }
+  }
+
+  static final class ThrowsIAE implements ScalarUdf {
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      throw new IllegalArgumentException("custom boom from UDF");
+    }
+  }
+
+  @Test
+  void udfThrowingException_propagatesClassAndMessage() {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(
+          "boom",
+          new ThrowsIAE(),
+          new ArrowType.Int(32, true),
+          List.of(new ArrowType.Int(32, true)),
+          Volatility.IMMUTABLE);
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT boom(CAST(1 AS INT))");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      String msg = ex.getMessage();
+      org.junit.jupiter.api.Assertions.assertTrue(
+          msg.contains("IllegalArgumentException"),
+          "expected class name in error, got: " + msg);
+      org.junit.jupiter.api.Assertions.assertTrue(
+          msg.contains("custom boom from UDF"),
+          "expected user message in error, got: " + msg);
+    }
+  }
 }
