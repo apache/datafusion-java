@@ -160,6 +160,52 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  public void registerJson(String name, String path) {
+    registerJson(name, path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Register a newline-delimited JSON file (or directory of NDJSON files) as a table with the
+   * supplied {@link NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
+   */
+  public void registerJson(String name, String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    registerJsonWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read a newline-delimited JSON file as a {@link DataFrame} without registering it. */
+  public DataFrame readJson(String path) {
+    return readJson(path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Read a newline-delimited JSON file as a {@link DataFrame} with the supplied {@link
+   * NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readJson(String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long dfHandle =
+        readJsonWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
   public void registerParquet(String name, String path) {
     registerParquet(name, path, new ParquetReadOptions());
   }
@@ -245,6 +291,12 @@ public final class SessionContext implements AutoCloseable {
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native long readCsvWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native void registerJsonWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readJsonWithOptions(
       long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native void closeSessionContext(long handle);
