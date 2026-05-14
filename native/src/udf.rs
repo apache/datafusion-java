@@ -27,17 +27,21 @@ use datafusion::logical_expr::{
 };
 use jni::objects::{GlobalRef, JStaticMethodID};
 
-// Fields will be constructed in Task 5 (UDF registration JNI) and used in Task 6 (invoke).
-#[allow(dead_code)]
 pub(crate) struct JavaScalarUdf {
     pub(crate) name: String,
     pub(crate) signature: Signature,
     pub(crate) return_type: DataType,
     /// Global ref to the user's `org.apache.datafusion.ScalarUdf` instance.
+    /// Read in Task 6 (invoke_with_args).
+    #[allow(dead_code)]
     pub(crate) udf_global_ref: GlobalRef,
     /// Global ref to the `org.apache.datafusion.internal.JniBridge` class.
+    /// Read in Task 6 (invoke_with_args).
+    #[allow(dead_code)]
     pub(crate) bridge_class: GlobalRef,
     /// Method ID for `JniBridge.invokeScalarUdf`.
+    /// Read in Task 6 (invoke_with_args).
+    #[allow(dead_code)]
     pub(crate) invoke_method: JStaticMethodID,
 }
 
@@ -100,8 +104,6 @@ impl ScalarUDFImpl for JavaScalarUdf {
     }
 }
 
-// Will be called from the UDF registration JNI entry point added in Task 5.
-#[allow(dead_code)]
 pub(crate) fn volatility_from_byte(byte: u8) -> datafusion::error::Result<Volatility> {
     match byte {
         0 => Ok(Volatility::Immutable),
