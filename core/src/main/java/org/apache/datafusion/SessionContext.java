@@ -229,6 +229,11 @@ public final class SessionContext implements AutoCloseable {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
+    java.util.Objects.requireNonNull(name, "name");
+    java.util.Objects.requireNonNull(udf, "udf");
+    java.util.Objects.requireNonNull(returnType, "returnType");
+    java.util.Objects.requireNonNull(argTypes, "argTypes");
+    java.util.Objects.requireNonNull(volatility, "volatility");
     List<Field> fields = new ArrayList<>(argTypes.size() + 1);
     fields.add(new Field("return", FieldType.nullable(returnType), null));
     for (int i = 0; i < argTypes.size(); i++) {

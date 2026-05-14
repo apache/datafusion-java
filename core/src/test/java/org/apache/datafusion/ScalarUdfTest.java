@@ -20,7 +20,6 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.List;
 
@@ -79,7 +78,6 @@ class ScalarUdfTest {
         assertEquals(2, y.get(0));
         assertEquals(3, y.get(1));
         assertEquals(4, y.get(2));
-        assertNotNull(y);
       }
     }
   }
