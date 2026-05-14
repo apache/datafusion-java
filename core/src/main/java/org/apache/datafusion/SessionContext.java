@@ -210,16 +210,15 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
-   * Register a Java-implemented scalar UDF. After registration, the function can be
-   * invoked by SQL via its {@code name} or referenced in DataFusion plans deserialised
-   * with {@link #fromProto}.
+   * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
+   * via its {@code name} or referenced in DataFusion plans deserialised with {@link #fromProto}.
    *
-   * <p>Argument and return types are declared at registration time. The UDF is
-   * registered with an exact signature: the runtime will reject calls whose argument
-   * types do not match {@code argTypes} exactly.
+   * <p>Argument and return types are declared at registration time. The UDF is registered with an
+   * exact signature: the runtime will reject calls whose argument types do not match {@code
+   * argTypes} exactly.
    *
-   * @throws RuntimeException if registration fails (e.g., name already registered with
-   *     an incompatible signature, schema serialisation failure).
+   * @throws RuntimeException if registration fails (e.g., name already registered with an
+   *     incompatible signature, schema serialisation failure).
    */
   public void registerUdf(
       String name,

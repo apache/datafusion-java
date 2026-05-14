@@ -23,10 +23,10 @@ package org.apache.datafusion;
  * Volatility classification for a UDF. Mirrors DataFusion's {@code Volatility} enum.
  *
  * <ul>
- *   <li>{@link #IMMUTABLE} — pure function: same inputs always produce the same output;
- *       safe to constant-fold and common-subexpression-eliminate.
- *   <li>{@link #STABLE} — deterministic within a single query but not across queries
- *       (e.g., {@code now()}).
+ *   <li>{@link #IMMUTABLE} — pure function: same inputs always produce the same output; safe to
+ *       constant-fold and common-subexpression-eliminate.
+ *   <li>{@link #STABLE} — deterministic within a single query but not across queries (e.g., {@code
+ *       now()}).
  *   <li>{@link #VOLATILE} — may return a different value on every call (e.g., {@code random()}).
  * </ul>
  */

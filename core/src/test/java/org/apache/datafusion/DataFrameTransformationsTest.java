@@ -246,8 +246,7 @@ class DataFrameTransformationsTest {
   @Test
   void distinctRemovesDuplicates() {
     try (SessionContext ctx = new SessionContext();
-        DataFrame source =
-            ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
         DataFrame deduped = source.distinct()) {
       assertEquals(3L, deduped.count());
     }

@@ -20,29 +20,30 @@
 package org.apache.datafusion;
 
 import java.util.List;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 
 /**
- * A Java-implemented scalar SQL function. Register an instance with
- * {@link SessionContext#registerUdf} to make it callable from SQL or DataFrame plans.
+ * A Java-implemented scalar SQL function. Register an instance with {@link
+ * SessionContext#registerUdf} to make it callable from SQL or DataFrame plans.
  *
- * <p>Implementations may be invoked concurrently by DataFusion on multiple worker threads.
- * If the implementation carries mutable state, the implementation must synchronize it.
+ * <p>Implementations may be invoked concurrently by DataFusion on multiple worker threads. If the
+ * implementation carries mutable state, the implementation must synchronize it.
  */
 @FunctionalInterface
 public interface ScalarUdf {
   /**
    * Compute the function result for one input batch.
    *
-   * @param allocator the {@link BufferAllocator} that MUST be used for any new
-   *     {@link FieldVector} allocation, including the result. Buffers allocated from
-   *     other allocators will not survive the JNI handoff.
-   * @param args one {@link FieldVector} per declared argument, all of the same length.
-   *     These are read-only views; the implementation must NOT close them.
-   * @return a {@link FieldVector} of the declared return type and the same length as
-   *     the inputs. Ownership transfers to the framework on return; the implementation
-   *     must NOT close the returned vector.
+   * @param allocator the {@link BufferAllocator} that MUST be used for any new {@link FieldVector}
+   *     allocation, including the result. Buffers allocated from other allocators will not survive
+   *     the JNI handoff.
+   * @param args one {@link FieldVector} per declared argument, all of the same length. These are
+   *     read-only views; the implementation must NOT close them.
+   * @return a {@link FieldVector} of the declared return type and the same length as the inputs.
+   *     Ownership transfers to the framework on return; the implementation must NOT close the
+   *     returned vector.
    */
   FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args);
 }

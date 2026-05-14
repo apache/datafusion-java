@@ -53,10 +53,7 @@ use crate::schema::decode_optional_schema;
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
 
 #[no_mangle]
-pub extern "system" fn JNI_OnLoad(
-    vm: JavaVM,
-    _reserved: *mut std::ffi::c_void,
-) -> jni::sys::jint {
+pub extern "system" fn JNI_OnLoad(vm: JavaVM, _reserved: *mut std::ffi::c_void) -> jni::sys::jint {
     let _ = JAVA_VM.set(vm);
     jni::sys::JNI_VERSION_1_8
 }
@@ -523,8 +520,11 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
             return Err("signature schema must have at least a return-type field".into());
         }
         let return_type = fields[0].data_type().clone();
-        let arg_types: Vec<datafusion::arrow::datatypes::DataType> =
-            fields.iter().skip(1).map(|f| f.data_type().clone()).collect();
+        let arg_types: Vec<datafusion::arrow::datatypes::DataType> = fields
+            .iter()
+            .skip(1)
+            .map(|f| f.data_type().clone())
+            .collect();
 
         let volatility = crate::udf::volatility_from_byte(volatility as u8)?;
         let signature = Signature::exact(arg_types, volatility);

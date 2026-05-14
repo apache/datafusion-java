@@ -20,6 +20,7 @@
 package org.apache.datafusion.internal;
 
 import java.util.List;
+
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
@@ -28,14 +29,12 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.datafusion.ScalarUdf;
 
-/**
- * Internal trampoline invoked from native code on every UDF call. Not part of the public API.
- */
+/** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
 public final class JniBridge {
   /**
-   * Shared allocator for UDF inputs/outputs. Created once at class-load time;
-   * never closed. Outstanding allocations are released by the FFI structs'
-   * release callbacks when the native side drops them after {@code from_ffi}.
+   * Shared allocator for UDF inputs/outputs. Created once at class-load time; never closed.
+   * Outstanding allocations are released by the FFI structs' release callbacks when the native side
+   * drops them after {@code from_ffi}.
    */
   private static final RootAllocator ALLOCATOR = new RootAllocator();
 
@@ -45,8 +44,8 @@ public final class JniBridge {
    * Invoke a scalar UDF for one batch. Called from native code; not for application use.
    *
    * @param udf the registered {@link ScalarUdf} instance
-   * @param argsArrayAddr address of a populated {@code FFI_ArrowArray} struct holding
-   *     the input batch as a struct array (one field per UDF argument)
+   * @param argsArrayAddr address of a populated {@code FFI_ArrowArray} struct holding the input
+   *     batch as a struct array (one field per UDF argument)
    * @param argsSchemaAddr address of the matching {@code FFI_ArrowSchema}
    * @param resultArrayAddr address of an empty {@code FFI_ArrowArray} the bridge writes into
    * @param resultSchemaAddr address of an empty {@code FFI_ArrowSchema} the bridge writes into
@@ -64,8 +63,7 @@ public final class JniBridge {
     ArrowArray resultArr = ArrowArray.wrap(resultArrayAddr);
     ArrowSchema resultSch = ArrowSchema.wrap(resultSchemaAddr);
 
-    try (VectorSchemaRoot root =
-        Data.importVectorSchemaRoot(ALLOCATOR, argsArr, argsSch, null)) {
+    try (VectorSchemaRoot root = Data.importVectorSchemaRoot(ALLOCATOR, argsArr, argsSch, null)) {
       List<FieldVector> argVectors = root.getFieldVectors();
 
       FieldVector result = udf.evaluate(ALLOCATOR, argVectors);

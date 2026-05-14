@@ -19,70 +19,68 @@
 
 package org.apache.datafusion;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
+
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.junit.jupiter.api.Test;
 
 class ScalarUdfTest {
 
-  /** Returns null intentionally — only used to prove registration works without invoking. */
-  static final class NeverCalled implements ScalarUdf {
+  /** Adds 1 to each row of an Int32 column. */
+  static final class AddOne implements ScalarUdf {
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      throw new AssertionError("should not be invoked in this test");
-    }
-  }
-
-  @Test
-  void registerUdf_succeedsAndResolvesByName() {
-    try (SessionContext ctx = new SessionContext()) {
-      ctx.registerUdf(
-          "add_one",
-          new NeverCalled(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
-
-      // The function is registered; planning a SQL query that references it should not throw
-      // with "function not found". Execution would fail (invoke_with_args returns NotImplemented),
-      // but we don't execute yet.
-      try (DataFrame df = ctx.sql("SELECT add_one(CAST(1 AS INT))")) {
-        assertNotNull(df);
+      IntVector in = (IntVector) args.get(0);
+      IntVector out = new IntVector("add_one_out", allocator);
+      int n = in.getValueCount();
+      out.allocateNew(n);
+      for (int i = 0; i < n; i++) {
+        if (in.isNull(i)) {
+          out.setNull(i);
+        } else {
+          out.set(i, in.get(i) + 1);
+        }
       }
+      out.setValueCount(n);
+      return out;
     }
   }
 
   @Test
-  void invokingUnimplementedUdf_throwsNotImplemented() {
+  void addOne_overConstantTable_returnsIncrementedValues() throws Exception {
     try (SessionContext ctx = new SessionContext();
-        BufferAllocator allocator = new org.apache.arrow.memory.RootAllocator()) {
+        BufferAllocator allocator = new RootAllocator()) {
       ctx.registerUdf(
           "add_one",
-          new NeverCalled(),
+          new AddOne(),
           new ArrowType.Int(32, true),
           List.of(new ArrowType.Int(32, true)),
           Volatility.IMMUTABLE);
 
-      // Until Task 6 lands, invoke_with_args returns NotImplemented; collect should fail.
-      RuntimeException ex =
-          assertThrows(
-              RuntimeException.class,
-              () -> {
-                try (DataFrame df = ctx.sql("SELECT add_one(CAST(1 AS INT))");
-                    org.apache.arrow.vector.ipc.ArrowReader r = df.collect(allocator)) {
-                  while (r.loadNextBatch()) {
-                    // drain
-                  }
-                }
-              });
-      // The test asserts the error path is reached; exact message is checked in Task 6 once
-      // invoke is implemented and this test is replaced by a real assertion.
-      assertNotNull(ex.getMessage());
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT add_one(x) AS y"
+                      + " FROM (VALUES (CAST(1 AS INT)), (CAST(2 AS INT)), (CAST(3 AS INT)))"
+                      + " AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector y = (IntVector) root.getVector("y");
+        assertEquals(3, y.getValueCount());
+        assertEquals(2, y.get(0));
+        assertEquals(3, y.get(1));
+        assertEquals(4, y.get(2));
+        assertNotNull(y);
+      }
     }
   }
 }
