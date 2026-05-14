@@ -89,16 +89,46 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
             config = config.with_information_schema(v);
         }
 
-        let mut runtime = RuntimeEnvBuilder::new();
+        let mut runtime_builder = RuntimeEnvBuilder::new();
         if let Some(mem) = opts.memory_limit {
-            runtime = runtime.with_memory_limit(mem.max_memory_bytes as usize, mem.memory_fraction);
+            runtime_builder = runtime_builder
+                .with_memory_limit(mem.max_memory_bytes as usize, mem.memory_fraction);
         }
         if let Some(dir) = opts.temp_directory {
-            runtime = runtime.with_temp_file_path(PathBuf::from(dir));
+            runtime_builder = runtime_builder.with_temp_file_path(PathBuf::from(dir));
         }
 
-        let runtime_env = runtime.build()?;
+        // datafusion.runtime.* keys live on RuntimeEnv (separate object from
+        // SessionConfig) and round-tripping them through getOption/setOption
+        // has subtle correctness pitfalls (lazy default-tempdir creation,
+        // upstream's K/M/G integer truncation, OS-specific path separators).
+        // Reject them here with a clear error so callers fall back to the
+        // typed memoryLimit() / tempDirectory() setters until a follow-up
+        // PR designs the side-cache needed to support them safely.
+        //
+        // Iteration order matters: some upstream setters have side effects on
+        // other keys (e.g. `datafusion.optimizer.enable_dynamic_filter_pushdown`
+        // also rewrites the per-operator `enable_*_dynamic_filter_pushdown`
+        // flags), so the caller's last write must win. The proto field is
+        // `repeated ConfigOption` for this reason -- prost's default
+        // `map<string,string>` decodes to a HashMap whose iteration order is
+        // randomized.
+        for opt in &opts.options {
+            if opt.key.starts_with("datafusion.runtime.") {
+                return Err(format!(
+                    "datafusion.runtime.* keys are not supported via setOption yet; \
+                     use SessionContextBuilder.memoryLimit() / .tempDirectory() instead. \
+                     Got: {} = {}",
+                    opt.key, opt.value
+                )
+                .into());
+            }
+            config.options_mut().set(&opt.key, &opt.value)?;
+        }
+
+        let runtime_env = runtime_builder.build()?;
         let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
+
         Ok(Box::into_raw(Box::new(ctx)) as jlong)
     })
 }
@@ -378,6 +408,50 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_closeDataFrame<'loca
         }
         Ok(())
     })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_getOptionNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    key: JString<'local>,
+) -> jni::sys::jstring {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jni::sys::jstring> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            let ctx = unsafe { &*(handle as *const SessionContext) };
+            let key: String = env.get_string(&key)?.into();
+
+            // datafusion.runtime.* keys live on RuntimeEnv and are not yet
+            // supported via this getter (see the matching restriction in
+            // createSessionContextWithOptions). Reject them with a clear
+            // pointer to the typed alternatives.
+            if key.starts_with("datafusion.runtime.") {
+                return Err(format!(
+                    "datafusion.runtime.* keys are not supported via getOption yet; \
+                     use SessionContextBuilder typed setters instead. Got: {key}"
+                )
+                .into());
+            }
+
+            let config = ctx.copied_config();
+            for entry in config.options().entries() {
+                if entry.key == key {
+                    return match entry.value {
+                        Some(v) => Ok(env.new_string(v)?.into_raw()),
+                        None => Ok(std::ptr::null_mut()),
+                    };
+                }
+            }
+
+            Err(format!("unknown DataFusion config key: {key}").into())
+        },
+    )
 }
 
 #[no_mangle]
