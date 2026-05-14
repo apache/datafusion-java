@@ -24,6 +24,24 @@ option java_multiple_files = true;
 
 // Options used to construct a SessionContext. All fields are optional —
 // unset fields leave DataFusion's default behavior in place.
+//
+// `options` is a free-form escape hatch matching DataFusion's
+// `ConfigOptions::set(key, value)` API: any `datafusion.*` config key
+// can be set as a string. Entries are applied AFTER the typed fields
+// above (so an explicit `options` entry overrides a typed setter for
+// the same knob) and IN INSERTION ORDER (so for keys whose setters
+// have side effects on other keys -- e.g.
+// `datafusion.optimizer.enable_dynamic_filter_pushdown` rewrites the
+// specific `enable_*_dynamic_filter_pushdown` flags -- the caller's
+// last write wins deterministically).
+//
+// `repeated ConfigOption` is used instead of `map<string,string>`
+// because protobuf maps decode into `HashMap` on the Rust side, whose
+// iteration order is randomized and would otherwise break the
+// last-write-wins contract for overlapping keys.
+//
+// Unknown keys or unparseable values surface as a RuntimeException at
+// SessionContext construction.
 message SessionOptions {
   optional uint64 batch_size = 1;
   optional uint64 target_partitions = 2;
@@ -31,6 +49,12 @@ message SessionOptions {
   optional bool information_schema = 4;
   optional MemoryLimit memory_limit = 5;
   optional string temp_directory = 6;
+  repeated ConfigOption options = 7;
+}
+
+message ConfigOption {
+  string key = 1;
+  string value = 2;
 }
 
 message MemoryLimit {

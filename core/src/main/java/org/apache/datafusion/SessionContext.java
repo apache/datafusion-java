@@ -115,6 +115,34 @@ public final class SessionContext implements AutoCloseable {
     }
   }
 
+  /**
+   * Read the current value of a {@code datafusion.*} config key. The key must be one DataFusion
+   * recognises (see {@link SessionContextBuilder#setOption(String, String)} for examples and the
+   * upstream configuration reference for the full list).
+   *
+   * <p>{@code datafusion.runtime.*} keys (memory limit, temp directory, cache sizes, etc) are not
+   * yet supported by this getter and will throw. Use the typed {@link
+   * SessionContextBuilder#memoryLimit(long, double)} and {@link
+   * SessionContextBuilder#tempDirectory(String)} setters at construction time instead. Round-trip
+   * support for the runtime subtree is tracked as a follow-up.
+   *
+   * @return the current value as a string, or {@code null} if the key is recognised but has no
+   *     value set and no default.
+   * @throws IllegalArgumentException if {@code key} is {@code null}.
+   * @throws RuntimeException if the key is not recognised by DataFusion or is in the {@code
+   *     datafusion.runtime.*} subtree.
+   * @throws IllegalStateException if this context is closed.
+   */
+  public String getOption(String key) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (key == null) {
+      throw new IllegalArgumentException("getOption key must be non-null");
+    }
+    return getOptionNative(nativeHandle, key);
+  }
+
   public void registerCsv(String name, String path) {
     registerCsv(name, path, new CsvReadOptions());
   }
@@ -234,6 +262,8 @@ public final class SessionContext implements AutoCloseable {
   private static native long createDataFrameFromProto(long handle, byte[] planBytes);
 
   private static native byte[] tableSchemaIpc(long handle, String tableName);
+
+  private static native String getOptionNative(long handle, String key);
 
   private static native void registerParquetWithOptions(
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
