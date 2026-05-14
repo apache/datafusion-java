@@ -19,6 +19,7 @@ mod csv;
 mod errors;
 mod proto;
 mod schema;
+mod udf;
 
 pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
