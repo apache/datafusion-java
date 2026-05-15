@@ -49,6 +49,9 @@ public final class NdJsonReadOptions {
   }
 
   public NdJsonReadOptions schemaInferMaxRecords(long n) {
+    if (n < 0) {
+      throw new IllegalArgumentException("schemaInferMaxRecords must be non-negative, got " + n);
+    }
     this.schemaInferMaxRecords = n;
     return this;
   }

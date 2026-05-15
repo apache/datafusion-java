@@ -22,6 +22,7 @@ package org.apache.datafusion;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -106,5 +107,15 @@ class CsvReadOptionsTest {
           p.getFileCompressionType().name(),
           "mismatch for " + t);
     }
+  }
+
+  @Test
+  void schemaInferMaxRecordsRejectsNegative() {
+    // The proto wire field is uint64, so a negative long would be reinterpreted
+    // as a huge unsigned value on the Rust side and silently expand schema
+    // inference across the full dataset. Reject at the Java setter instead.
+    CsvReadOptions opts = new CsvReadOptions();
+    assertThrows(IllegalArgumentException.class, () -> opts.schemaInferMaxRecords(-1L));
+    assertThrows(IllegalArgumentException.class, () -> opts.schemaInferMaxRecords(Long.MIN_VALUE));
   }
 }
