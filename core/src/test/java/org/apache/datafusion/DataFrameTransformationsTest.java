@@ -133,6 +133,8 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, df::distinct);
       assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
       assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
+      assertThrows(IllegalStateException.class, () -> df.withColumn("y", "x + 1"));
+      assertThrows(IllegalStateException.class, () -> df.unnestColumns("x"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -154,6 +156,8 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, df::distinct);
       assertThrows(IllegalStateException.class, () -> df.dropColumns("x"));
       assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
+      assertThrows(IllegalStateException.class, () -> df.withColumn("y", "x + 1"));
+      assertThrows(IllegalStateException.class, () -> df.unnestColumns("x"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -351,6 +355,154 @@ class DataFrameTransformationsTest {
       assertArrayEquals(
           new String[] {"x"},
           root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+    }
+  }
+
+  @Test
+  void withColumnAppendsNewColumn() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame extended = source.withColumn("c", "a + b");
+        ArrowReader reader = extended.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertEquals(1, root.getRowCount());
+      assertArrayEquals(
+          new String[] {"a", "b", "c"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+      assertEquals(3L, ((BigIntVector) root.getVector("c")).get(0));
+    }
+  }
+
+  @Test
+  void withColumnReplacesExistingColumn() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame replaced = source.withColumn("b", "a * 10");
+        ArrowReader reader = replaced.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      assertArrayEquals(
+          new String[] {"a", "b"},
+          root.getSchema().getFields().stream().map(f -> f.getName()).toArray(String[]::new));
+      assertEquals(10L, ((BigIntVector) root.getVector("b")).get(0));
+    }
+  }
+
+  @Test
+  void withColumnIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS a, 2 AS b")) {
+      try (DataFrame extended = source.withColumn("c", "a + b")) {
+        assertEquals(1L, extended.count());
+      }
+      assertEquals(1L, source.count());
+    }
+  }
+
+  @Test
+  void withColumnUnknownColumnRefThrows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(RuntimeException.class, () -> df.withColumn("y", "not_a_column + 1"));
+    }
+  }
+
+  @Test
+  void withColumnRejectsNullArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.withColumn(null, "x + 1"));
+      assertThrows(IllegalArgumentException.class, () -> df.withColumn("y", null));
+    }
+  }
+
+  @Test
+  void unnestColumnsExpandsList() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS id, [10, 20, 30] AS vals");
+        DataFrame unnested = source.unnestColumns("vals");
+        ArrowReader reader = unnested.collect(allocator)) {
+      int rows = 0;
+      while (reader.loadNextBatch()) {
+        rows += reader.getVectorSchemaRoot().getRowCount();
+      }
+      assertEquals(3, rows);
+    }
+  }
+
+  @Test
+  void unnestColumnsPreserveNullsTrueKeepsNullRow() throws Exception {
+    String sql =
+        "SELECT id, vals FROM (VALUES "
+            + "(1, [10, 20]), "
+            + "(2, CAST(NULL AS BIGINT[])), "
+            + "(3, [30])) AS t(id, vals)";
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql(sql);
+        DataFrame unnested = source.unnestColumns(new UnnestOptions().preserveNulls(true), "vals");
+        ArrowReader reader = unnested.collect(allocator)) {
+      int rows = 0;
+      while (reader.loadNextBatch()) {
+        rows += reader.getVectorSchemaRoot().getRowCount();
+      }
+      assertEquals(4, rows);
+    }
+  }
+
+  @Test
+  void unnestColumnsPreserveNullsFalseDropsNullRow() throws Exception {
+    String sql =
+        "SELECT id, vals FROM (VALUES "
+            + "(1, [10, 20]), "
+            + "(2, CAST(NULL AS BIGINT[])), "
+            + "(3, [30])) AS t(id, vals)";
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql(sql);
+        DataFrame unnested =
+            source.unnestColumns(new UnnestOptions().preserveNulls(false), "vals");
+        ArrowReader reader = unnested.collect(allocator)) {
+      int rows = 0;
+      while (reader.loadNextBatch()) {
+        rows += reader.getVectorSchemaRoot().getRowCount();
+      }
+      assertEquals(3, rows);
+    }
+  }
+
+  @Test
+  void unnestColumnsIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT 1 AS id, [10, 20] AS vals")) {
+      try (DataFrame unnested = source.unnestColumns("vals")) {
+        assertEquals(2L, unnested.count());
+      }
+      assertEquals(1L, source.count());
+    }
+  }
+
+  @Test
+  void unnestColumnsUnknownColumnThrows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(RuntimeException.class, () -> df.unnestColumns("not_a_column"));
+    }
+  }
+
+  @Test
+  void unnestColumnsRejectsNullArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x, [1, 2] AS vals")) {
+      assertThrows(
+          IllegalArgumentException.class, () -> df.unnestColumns((UnnestOptions) null, "vals"));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> df.unnestColumns(new UnnestOptions(), (String[]) null));
     }
   }
 }
