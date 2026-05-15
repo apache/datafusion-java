@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use datafusion::common::config::CsvOptions;
+use datafusion::common::parsers::CompressionTypeVariant;
+use datafusion::dataframe::{DataFrame, DataFrameWriteOptions};
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
@@ -24,7 +27,9 @@ use jni::JNIEnv;
 use prost::Message;
 
 use crate::errors::{try_unwrap_or_throw, JniResult};
-use crate::proto_gen::{CsvReadOptionsProto, FileCompressionType as ProtoFileCompressionType};
+use crate::proto_gen::{
+    CsvReadOptionsProto, CsvWriteOptionsProto, FileCompressionType as ProtoFileCompressionType,
+};
 use crate::runtime;
 use crate::schema::decode_optional_schema;
 
@@ -126,5 +131,90 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_readCsvWithOpti
             let df = runtime().block_on(ctx.read_csv(path, opts))?;
             Ok(Box::into_raw(Box::new(df)) as jlong)
         })
+    })
+}
+
+fn proto_compression_to_variant(p: ProtoFileCompressionType) -> JniResult<CompressionTypeVariant> {
+    match p {
+        ProtoFileCompressionType::Unspecified => {
+            Err("CsvWriteOptionsProto.file_compression_type is UNSPECIFIED".into())
+        }
+        ProtoFileCompressionType::Uncompressed => Ok(CompressionTypeVariant::UNCOMPRESSED),
+        ProtoFileCompressionType::Gzip => Ok(CompressionTypeVariant::GZIP),
+        ProtoFileCompressionType::Bzip2 => Ok(CompressionTypeVariant::BZIP2),
+        ProtoFileCompressionType::Xz => Ok(CompressionTypeVariant::XZ),
+        ProtoFileCompressionType::Zstd => Ok(CompressionTypeVariant::ZSTD),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeCsvWithOptions<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    path: JString<'local>,
+    options_bytes: JByteArray<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let path: String = env.get_string(&path)?.into();
+        let bytes: Vec<u8> = env.convert_byte_array(&options_bytes)?;
+        let p = CsvWriteOptionsProto::decode(bytes.as_slice())?;
+
+        // Decode the file_compression_type field eagerly so an unknown wire
+        // value surfaces as a clear error rather than a silent default.
+        let compression = if p.file_compression_type.is_some() {
+            Some(proto_compression_to_variant(p.file_compression_type())?)
+        } else {
+            None
+        };
+
+        let mut write_opts = DataFrameWriteOptions::new();
+        if let Some(v) = p.single_file_output {
+            write_opts = write_opts.with_single_file_output(v);
+        }
+        if !p.partition_cols.is_empty() {
+            write_opts = write_opts.with_partition_by(p.partition_cols.clone());
+        }
+
+        // Build CsvOptions only when at least one writer-side knob is set, so
+        // the DataFusion default is preserved when the caller passes
+        // `new CsvWriteOptions()`.
+        let writer_opts: Option<CsvOptions> = if p.has_header.is_some()
+            || p.delimiter.is_some()
+            || p.quote.is_some()
+            || p.escape.is_some()
+            || p.null_value.is_some()
+            || compression.is_some()
+        {
+            let mut o = CsvOptions::default();
+            if let Some(v) = p.has_header {
+                o = o.with_has_header(v);
+            }
+            if let Some(v) = p.delimiter {
+                o = o.with_delimiter(v as u8);
+            }
+            if let Some(v) = p.quote {
+                o = o.with_quote(v as u8);
+            }
+            if let Some(v) = p.escape {
+                o = o.with_escape(Some(v as u8));
+            }
+            if let Some(v) = p.null_value {
+                o.null_value = Some(v);
+            }
+            if let Some(v) = compression {
+                o = o.with_file_compression_type(v);
+            }
+            Some(o)
+        } else {
+            None
+        };
+
+        runtime().block_on(df.write_csv(&path, write_opts, writer_opts))?;
+        Ok(())
     })
 }

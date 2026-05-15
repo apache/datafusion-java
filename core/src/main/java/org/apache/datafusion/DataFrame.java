@@ -201,6 +201,38 @@ public final class DataFrame implements AutoCloseable {
         options.singleFileOutput() != null && options.singleFileOutput());
   }
 
+  /**
+   * Materialize this DataFrame as CSV at {@code path}. The path is treated as a directory unless
+   * overridden via {@link CsvWriteOptions#singleFileOutput(boolean)}. The receiver remains usable
+   * and must still be closed independently.
+   *
+   * @throws RuntimeException if the write fails.
+   */
+  public void writeCsv(String path) {
+    writeCsv(path, new CsvWriteOptions());
+  }
+
+  /**
+   * Materialize this DataFrame as CSV at {@code path} with the supplied {@link CsvWriteOptions}.
+   * The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code path} or {@code options} is {@code null}.
+   * @throws RuntimeException if the write fails (path inaccessible, invalid compression spec,
+   *     etc.).
+   */
+  public void writeCsv(String path, CsvWriteOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("writeCsv path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("writeCsv options must be non-null");
+    }
+    writeCsvWithOptions(nativeHandle, path, options.toBytes());
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -237,4 +269,6 @@ public final class DataFrame implements AutoCloseable {
       String compression,
       boolean singleFileOutputSet,
       boolean singleFileOutputValue);
+
+  private static native void writeCsvWithOptions(long handle, String path, byte[] optionsBytes);
 }
