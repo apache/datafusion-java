@@ -26,12 +26,14 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 
 /**
  * A lazy representation of a query plan, mirroring the Rust DataFusion {@code DataFrame}. Created
- * by {@link SessionContext#sql(String)} or other planning entry points and executed by {@link
- * #collect}.
+ * by {@link SessionContext#sql(String)} or other planning entry points and executed by either
+ * {@link #collect} (materializes every batch on the native heap before returning) or {@link
+ * #executeStream} (yields one batch at a time as Java drains the reader).
  *
- * <p>Instances are <strong>not thread-safe</strong> and must be closed. {@link #collect} consumes
- * the DataFrame: a successfully collected DataFrame cannot be collected again, and {@link #close()}
- * on an already-collected instance is a no-op.
+ * <p>Instances are <strong>not thread-safe</strong> and must be closed. Both {@link #collect} and
+ * {@link #executeStream} consume the DataFrame: a successfully consumed DataFrame cannot be
+ * consumed again by either method (or by other executors such as {@link #count}), and {@link
+ * #close()} on an already-consumed instance is a no-op.
  */
 public final class DataFrame implements AutoCloseable {
   static {

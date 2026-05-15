@@ -136,10 +136,9 @@ class DataFrameExecuteStreamTest {
     // must remain a no-op.
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = SessionContext.builder().batchSize(1).build();
-        DataFrame df = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
-      ArrowReader reader = df.executeStream(allocator);
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)");
+        ArrowReader reader = df.executeStream(allocator)) {
       assertTrue(reader.loadNextBatch());
-      reader.close();
     }
   }
 
