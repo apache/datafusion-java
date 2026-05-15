@@ -30,15 +30,11 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * for fluent chaining. Defaults match the Rust struct: {@code fileExtension = ".json"}, {@code
  * fileCompressionType = UNCOMPRESSED}; {@code schemaInferMaxRecords} unset (the DataFusion default
  * is used).
- *
- * <p>{@code FileCompressionType} is reused from {@link CsvReadOptions} since both formats accept
- * the same set of compressions.
  */
 public final class NdJsonReadOptions {
 
   private String fileExtension = ".json";
-  private CsvReadOptions.FileCompressionType fileCompressionType =
-      CsvReadOptions.FileCompressionType.UNCOMPRESSED;
+  private FileCompressionType fileCompressionType = FileCompressionType.UNCOMPRESSED;
   private Long schemaInferMaxRecords;
   private Schema schema;
 
@@ -47,7 +43,7 @@ public final class NdJsonReadOptions {
     return this;
   }
 
-  public NdJsonReadOptions fileCompressionType(CsvReadOptions.FileCompressionType t) {
+  public NdJsonReadOptions fileCompressionType(FileCompressionType t) {
     this.fileCompressionType = t;
     return this;
   }
@@ -66,7 +62,7 @@ public final class NdJsonReadOptions {
     org.apache.datafusion.protobuf.NdJsonReadOptionsProto.Builder b =
         org.apache.datafusion.protobuf.NdJsonReadOptionsProto.newBuilder()
             .setFileExtension(fileExtension)
-            .setFileCompressionType(toProto(fileCompressionType));
+            .setFileCompressionType(FileCompressionTypes.toProto(fileCompressionType));
     if (schemaInferMaxRecords != null) {
       b.setSchemaInferMaxRecords(schemaInferMaxRecords);
     }
@@ -75,24 +71,5 @@ public final class NdJsonReadOptions {
 
   Schema schema() {
     return schema;
-  }
-
-  private static org.apache.datafusion.protobuf.FileCompressionType toProto(
-      CsvReadOptions.FileCompressionType t) {
-    switch (t) {
-      case UNCOMPRESSED:
-        return org.apache.datafusion.protobuf.FileCompressionType
-            .FILE_COMPRESSION_TYPE_UNCOMPRESSED;
-      case GZIP:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP;
-      case BZIP2:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_BZIP2;
-      case XZ:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_XZ;
-      case ZSTD:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_ZSTD;
-      default:
-        throw new IllegalArgumentException("unhandled FileCompressionType: " + t);
-    }
   }
 }

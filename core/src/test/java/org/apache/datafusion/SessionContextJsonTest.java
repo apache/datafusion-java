@@ -20,6 +20,7 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -120,6 +121,28 @@ class SessionContextJsonTest {
         BigIntVector v = (BigIntVector) reader.getVectorSchemaRoot().getVector(0);
         assertEquals(100L, v.get(0));
       }
+    }
+  }
+
+  @Test
+  void registerJsonRejectsNullArguments() {
+    try (SessionContext ctx = new SessionContext()) {
+      NdJsonReadOptions opts = new NdJsonReadOptions();
+      assertThrows(IllegalArgumentException.class, () -> ctx.registerJson(null, "/p"));
+      assertThrows(IllegalArgumentException.class, () -> ctx.registerJson("t", null));
+      assertThrows(IllegalArgumentException.class, () -> ctx.registerJson(null, "/p", opts));
+      assertThrows(IllegalArgumentException.class, () -> ctx.registerJson("t", null, opts));
+      assertThrows(IllegalArgumentException.class, () -> ctx.registerJson("t", "/p", null));
+    }
+  }
+
+  @Test
+  void readJsonRejectsNullArguments() {
+    try (SessionContext ctx = new SessionContext()) {
+      NdJsonReadOptions opts = new NdJsonReadOptions();
+      assertThrows(IllegalArgumentException.class, () -> ctx.readJson(null));
+      assertThrows(IllegalArgumentException.class, () -> ctx.readJson(null, opts));
+      assertThrows(IllegalArgumentException.class, () -> ctx.readJson("/p", null));
     }
   }
 }

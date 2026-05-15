@@ -174,6 +174,15 @@ public final class SessionContext implements AutoCloseable {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
+    if (name == null) {
+      throw new IllegalArgumentException("registerJson name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerJson options must be non-null");
+    }
     registerJsonWithOptions(
         nativeHandle,
         name,
@@ -196,6 +205,12 @@ public final class SessionContext implements AutoCloseable {
   public DataFrame readJson(String path, NdJsonReadOptions options) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readJson options must be non-null");
     }
     long dfHandle =
         readJsonWithOptions(

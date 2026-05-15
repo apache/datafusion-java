@@ -29,7 +29,6 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.datafusion.protobuf.FileCompressionType;
 import org.apache.datafusion.protobuf.NdJsonReadOptionsProto;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +42,8 @@ class NdJsonReadOptionsTest {
 
     assertEquals(".json", p.getFileExtension());
     assertEquals(
-        FileCompressionType.FILE_COMPRESSION_TYPE_UNCOMPRESSED, p.getFileCompressionType());
+        org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_UNCOMPRESSED,
+        p.getFileCompressionType());
     assertFalse(p.hasSchemaInferMaxRecords());
   }
 
@@ -52,13 +52,15 @@ class NdJsonReadOptionsTest {
     NdJsonReadOptions opts =
         new NdJsonReadOptions()
             .fileExtension(".ndjson")
-            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP)
+            .fileCompressionType(FileCompressionType.GZIP)
             .schemaInferMaxRecords(50L);
 
     NdJsonReadOptionsProto p = NdJsonReadOptionsProto.parseFrom(opts.toBytes());
 
     assertEquals(".ndjson", p.getFileExtension());
-    assertEquals(FileCompressionType.FILE_COMPRESSION_TYPE_GZIP, p.getFileCompressionType());
+    assertEquals(
+        org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP,
+        p.getFileCompressionType());
     assertEquals(50L, p.getSchemaInferMaxRecords());
   }
 
@@ -73,7 +75,7 @@ class NdJsonReadOptionsTest {
 
   @Test
   void allCompressionTypesMapThroughProto() throws InvalidProtocolBufferException {
-    for (CsvReadOptions.FileCompressionType t : CsvReadOptions.FileCompressionType.values()) {
+    for (FileCompressionType t : FileCompressionType.values()) {
       NdJsonReadOptionsProto p =
           NdJsonReadOptionsProto.parseFrom(
               new NdJsonReadOptions().fileCompressionType(t).toBytes());

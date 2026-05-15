@@ -33,15 +33,6 @@ import org.apache.arrow.vector.types.pojo.Schema;
  */
 public final class CsvReadOptions {
 
-  /** Compression of the file. Names match DataFusion's {@code FileCompressionType} variants. */
-  public enum FileCompressionType {
-    UNCOMPRESSED,
-    GZIP,
-    BZIP2,
-    XZ,
-    ZSTD
-  }
-
   private boolean hasHeader = true;
   private byte delimiter = (byte) ',';
   private byte quote = (byte) '"';
@@ -116,7 +107,7 @@ public final class CsvReadOptions {
             .setDelimiter(delimiter & 0xFF)
             .setQuote(quote & 0xFF)
             .setFileExtension(fileExtension)
-            .setFileCompressionType(toProto(fileCompressionType));
+            .setFileCompressionType(FileCompressionTypes.toProto(fileCompressionType));
     if (terminator != null) {
       b.setTerminator(terminator & 0xFF);
     }
@@ -137,23 +128,5 @@ public final class CsvReadOptions {
 
   Schema schema() {
     return schema;
-  }
-
-  private static org.apache.datafusion.protobuf.FileCompressionType toProto(FileCompressionType t) {
-    switch (t) {
-      case UNCOMPRESSED:
-        return org.apache.datafusion.protobuf.FileCompressionType
-            .FILE_COMPRESSION_TYPE_UNCOMPRESSED;
-      case GZIP:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP;
-      case BZIP2:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_BZIP2;
-      case XZ:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_XZ;
-      case ZSTD:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_ZSTD;
-      default:
-        throw new IllegalArgumentException("unhandled FileCompressionType: " + t);
-    }
   }
 }

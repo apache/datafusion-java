@@ -31,7 +31,6 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.datafusion.protobuf.CsvReadOptionsProto;
-import org.apache.datafusion.protobuf.FileCompressionType;
 import org.junit.jupiter.api.Test;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -47,7 +46,8 @@ class CsvReadOptionsTest {
     assertEquals((int) '"', p.getQuote());
     assertEquals(".csv", p.getFileExtension());
     assertEquals(
-        FileCompressionType.FILE_COMPRESSION_TYPE_UNCOMPRESSED, p.getFileCompressionType());
+        org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_UNCOMPRESSED,
+        p.getFileCompressionType());
 
     assertFalse(p.hasTerminator());
     assertFalse(p.hasEscape());
@@ -69,7 +69,7 @@ class CsvReadOptionsTest {
             .newlinesInValues(true)
             .schemaInferMaxRecords(10L)
             .fileExtension(".tsv")
-            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP);
+            .fileCompressionType(FileCompressionType.GZIP);
 
     CsvReadOptionsProto p = CsvReadOptionsProto.parseFrom(opts.toBytes());
 
@@ -82,7 +82,9 @@ class CsvReadOptionsTest {
     assertTrue(p.getNewlinesInValues());
     assertEquals(10L, p.getSchemaInferMaxRecords());
     assertEquals(".tsv", p.getFileExtension());
-    assertEquals(FileCompressionType.FILE_COMPRESSION_TYPE_GZIP, p.getFileCompressionType());
+    assertEquals(
+        org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP,
+        p.getFileCompressionType());
   }
 
   @Test
@@ -96,7 +98,7 @@ class CsvReadOptionsTest {
 
   @Test
   void allCompressionTypesMapThroughProto() throws InvalidProtocolBufferException {
-    for (CsvReadOptions.FileCompressionType t : CsvReadOptions.FileCompressionType.values()) {
+    for (FileCompressionType t : FileCompressionType.values()) {
       CsvReadOptionsProto p =
           CsvReadOptionsProto.parseFrom(new CsvReadOptions().fileCompressionType(t).toBytes());
       assertEquals(
