@@ -232,6 +232,69 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  public void registerArrow(String name, String path) {
+    registerArrow(name, path, new ArrowReadOptions());
+  }
+
+  /**
+   * Register an Arrow IPC file (or directory of Arrow IPC files) as a table with the supplied
+   * {@link ArrowReadOptions}.
+   *
+   * @throws IllegalArgumentException if any of {@code name}, {@code path}, or {@code options} is
+   *     {@code null}.
+   * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
+   */
+  public void registerArrow(String name, String path, ArrowReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerArrow name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerArrow path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerArrow options must be non-null");
+    }
+    registerArrowWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read an Arrow IPC file as a {@link DataFrame} without registering it. */
+  public DataFrame readArrow(String path) {
+    return readArrow(path, new ArrowReadOptions());
+  }
+
+  /**
+   * Read an Arrow IPC file as a {@link DataFrame} with the supplied {@link ArrowReadOptions}.
+   *
+   * @throws IllegalArgumentException if {@code path} or {@code options} is {@code null}.
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readArrow(String path, ArrowReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readArrow path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readArrow options must be non-null");
+    }
+    long dfHandle =
+        readArrowWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
   private static byte[] serializeSchemaIpc(Schema schema) {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (BufferAllocator allocator = new RootAllocator();
@@ -275,6 +338,12 @@ public final class SessionContext implements AutoCloseable {
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native long readCsvWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native void registerArrowWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readArrowWithOptions(
       long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native void closeSessionContext(long handle);
