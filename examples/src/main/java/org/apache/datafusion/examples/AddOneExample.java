@@ -20,6 +20,7 @@
 package org.apache.datafusion.examples;
 
 import java.util.List;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
@@ -28,6 +29,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.datafusion.DataFrame;
+import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarUdf;
 import org.apache.datafusion.SessionContext;
 import org.apache.datafusion.Volatility;
@@ -36,7 +38,29 @@ import org.apache.datafusion.Volatility;
 public final class AddOneExample {
 
   /** Adds 1 to each value of an Int32 column. */
-  public static final class AddOne implements ScalarUdf {
+  public static final class AddOne implements ScalarFunction {
+    private static final ArrowType INT32 = new ArrowType.Int(32, true);
+
+    @Override
+    public String name() {
+      return "add_one";
+    }
+
+    @Override
+    public List<ArrowType> argTypes() {
+      return List.of(INT32);
+    }
+
+    @Override
+    public ArrowType returnType() {
+      return INT32;
+    }
+
+    @Override
+    public Volatility volatility() {
+      return Volatility.IMMUTABLE;
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       IntVector in = (IntVector) args.get(0);
@@ -58,16 +82,12 @@ public final class AddOneExample {
   public static void main(String[] args) throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "add_one",
-          new AddOne(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new AddOne()));
 
       try (DataFrame df =
               ctx.sql(
-                  "SELECT add_one(x) AS y FROM (VALUES (CAST(1 AS INT)),(CAST(2 AS INT)),(CAST(3 AS INT))) AS t(x)");
+                  "SELECT add_one(x) AS y FROM (VALUES (CAST(1 AS INT)),(CAST(2 AS INT)),(CAST(3 AS"
+                      + " INT))) AS t(x)");
           ArrowReader reader = df.collect(allocator)) {
         while (reader.loadNextBatch()) {
           VectorSchemaRoot root = reader.getVectorSchemaRoot();

@@ -25,16 +25,27 @@ columns and returns a single output column of the same length.
 
 ## Implement
 
-Implement the `ScalarUdf` interface:
+Implement the `ScalarFunction` interface. The implementation declares its own
+SQL name, argument types, return type, and volatility, and supplies the
+per-batch `evaluate` body:
 
 ```java
 import java.util.List;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.IntVector;
-import org.apache.datafusion.ScalarUdf;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.datafusion.ScalarFunction;
+import org.apache.datafusion.Volatility;
 
-public final class AddOne implements ScalarUdf {
+public final class AddOne implements ScalarFunction {
+    private static final ArrowType INT32 = new ArrowType.Int(32, true);
+
+    @Override public String name() { return "add_one"; }
+    @Override public List<ArrowType> argTypes() { return List.of(INT32); }
+    @Override public ArrowType returnType() { return INT32; }
+    @Override public Volatility volatility() { return Volatility.IMMUTABLE; }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
         IntVector in = (IntVector) args.get(0);
@@ -56,14 +67,12 @@ Ownership of the returned vector transfers to the framework on return.
 
 ## Register
 
+Wrap the implementation in a `ScalarUdf` and pass it to
+`SessionContext.registerUdf`:
+
 ```java
 try (SessionContext ctx = new SessionContext()) {
-    ctx.registerUdf(
-        "add_one",
-        new AddOne(),
-        new ArrowType.Int(32, true),
-        List.of(new ArrowType.Int(32, true)),
-        Volatility.IMMUTABLE);
+    ctx.registerUdf(new ScalarUdf(new AddOne()));
 
     try (DataFrame df = ctx.sql("SELECT add_one(x) FROM t");
          ArrowReader r = df.collect(allocator)) {
@@ -72,10 +81,11 @@ try (SessionContext ctx = new SessionContext()) {
 }
 ```
 
-The signature is exact: a call must match the declared `argTypes` exactly. Use
-`Volatility.IMMUTABLE` for pure functions, `STABLE` for functions that are
-deterministic within a single query, and `VOLATILE` for non-deterministic
-functions.
+`ScalarUdf` mirrors DataFusion's `ScalarUDF` struct; `ScalarFunction` mirrors
+`ScalarUDFImpl`. The signature is exact: a call must match the declared
+`argTypes` exactly. Use `Volatility.IMMUTABLE` for pure functions, `STABLE` for
+functions that are deterministic within a single query, and `VOLATILE` for
+non-deterministic functions.
 
 ## Errors
 

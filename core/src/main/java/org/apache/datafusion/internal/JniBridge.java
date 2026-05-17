@@ -27,7 +27,7 @@ import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.datafusion.ScalarUdf;
+import org.apache.datafusion.ScalarFunction;
 
 /** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
 public final class JniBridge {
@@ -43,7 +43,7 @@ public final class JniBridge {
   /**
    * Invoke a scalar UDF for one batch. Called from native code; not for application use.
    *
-   * @param udf the registered {@link ScalarUdf} instance
+   * @param impl the registered {@link ScalarFunction} implementation
    * @param argsArrayAddr address of a populated {@code FFI_ArrowArray} struct holding the input
    *     batch as a struct array (one field per UDF argument)
    * @param argsSchemaAddr address of the matching {@code FFI_ArrowSchema}
@@ -52,7 +52,7 @@ public final class JniBridge {
    * @param expectedRowCount the row count the result vector must have
    */
   public static void invokeScalarUdf(
-      ScalarUdf udf,
+      ScalarFunction impl,
       long argsArrayAddr,
       long argsSchemaAddr,
       long resultArrayAddr,
@@ -66,15 +66,15 @@ public final class JniBridge {
     try (VectorSchemaRoot root = Data.importVectorSchemaRoot(ALLOCATOR, argsArr, argsSch, null)) {
       List<FieldVector> argVectors = root.getFieldVectors();
 
-      FieldVector result = udf.evaluate(ALLOCATOR, argVectors);
+      FieldVector result = impl.evaluate(ALLOCATOR, argVectors);
 
       if (result == null) {
-        throw new IllegalStateException("ScalarUdf.evaluate returned null");
+        throw new IllegalStateException("ScalarFunction.evaluate returned null");
       }
       if (result.getValueCount() != expectedRowCount) {
         try {
           throw new IllegalStateException(
-              "ScalarUdf.evaluate returned vector with "
+              "ScalarFunction.evaluate returned vector with "
                   + result.getValueCount()
                   + " rows; expected "
                   + expectedRowCount);

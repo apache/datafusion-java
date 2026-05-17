@@ -20,30 +20,66 @@
 package org.apache.datafusion;
 
 import java.util.List;
+import java.util.Objects;
 
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 
 /**
- * A Java-implemented scalar SQL function. Register an instance with {@link
- * SessionContext#registerUdf} to make it callable from SQL or DataFrame plans.
+ * A scalar UDF registration handle: pairs a {@link ScalarFunction} implementation with the metadata
+ * DataFusion needs to dispatch SQL calls to it.
  *
- * <p>Implementations may be invoked concurrently by DataFusion on multiple worker threads. If the
- * implementation carries mutable state, the implementation must synchronize it.
+ * <p>Mirrors DataFusion's {@code ScalarUDF} struct. Construct one from a {@link ScalarFunction} via
+ * {@link #fromImpl(ScalarFunction)} (or the public constructor) and pass it to {@link
+ * SessionContext#registerUdf(ScalarUdf)}.
  */
-@FunctionalInterface
-public interface ScalarUdf {
+public final class ScalarUdf {
+  private final ScalarFunction impl;
+  private final String name;
+  private final List<ArrowType> argTypes;
+  private final ArrowType returnType;
+  private final Volatility volatility;
+
   /**
-   * Compute the function result for one input batch.
+   * Wrap a {@link ScalarFunction} for registration. Each metadata getter is invoked once here and
+   * cached, so a user impl that allocates per call won't be double-evaluated at registration.
    *
-   * @param allocator the {@link BufferAllocator} that MUST be used for any new {@link FieldVector}
-   *     allocation, including the result. Buffers allocated from other allocators will not survive
-   *     the JNI handoff.
-   * @param args one {@link FieldVector} per declared argument, all of the same length. These are
-   *     read-only views; the implementation must NOT close them.
-   * @return a {@link FieldVector} of the declared return type and the same length as the inputs.
-   *     Ownership transfers to the framework on return; the implementation must NOT close the
-   *     returned vector.
+   * @throws NullPointerException if {@code impl} or any of its declared metadata is null
    */
-  FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args);
+  public ScalarUdf(ScalarFunction impl) {
+    this.impl = Objects.requireNonNull(impl, "impl");
+    this.name = Objects.requireNonNull(impl.name(), "impl.name()");
+    this.argTypes = Objects.requireNonNull(impl.argTypes(), "impl.argTypes()");
+    this.returnType = Objects.requireNonNull(impl.returnType(), "impl.returnType()");
+    this.volatility = Objects.requireNonNull(impl.volatility(), "impl.volatility()");
+  }
+
+  /** Equivalent to {@code new ScalarUdf(impl)}; mirrors Rust's {@code ScalarUDF::new_from_impl}. */
+  public static ScalarUdf fromImpl(ScalarFunction impl) {
+    return new ScalarUdf(impl);
+  }
+
+  /** The wrapped implementation. */
+  public ScalarFunction impl() {
+    return impl;
+  }
+
+  /** SQL name; cached from {@link ScalarFunction#name()}. */
+  public String name() {
+    return name;
+  }
+
+  /** Declared argument types; cached from {@link ScalarFunction#argTypes()}. */
+  public List<ArrowType> argTypes() {
+    return argTypes;
+  }
+
+  /** Declared return type; cached from {@link ScalarFunction#returnType()}. */
+  public ArrowType returnType() {
+    return returnType;
+  }
+
+  /** Volatility classification; cached from {@link ScalarFunction#volatility()}. */
+  public Volatility volatility() {
+    return volatility;
+  }
 }

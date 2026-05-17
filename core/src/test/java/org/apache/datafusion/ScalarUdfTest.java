@@ -34,8 +34,57 @@ import org.junit.jupiter.api.Test;
 
 class ScalarUdfTest {
 
+  private static final ArrowType INT32 = new ArrowType.Int(32, true);
+  private static final ArrowType FLOAT64 =
+      new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
+  private static final ArrowType UTF8 = new ArrowType.Utf8();
+
+  /** Test-only base that supplies the four metadata getters from constructor args. */
+  abstract static class AbstractScalarFunction implements ScalarFunction {
+    private final String name;
+    private final List<ArrowType> argTypes;
+    private final ArrowType returnType;
+    private final Volatility volatility;
+
+    AbstractScalarFunction(
+        String name, List<ArrowType> argTypes, ArrowType returnType, Volatility volatility) {
+      this.name = name;
+      this.argTypes = argTypes;
+      this.returnType = returnType;
+      this.volatility = volatility;
+    }
+
+    @Override
+    public final String name() {
+      return name;
+    }
+
+    @Override
+    public final List<ArrowType> argTypes() {
+      return argTypes;
+    }
+
+    @Override
+    public final ArrowType returnType() {
+      return returnType;
+    }
+
+    @Override
+    public final Volatility volatility() {
+      return volatility;
+    }
+  }
+
   /** Adds 1 to each row of an Int32 column. */
-  static final class AddOne implements ScalarUdf {
+  static final class AddOne extends AbstractScalarFunction {
+    AddOne() {
+      this("add_one", Volatility.IMMUTABLE);
+    }
+
+    AddOne(String name, Volatility volatility) {
+      super(name, List.of(INT32), INT32, volatility);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       IntVector in = (IntVector) args.get(0);
@@ -58,12 +107,7 @@ class ScalarUdfTest {
   void addOne_overConstantTable_returnsIncrementedValues() throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "add_one",
-          new AddOne(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new AddOne()));
 
       try (DataFrame df =
               ctx.sql(
@@ -83,11 +127,17 @@ class ScalarUdfTest {
   }
 
   /** Concatenates two Utf8 columns. */
-  static final class Concat implements ScalarUdf {
+  static final class Concat extends AbstractScalarFunction {
+    Concat() {
+      super("java_concat", List.of(UTF8, UTF8), UTF8, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      org.apache.arrow.vector.VarCharVector left = (org.apache.arrow.vector.VarCharVector) args.get(0);
-      org.apache.arrow.vector.VarCharVector right = (org.apache.arrow.vector.VarCharVector) args.get(1);
+      org.apache.arrow.vector.VarCharVector left =
+          (org.apache.arrow.vector.VarCharVector) args.get(0);
+      org.apache.arrow.vector.VarCharVector right =
+          (org.apache.arrow.vector.VarCharVector) args.get(1);
       org.apache.arrow.vector.VarCharVector out =
           new org.apache.arrow.vector.VarCharVector("concat_out", allocator);
       int n = left.getValueCount();
@@ -113,16 +163,12 @@ class ScalarUdfTest {
   void concat_overVarCharColumns_concatenatesValues() throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "java_concat",
-          new Concat(),
-          new ArrowType.Utf8(),
-          List.of(new ArrowType.Utf8(), new ArrowType.Utf8()),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new Concat()));
 
       try (DataFrame df =
               ctx.sql(
-                  "SELECT java_concat(a, b) AS c FROM (VALUES ('foo','bar'),('hello','!')) AS t(a, b)");
+                  "SELECT java_concat(a, b) AS c FROM (VALUES ('foo','bar'),('hello','!')) AS t(a,"
+                      + " b)");
           ArrowReader r = df.collect(allocator)) {
         assertEquals(true, r.loadNextBatch());
         VectorSchemaRoot root = r.getVectorSchemaRoot();
@@ -136,7 +182,11 @@ class ScalarUdfTest {
   }
 
   /** Squares a Float64 column. */
-  static final class Square implements ScalarUdf {
+  static final class Square extends AbstractScalarFunction {
+    Square() {
+      super("java_square", List.of(FLOAT64), FLOAT64, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       org.apache.arrow.vector.Float8Vector in = (org.apache.arrow.vector.Float8Vector) args.get(0);
@@ -161,17 +211,9 @@ class ScalarUdfTest {
   void square_overFloat64Column_squaresValues() throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "java_square",
-          new Square(),
-          new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE),
-          List.of(
-              new ArrowType.FloatingPoint(
-                  org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new Square()));
 
-      try (DataFrame df =
-              ctx.sql("SELECT java_square(x) AS y FROM (VALUES (2.0),(3.5)) AS t(x)");
+      try (DataFrame df = ctx.sql("SELECT java_square(x) AS y FROM (VALUES (2.0),(3.5)) AS t(x)");
           ArrowReader r = df.collect(allocator)) {
         assertEquals(true, r.loadNextBatch());
         VectorSchemaRoot root = r.getVectorSchemaRoot();
@@ -190,12 +232,7 @@ class ScalarUdfTest {
     // don't accumulate across invocations within a session.
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "add_one",
-          new AddOne(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new AddOne()));
 
       for (int run = 0; run < 2; run++) {
         try (DataFrame df = ctx.sql("SELECT add_one(CAST(5 AS INT)) AS y");
@@ -209,7 +246,11 @@ class ScalarUdfTest {
     }
   }
 
-  static final class ReturnsNull implements ScalarUdf {
+  static final class ReturnsNull extends AbstractScalarFunction {
+    ReturnsNull() {
+      super("bad_null", List.of(INT32), INT32, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       return null;
@@ -220,12 +261,7 @@ class ScalarUdfTest {
   void udfReturningNull_surfacesIllegalStateException() {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "bad_null",
-          new ReturnsNull(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new ReturnsNull()));
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
               RuntimeException.class,
@@ -241,7 +277,11 @@ class ScalarUdfTest {
     }
   }
 
-  static final class WrongRowCount implements ScalarUdf {
+  static final class WrongRowCount extends AbstractScalarFunction {
+    WrongRowCount() {
+      super("bad_rows", List.of(INT32), INT32, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       IntVector in = (IntVector) args.get(0);
@@ -257,12 +297,7 @@ class ScalarUdfTest {
   void udfReturningWrongRowCount_surfacesIllegalStateException() {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "bad_rows",
-          new WrongRowCount(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new WrongRowCount()));
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
               RuntimeException.class,
@@ -278,7 +313,11 @@ class ScalarUdfTest {
     }
   }
 
-  static final class WrongType implements ScalarUdf {
+  static final class WrongType extends AbstractScalarFunction {
+    WrongType() {
+      super("bad_type", List.of(INT32), INT32, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       // Declared return type is Int32; return Float64.
@@ -295,12 +334,7 @@ class ScalarUdfTest {
   void udfReturningWrongType_surfacesTypeMismatch() {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "bad_type",
-          new WrongType(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new WrongType()));
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
               RuntimeException.class,
@@ -316,7 +350,11 @@ class ScalarUdfTest {
     }
   }
 
-  static final class ThrowsIAE implements ScalarUdf {
+  static final class ThrowsIAE extends AbstractScalarFunction {
+    ThrowsIAE() {
+      super("boom", List.of(INT32), INT32, Volatility.IMMUTABLE);
+    }
+
     @Override
     public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
       throw new IllegalArgumentException("custom boom from UDF");
@@ -327,12 +365,7 @@ class ScalarUdfTest {
   void udfThrowingException_propagatesClassAndMessage() {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "boom",
-          new ThrowsIAE(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new ThrowsIAE()));
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
               RuntimeException.class,
@@ -344,11 +377,9 @@ class ScalarUdfTest {
               });
       String msg = ex.getMessage();
       org.junit.jupiter.api.Assertions.assertTrue(
-          msg.contains("IllegalArgumentException"),
-          "expected class name in error, got: " + msg);
+          msg.contains("IllegalArgumentException"), "expected class name in error, got: " + msg);
       org.junit.jupiter.api.Assertions.assertTrue(
-          msg.contains("custom boom from UDF"),
-          "expected user message in error, got: " + msg);
+          msg.contains("custom boom from UDF"), "expected user message in error, got: " + msg);
     }
   }
 
@@ -356,24 +387,11 @@ class ScalarUdfTest {
   void twoUdfsInOneSession_bothCallable() throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "add_one",
-          new AddOne(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
-      ctx.registerUdf(
-          "java_square",
-          new Square(),
-          new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE),
-          List.of(
-              new ArrowType.FloatingPoint(
-                  org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new AddOne()));
+      ctx.registerUdf(new ScalarUdf(new Square()));
 
       try (DataFrame df =
-              ctx.sql(
-                  "SELECT add_one(CAST(10 AS INT)) AS a, java_square(CAST(3 AS DOUBLE)) AS b");
+              ctx.sql("SELECT add_one(CAST(10 AS INT)) AS a, java_square(CAST(3 AS DOUBLE)) AS b");
           ArrowReader r = df.collect(allocator)) {
         assertEquals(true, r.loadNextBatch());
         VectorSchemaRoot root = r.getVectorSchemaRoot();
@@ -391,12 +409,7 @@ class ScalarUdfTest {
     for (int round = 0; round < 2; round++) {
       try (SessionContext ctx = new SessionContext();
           BufferAllocator allocator = new RootAllocator()) {
-        ctx.registerUdf(
-            "add_one",
-            new AddOne(),
-            new ArrowType.Int(32, true),
-            List.of(new ArrowType.Int(32, true)),
-            Volatility.IMMUTABLE);
+        ctx.registerUdf(new ScalarUdf(new AddOne()));
         try (DataFrame df = ctx.sql("SELECT add_one(CAST(7 AS INT))");
             ArrowReader r = df.collect(allocator)) {
           assertEquals(true, r.loadNextBatch());
@@ -411,12 +424,7 @@ class ScalarUdfTest {
   void udfAppliedToMultiRowQuery_processesAllRows() throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(
-          "add_one",
-          new AddOne(),
-          new ArrowType.Int(32, true),
-          List.of(new ArrowType.Int(32, true)),
-          Volatility.IMMUTABLE);
+      ctx.registerUdf(new ScalarUdf(new AddOne()));
       String values =
           java.util.stream.IntStream.rangeClosed(1, 100)
               .mapToObj(i -> "(CAST(" + i + " AS INT))")
@@ -445,14 +453,9 @@ class ScalarUdfTest {
     for (Volatility v : Volatility.values()) {
       try (SessionContext ctx = new SessionContext();
           BufferAllocator allocator = new RootAllocator()) {
-        ctx.registerUdf(
-            "add_one_" + v.name().toLowerCase(),
-            new AddOne(),
-            new ArrowType.Int(32, true),
-            List.of(new ArrowType.Int(32, true)),
-            v);
-        try (DataFrame df =
-                ctx.sql("SELECT add_one_" + v.name().toLowerCase() + "(CAST(0 AS INT))");
+        String registeredName = "add_one_" + v.name().toLowerCase();
+        ctx.registerUdf(new ScalarUdf(new AddOne(registeredName, v)));
+        try (DataFrame df = ctx.sql("SELECT " + registeredName + "(CAST(0 AS INT))");
             ArrowReader r = df.collect(allocator)) {
           assertEquals(true, r.loadNextBatch());
           IntVector y = (IntVector) r.getVectorSchemaRoot().getVector(0);

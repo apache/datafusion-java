@@ -37,7 +37,7 @@ pub(crate) struct JavaScalarUdf {
     pub(crate) name: String,
     pub(crate) signature: Signature,
     pub(crate) return_type: DataType,
-    /// Global ref to the user's `org.apache.datafusion.ScalarUdf` instance.
+    /// Global ref to the user's `org.apache.datafusion.ScalarFunction` instance.
     pub(crate) udf_global_ref: GlobalRef,
     /// Global ref to the `org.apache.datafusion.internal.JniBridge` class.
     pub(crate) bridge_class: GlobalRef,
@@ -171,7 +171,7 @@ impl ScalarUDFImpl for JavaScalarUdf {
         // function. The raw pointer is only read by the JNI call below, which happens
         // before any code that could drop udf_global_ref.
         let call_args: [jvalue; 6] = [
-            // ScalarUdf instance
+            // ScalarFunction instance
             jvalue {
                 l: udf_jobject.as_raw(),
             },

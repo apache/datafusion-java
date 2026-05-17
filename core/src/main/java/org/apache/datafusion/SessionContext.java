@@ -211,29 +211,24 @@ public final class SessionContext implements AutoCloseable {
 
   /**
    * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
-   * via its {@code name} or referenced in DataFusion plans deserialised with {@link #fromProto}.
+   * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
    *
-   * <p>Argument and return types are declared at registration time. The UDF is registered with an
-   * exact signature: the runtime will reject calls whose argument types do not match {@code
-   * argTypes} exactly.
+   * <p>The UDF is registered with an exact signature: the runtime will reject calls whose argument
+   * types do not match the declared {@link ScalarFunction#argTypes()} exactly.
    *
    * @throws RuntimeException if registration fails (e.g., name already registered with an
    *     incompatible signature, schema serialisation failure).
    */
-  public void registerUdf(
-      String name,
-      ScalarUdf udf,
-      ArrowType returnType,
-      List<ArrowType> argTypes,
-      Volatility volatility) {
+  public void registerUdf(ScalarUdf udf) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
-    java.util.Objects.requireNonNull(name, "name");
     java.util.Objects.requireNonNull(udf, "udf");
-    java.util.Objects.requireNonNull(returnType, "returnType");
-    java.util.Objects.requireNonNull(argTypes, "argTypes");
-    java.util.Objects.requireNonNull(volatility, "volatility");
+    ScalarFunction impl = udf.impl();
+    String name = udf.name();
+    ArrowType returnType = udf.returnType();
+    List<ArrowType> argTypes = udf.argTypes();
+    Volatility volatility = udf.volatility();
     List<Field> fields = new ArrayList<>(argTypes.size() + 1);
     fields.add(new Field("return", FieldType.nullable(returnType), null));
     for (int i = 0; i < argTypes.size(); i++) {
@@ -241,7 +236,7 @@ public final class SessionContext implements AutoCloseable {
     }
     Schema signatureSchema = new Schema(fields);
     byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
-    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), udf);
+    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
   }
 
   private static byte[] serializeSchemaIpc(Schema schema) {
@@ -290,5 +285,5 @@ public final class SessionContext implements AutoCloseable {
   private static native void closeSessionContext(long handle);
 
   private static native void registerScalarUdf(
-      long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarUdf udf);
+      long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
 }
