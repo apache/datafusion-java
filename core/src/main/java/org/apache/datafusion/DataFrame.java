@@ -26,12 +26,14 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 
 /**
  * A lazy representation of a query plan, mirroring the Rust DataFusion {@code DataFrame}. Created
- * by {@link SessionContext#sql(String)} or other planning entry points and executed by {@link
- * #collect}.
+ * by {@link SessionContext#sql(String)} or other planning entry points and executed by either
+ * {@link #collect} (materializes every batch on the native heap before returning) or {@link
+ * #executeStream} (yields one batch at a time as Java drains the reader).
  *
- * <p>Instances are <strong>not thread-safe</strong> and must be closed. {@link #collect} consumes
- * the DataFrame: a successfully collected DataFrame cannot be collected again, and {@link #close()}
- * on an already-collected instance is a no-op.
+ * <p>Instances are <strong>not thread-safe</strong> and must be closed. Both {@link #collect} and
+ * {@link #executeStream} consume the DataFrame: a successfully consumed DataFrame cannot be
+ * consumed again by either method (or by other executors such as {@link #count}), and {@link
+ * #close()} on an already-consumed instance is a no-op.
  */
 public final class DataFrame implements AutoCloseable {
   static {
@@ -53,6 +55,10 @@ public final class DataFrame implements AutoCloseable {
    * <p>Consumes this DataFrame: the native plan is released as soon as the stream is established.
    * The caller is responsible for closing the returned reader, and the supplied allocator must
    * outlive it.
+   *
+   * <p>This method materializes every batch on the native heap before the first batch crosses the
+   * FFI boundary, which can OOM the Rust side for unbounded or very large result sets. Prefer
+   * {@link #executeStream(BufferAllocator)} for analytics-scale queries.
    */
   public ArrowReader collect(BufferAllocator allocator) {
     if (nativeHandle == 0) {
@@ -63,6 +69,36 @@ public final class DataFrame implements AutoCloseable {
     nativeHandle = 0;
     try {
       collectDataFrame(handle, stream.memoryAddress());
+      return Data.importArrayStream(allocator, stream);
+    } catch (Throwable e) {
+      stream.close();
+      throw e;
+    }
+  }
+
+  /**
+   * Execute the plan and return its record batches as a streaming {@link ArrowReader}. Each call to
+   * {@link ArrowReader#loadNextBatch} drives one async {@code stream.next()} on the native side, so
+   * memory pressure stays bounded by the executor pipeline plus one in-flight batch instead of the
+   * full result set.
+   *
+   * <p>Consumes this DataFrame with the same lifecycle rules as {@link #collect(BufferAllocator)}:
+   * the native plan is released as soon as the stream is established, the caller closes the
+   * returned reader, and the supplied allocator must outlive it.
+   *
+   * <p>For result sets that fit comfortably in native memory and are read in their entirety, {@link
+   * #collect(BufferAllocator)} remains a reasonable choice. For TB-scale or unbounded result sets,
+   * use this method.
+   */
+  public ArrowReader executeStream(BufferAllocator allocator) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
+    long handle = nativeHandle;
+    nativeHandle = 0;
+    try {
+      executeStreamDataFrame(handle, stream.memoryAddress());
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -210,6 +246,8 @@ public final class DataFrame implements AutoCloseable {
   }
 
   private static native void collectDataFrame(long handle, long ffiStreamAddr);
+
+  private static native void executeStreamDataFrame(long handle, long ffiStreamAddr);
 
   private static native void closeDataFrame(long handle);
 
