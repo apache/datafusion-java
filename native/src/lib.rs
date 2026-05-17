@@ -31,6 +31,7 @@ use std::sync::{Arc, OnceLock};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::record_batch::RecordBatchIterator;
+use datafusion::common::UnnestOptions;
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
@@ -355,6 +356,56 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_renameColumn<'local>
         let old: String = env.get_string(&old_name)?.into();
         let new: String = env.get_string(&new_name)?.into();
         let new_df = df.with_column_renamed(&old, &new)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_withColumnExpr<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+    expr: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let name: String = env.get_string(&name)?.into();
+        let expr: String = env.get_string(&expr)?.into();
+        let parsed = df.parse_sql_expr(&expr)?;
+        let new_df = df.with_column(&name, parsed)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    columns: JObjectArray<'local>,
+    preserve_nulls: jboolean,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+        let opts = UnnestOptions::new().with_preserve_nulls(preserve_nulls != 0);
+        let new_df = df.unnest_columns_with_options(&refs, opts)?;
         Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })
 }
