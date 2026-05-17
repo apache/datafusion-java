@@ -17,6 +17,7 @@
 
 mod csv;
 mod errors;
+mod json;
 mod proto;
 mod schema;
 

@@ -24,18 +24,14 @@ import "file_compression_type.proto";
 option java_package = "org.apache.datafusion.protobuf";
 option java_multiple_files = true;
 
-// Options used to read CSV files. Fields with non-null Java defaults are
-// always sent; fields marked `optional` preserve unset-ness so the Rust
-// side can leave a DataFusion default in place.
-message CsvReadOptionsProto {
-  bool has_header = 1;
-  uint32 delimiter = 2;            // single byte, sent as uint32
-  uint32 quote = 3;                // single byte
-  optional uint32 terminator = 4;
-  optional uint32 escape = 5;
-  optional uint32 comment = 6;
-  optional bool newlines_in_values = 7;
-  optional uint64 schema_infer_max_records = 8;
-  string file_extension = 9;
-  FileCompressionType file_compression_type = 10;
+// Options used to read newline-delimited JSON (NDJSON) files. `file_extension`
+// has a non-null Java default and is always sent; the rest preserve unset-ness
+// so the Rust side can leave a DataFusion default in place. The shared
+// `FileCompressionType` enum lives in its own proto file so both this and
+// csv_read_options.proto can reference it without one file depending on the
+// other.
+message NdJsonReadOptionsProto {
+  string file_extension = 1;
+  FileCompressionType file_compression_type = 2;
+  optional uint64 schema_infer_max_records = 3;
 }
