@@ -19,23 +19,19 @@ syntax = "proto3";
 
 package datafusion_java;
 
-import "file_compression_type.proto";
-
 option java_package = "org.apache.datafusion.protobuf";
 option java_multiple_files = true;
 
-// Options used to read CSV files. Fields with non-null Java defaults are
-// always sent; fields marked `optional` preserve unset-ness so the Rust
-// side can leave a DataFusion default in place.
-message CsvReadOptionsProto {
-  bool has_header = 1;
-  uint32 delimiter = 2;            // single byte, sent as uint32
-  uint32 quote = 3;                // single byte
-  optional uint32 terminator = 4;
-  optional uint32 escape = 5;
-  optional uint32 comment = 6;
-  optional bool newlines_in_values = 7;
-  optional uint64 schema_infer_max_records = 8;
-  string file_extension = 9;
-  FileCompressionType file_compression_type = 10;
+// Compression of a file-format source. Shared by `csv_read_options.proto`
+// and `json_read_options.proto` (and any future format that exposes the
+// same set of compressions). Variants and tag numbers must match
+// DataFusion's `FileCompressionType` so the JNI dispatch can map values
+// directly without a translation table.
+enum FileCompressionType {
+  FILE_COMPRESSION_TYPE_UNSPECIFIED = 0;
+  FILE_COMPRESSION_TYPE_UNCOMPRESSED = 1;
+  FILE_COMPRESSION_TYPE_GZIP = 2;
+  FILE_COMPRESSION_TYPE_BZIP2 = 3;
+  FILE_COMPRESSION_TYPE_XZ = 4;
+  FILE_COMPRESSION_TYPE_ZSTD = 5;
 }

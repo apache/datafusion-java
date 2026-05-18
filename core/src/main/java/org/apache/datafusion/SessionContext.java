@@ -23,6 +23,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -30,6 +32,9 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -115,6 +120,34 @@ public final class SessionContext implements AutoCloseable {
     }
   }
 
+  /**
+   * Read the current value of a {@code datafusion.*} config key. The key must be one DataFusion
+   * recognises (see {@link SessionContextBuilder#setOption(String, String)} for examples and the
+   * upstream configuration reference for the full list).
+   *
+   * <p>{@code datafusion.runtime.*} keys (memory limit, temp directory, cache sizes, etc) are not
+   * yet supported by this getter and will throw. Use the typed {@link
+   * SessionContextBuilder#memoryLimit(long, double)} and {@link
+   * SessionContextBuilder#tempDirectory(String)} setters at construction time instead. Round-trip
+   * support for the runtime subtree is tracked as a follow-up.
+   *
+   * @return the current value as a string, or {@code null} if the key is recognised but has no
+   *     value set and no default.
+   * @throws IllegalArgumentException if {@code key} is {@code null}.
+   * @throws RuntimeException if the key is not recognised by DataFusion or is in the {@code
+   *     datafusion.runtime.*} subtree.
+   * @throws IllegalStateException if this context is closed.
+   */
+  public String getOption(String key) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (key == null) {
+      throw new IllegalArgumentException("getOption key must be non-null");
+    }
+    return getOptionNative(nativeHandle, key);
+  }
+
   public void registerCsv(String name, String path) {
     registerCsv(name, path, new CsvReadOptions());
   }
@@ -153,6 +186,67 @@ public final class SessionContext implements AutoCloseable {
     }
     long dfHandle =
         readCsvWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
+  public void registerJson(String name, String path) {
+    registerJson(name, path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Register a newline-delimited JSON file (or directory of NDJSON files) as a table with the
+   * supplied {@link NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
+   */
+  public void registerJson(String name, String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerJson name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerJson options must be non-null");
+    }
+    registerJsonWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read a newline-delimited JSON file as a {@link DataFrame} without registering it. */
+  public DataFrame readJson(String path) {
+    return readJson(path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Read a newline-delimited JSON file as a {@link DataFrame} with the supplied {@link
+   * NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readJson(String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readJson options must be non-null");
+    }
+    long dfHandle =
+        readJsonWithOptions(
             nativeHandle,
             path,
             options.toBytes(),
@@ -204,6 +298,100 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  /** Register an Arrow IPC file (or directory of Arrow IPC files) as a table. */
+  public void registerArrow(String name, String path) {
+    registerArrow(name, path, new ArrowReadOptions());
+  }
+
+  /**
+   * Register an Arrow IPC file (or directory of Arrow IPC files) as a table with the supplied
+   * {@link ArrowReadOptions}.
+   *
+   * @throws IllegalArgumentException if any of {@code name}, {@code path}, or {@code options} is
+   *     {@code null}.
+   * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
+   */
+  public void registerArrow(String name, String path, ArrowReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerArrow name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerArrow path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerArrow options must be non-null");
+    }
+    registerArrowWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read an Arrow IPC file as a {@link DataFrame} without registering it. */
+  public DataFrame readArrow(String path) {
+    return readArrow(path, new ArrowReadOptions());
+  }
+
+  /**
+   * Read an Arrow IPC file as a {@link DataFrame} with the supplied {@link ArrowReadOptions}.
+   *
+   * @throws IllegalArgumentException if {@code path} or {@code options} is {@code null}.
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readArrow(String path, ArrowReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readArrow path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readArrow options must be non-null");
+    }
+    long dfHandle =
+        readArrowWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
+  /**
+   * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
+   * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
+   *
+   * <p>The UDF is registered with an exact signature: the runtime will reject calls whose argument
+   * types do not match the declared {@link ScalarFunction#argTypes()} exactly.
+   *
+   * @throws RuntimeException if registration fails (e.g., name already registered with an
+   *     incompatible signature, schema serialisation failure).
+   */
+  public void registerUdf(ScalarUdf udf) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    java.util.Objects.requireNonNull(udf, "udf");
+    ScalarFunction impl = udf.impl();
+    String name = udf.name();
+    ArrowType returnType = udf.returnType();
+    List<ArrowType> argTypes = udf.argTypes();
+    Volatility volatility = udf.volatility();
+    List<Field> fields = new ArrayList<>(argTypes.size() + 1);
+    fields.add(new Field("return", FieldType.nullable(returnType), null));
+    for (int i = 0; i < argTypes.size(); i++) {
+      fields.add(new Field("arg" + i, FieldType.nullable(argTypes.get(i)), null));
+    }
+    Schema signatureSchema = new Schema(fields);
+    byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
+    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
+  }
+
   private static byte[] serializeSchemaIpc(Schema schema) {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (BufferAllocator allocator = new RootAllocator();
@@ -235,6 +423,8 @@ public final class SessionContext implements AutoCloseable {
 
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
+  private static native String getOptionNative(long handle, String key);
+
   private static native void registerParquetWithOptions(
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
@@ -247,5 +437,20 @@ public final class SessionContext implements AutoCloseable {
   private static native long readCsvWithOptions(
       long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
+  private static native void registerArrowWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readArrowWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native void registerJsonWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readJsonWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
   private static native void closeSessionContext(long handle);
+
+  private static native void registerScalarUdf(
+      long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
 }
