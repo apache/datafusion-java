@@ -346,4 +346,52 @@ class DataSourceTest {
           "expected schema-mismatch wording, got: " + msg);
     }
   }
+
+  @Test
+  void registerDataSource_twoTables_joinable() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      InMemoryDataSource left = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
+      InMemoryDataSource right = buildTwoColumnTable(new int[] {2, 3}, new String[] {"B", "C"});
+      ctx.registerDataSource("l", left);
+      ctx.registerDataSource("r", right);
+
+      int totalRows = 0;
+      int lidVal = -1;
+      int ridVal = -1;
+      String lnameVal = null;
+      String rnameVal = null;
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT l.id AS lid, r.id AS rid, l.name AS lname, r.name AS rname"
+                      + " FROM l JOIN r ON l.id = r.id");
+          ArrowReader rd = df.collect(allocator)) {
+        while (rd.loadNextBatch()) {
+          VectorSchemaRoot out = rd.getVectorSchemaRoot();
+          IntVector lid = (IntVector) out.getVector("lid");
+          IntVector rid = (IntVector) out.getVector("rid");
+          VarCharVector lname = (VarCharVector) out.getVector("lname");
+          VarCharVector rname = (VarCharVector) out.getVector("rname");
+          int n = lid.getValueCount();
+          for (int i = 0; i < n; i++) {
+            if (totalRows == 0) {
+              lidVal = lid.get(i);
+              ridVal = rid.get(i);
+              lnameVal = new String(lname.get(i));
+              rnameVal = new String(rname.get(i));
+            }
+            totalRows++;
+          }
+        }
+      }
+      assertEquals(1, totalRows);
+      assertEquals(2, lidVal);
+      assertEquals(2, ridVal);
+      assertEquals("b", lnameVal);
+      assertEquals("B", rnameVal);
+      assertEquals(1, left.scanCount());
+      assertEquals(1, right.scanCount());
+    }
+  }
 }
