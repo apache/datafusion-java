@@ -405,9 +405,10 @@ under the License.
 -->
 <section id="scalar-udfs">
 <h1>Scalar UDFs<a class="headerlink" href="#scalar-udfs" title="Link to this heading">#</a></h1>
-<p>A scalar UDF is a Java-implemented SQL function that operates on one row at a
-time, expressed in vectorised form: each invocation receives a batch of input
-columns and returns a single output column of the same length.</p>
+<p>A scalar UDF is a Java-implemented SQL function that operates one row at a time,
+expressed in vectorised form: each invocation receives a batch of input columns
+and returns either a per-row output column of the same length (<code class="docutils literal notranslate"><span class="pre">Array</span></code>) or a
+single value broadcast to every row (<code class="docutils literal notranslate"><span class="pre">Scalar</span></code>).</p>
 <section id="implement">
 <h2>Implement<a class="headerlink" href="#implement" title="Link to this heading">#</a></h2>
 <p>Implement the <code class="docutils literal notranslate"><span class="pre">ScalarFunction</span></code> interface. The implementation declares its own
@@ -415,10 +416,11 @@ SQL name, argument types, return type, and volatility, and supplies the
 per-batch <code class="docutils literal notranslate"><span class="pre">evaluate</span></code> body:</p>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.List</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.BufferAllocator</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.FieldVector</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.IntVector</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.ArrowType</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ColumnarValue</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ScalarFunction</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ScalarFunctionArgs</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.Volatility</span><span class="p">;</span>
 
 <span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AddOne</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ScalarFunction</span><span class="w"> </span><span class="p">{</span>
@@ -430,8 +432,8 @@ per-batch <code class="docutils literal notranslate"><span class="pre">evaluate<
 <span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="nf">volatility</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Volatility</span><span class="p">.</span><span class="na">IMMUTABLE</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="nd">@Override</span>
-<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">FieldVector</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">FieldVector</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="n">IntVector</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">IntVector</span><span class="p">)</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ColumnarValue</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="p">,</span><span class="w"> </span><span class="n">ScalarFunctionArgs</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">IntVector</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">IntVector</span><span class="p">)</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="na">args</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="mi">0</span><span class="p">).</span><span class="na">vector</span><span class="p">();</span>
 <span class="w">        </span><span class="n">IntVector</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IntVector</span><span class="p">(</span><span class="s">&quot;add_one&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">allocator</span><span class="p">);</span>
 <span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">allocateNew</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">());</span>
 <span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
@@ -439,14 +441,46 @@ per-batch <code class="docutils literal notranslate"><span class="pre">evaluate<
 <span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">setValueCount</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">());</span>
-<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">out</span><span class="p">;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ColumnarValue</span><span class="p">.</span><span class="na">array</span><span class="p">(</span><span class="n">out</span><span class="p">);</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
+<p>Each entry in <code class="docutils literal notranslate"><span class="pre">args.args()</span></code> is a <code class="docutils literal notranslate"><span class="pre">ColumnarValue</span></code> — either <code class="docutils literal notranslate"><span class="pre">ColumnarValue.Array</span></code>
+(a per-row vector of length <code class="docutils literal notranslate"><span class="pre">args.rowCount()</span></code>) or <code class="docutils literal notranslate"><span class="pre">ColumnarValue.Scalar</span></code> (a
+length-1 vector representing a single literal or folded constant). Access the
+underlying Arrow vector with <code class="docutils literal notranslate"><span class="pre">.vector()</span></code>.</p>
 <p>Allocate any new vectors — including the result — from the supplied
 <code class="docutils literal notranslate"><span class="pre">BufferAllocator</span></code>. The input vectors are read-only views; do not close them.
 Ownership of the returned vector transfers to the framework on return.</p>
+</section>
+<section id="returning-a-scalar">
+<h2>Returning a Scalar<a class="headerlink" href="#returning-a-scalar" title="Link to this heading">#</a></h2>
+<p>Functions that yield a single value (nullary constants like <code class="docutils literal notranslate"><span class="pre">pi()</span></code>, or any
+function that wants the framework to broadcast a result across the batch) can
+return <code class="docutils literal notranslate"><span class="pre">ColumnarValue.scalar(...)</span></code> over a length-1 vector:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">JavaPi</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ScalarFunction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="n">FLOAT64</span><span class="w"> </span><span class="o">=</span>
+<span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">FloatingPoint</span><span class="p">(</span><span class="n">org</span><span class="p">.</span><span class="na">apache</span><span class="p">.</span><span class="na">arrow</span><span class="p">.</span><span class="na">vector</span><span class="p">.</span><span class="na">types</span><span class="p">.</span><span class="na">FloatingPointPrecision</span><span class="p">.</span><span class="na">DOUBLE</span><span class="p">);</span>
+
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;java_pi&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ArrowType</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argTypes</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="nf">returnType</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">FLOAT64</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="nf">volatility</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Volatility</span><span class="p">.</span><span class="na">VOLATILE</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nd">@Override</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ColumnarValue</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="p">,</span><span class="w"> </span><span class="n">ScalarFunctionArgs</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">org</span><span class="p">.</span><span class="na">apache</span><span class="p">.</span><span class="na">arrow</span><span class="p">.</span><span class="na">vector</span><span class="p">.</span><span class="na">Float8Vector</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span>
+<span class="w">            </span><span class="k">new</span><span class="w"> </span><span class="n">org</span><span class="p">.</span><span class="na">apache</span><span class="p">.</span><span class="na">arrow</span><span class="p">.</span><span class="na">vector</span><span class="p">.</span><span class="na">Float8Vector</span><span class="p">(</span><span class="s">&quot;pi&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">allocator</span><span class="p">);</span>
+<span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">allocateNew</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">Math</span><span class="p">.</span><span class="na">PI</span><span class="p">);</span>
+<span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">setValueCount</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">ColumnarValue</span><span class="p">.</span><span class="na">scalar</span><span class="p">(</span><span class="n">out</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The framework expands the scalar across <code class="docutils literal notranslate"><span class="pre">args.rowCount()</span></code> rows automatically.</p>
 </section>
 <section id="register">
 <h2>Register<a class="headerlink" href="#register" title="Link to this heading">#</a></h2>
@@ -471,9 +505,11 @@ non-deterministic functions.</p>
 <section id="errors">
 <h2>Errors<a class="headerlink" href="#errors" title="Link to this heading">#</a></h2>
 <p>If the UDF throws, the exception class and message surface in the
-<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> raised from <code class="docutils literal notranslate"><span class="pre">collect()</span></code>. If the returned vector is <code class="docutils literal notranslate"><span class="pre">null</span></code>,
-has the wrong row count, or the wrong type, the runtime raises a
-<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> with a descriptive message.</p>
+<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> raised from <code class="docutils literal notranslate"><span class="pre">collect()</span></code>. If the returned <code class="docutils literal notranslate"><span class="pre">ColumnarValue</span></code> is
+<code class="docutils literal notranslate"><span class="pre">null</span></code>, an Array result’s vector length does not equal <code class="docutils literal notranslate"><span class="pre">args.rowCount()</span></code>, or
+the result’s Arrow type differs from the declared return type, the runtime
+raises a <code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> with a descriptive message. A Scalar result whose
+vector is not length-1 is rejected at the <code class="docutils literal notranslate"><span class="pre">ColumnarValue.scalar</span></code> factory.</p>
 </section>
 <section id="threading">
 <h2>Threading<a class="headerlink" href="#threading" title="Link to this heading">#</a></h2>
@@ -539,6 +575,7 @@ UDF as nulls in the input vector.</p></li>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implement">Implement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#returning-a-scalar">Returning a Scalar</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register">Register</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
