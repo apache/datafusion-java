@@ -40,12 +40,13 @@ public interface DataSource {
   Schema schema();
 
   /**
-   * Open a fresh batch stream for this table. Called once per query that scans the table.
+   * Open a fresh batch stream for this table. Called once per physical scan of the table — a single
+   * query may invoke this more than once (self-joins, {@code UNION ALL} over the same table, etc.).
    *
    * <p>Each invocation MUST return an independent {@link ArrowReader}. The reader's schema MUST
    * equal {@link #schema()}. The reader's buffers MUST be allocated from {@code allocator} (or from
    * a child of it) — the framework needs the reader's allocator hierarchy to share a root with the
-   * one it passes here. This mirrors {@link ScalarFunction#evaluate}.
+   * one it passes here. The allocator contract mirrors the one on {@link ScalarFunction#evaluate}.
    */
   ArrowReader scan(BufferAllocator allocator);
 }
