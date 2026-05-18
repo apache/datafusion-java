@@ -73,6 +73,24 @@ class DataFrameWriteCsvTest {
   }
 
   @Test
+  void writeCsvDefaultsToDirectoryEvenWithExtensionInPath(@TempDir Path tempDir) throws Exception {
+    // The Javadoc promises "directory unless overridden via singleFileOutput(true)". DataFusion's
+    // own DataFrameWriteOptions defaults to Automatic mode, where an extension in the path
+    // (".csv" here) silently flips the output to a single file. The native handler explicitly
+    // pins the default to directory mode so this contract holds regardless of path shape.
+    Path src = writeCsv(tempDir, "src.csv", "id,name\n1,alice\n2,bob\n3,carol\n");
+    Path out = tempDir.resolve("out.csv");
+
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.readCsv(src.toAbsolutePath().toString())) {
+      df.writeCsv(out.toString());
+    }
+
+    assertTrue(Files.isDirectory(out), "expected directory output at " + out + ", got a file");
+    assertEquals(3L, countRowsAt(out, new CsvReadOptions()));
+  }
+
+  @Test
   void writeCsvSingleFileProducesOneFile(@TempDir Path tempDir) throws Exception {
     Path src = writeCsv(tempDir, "src.csv", "id,name\n1,alice\n2,bob\n3,carol\n");
     Path out = tempDir.resolve("out.csv");
@@ -111,8 +129,7 @@ class DataFrameWriteCsvTest {
     try (SessionContext ctx = new SessionContext();
         DataFrame df = ctx.readCsv(src.toAbsolutePath().toString())) {
       df.writeCsv(
-          out.toString(),
-          new CsvWriteOptions().fileCompressionType(FileCompressionType.GZIP));
+          out.toString(), new CsvWriteOptions().fileCompressionType(FileCompressionType.GZIP));
     }
 
     try (Stream<Path> stream = Files.walk(out)) {
@@ -126,9 +143,7 @@ class DataFrameWriteCsvTest {
     }
 
     CsvReadOptions readOpts =
-        new CsvReadOptions()
-            .fileCompressionType(FileCompressionType.GZIP)
-            .fileExtension(".csv.gz");
+        new CsvReadOptions().fileCompressionType(FileCompressionType.GZIP).fileExtension(".csv.gz");
     assertEquals(4L, countRowsAt(out, readOpts));
   }
 

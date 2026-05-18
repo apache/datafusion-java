@@ -445,10 +445,17 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOpti
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         let path: String = env.get_string(&path)?.into();
 
-        let mut write_opts = DataFrameWriteOptions::new();
-        if single_file_output_set != 0 {
-            write_opts = write_opts.with_single_file_output(single_file_output_value != 0);
-        }
+        // When the caller left `singleFileOutput` unset, force directory output (`false`)
+        // rather than leaving DataFusion in `Automatic` mode. Automatic mode treats paths
+        // with an extension (e.g. `out.parquet`) as single-file targets, which would silently
+        // contradict the documented "directory unless overridden" default and surprise any
+        // caller that hands writeParquet a `.parquet` path.
+        let single_file = if single_file_output_set != 0 {
+            single_file_output_value != 0
+        } else {
+            false
+        };
+        let write_opts = DataFrameWriteOptions::new().with_single_file_output(single_file);
 
         let writer_opts: Option<TableParquetOptions> = if !compression.is_null() {
             let c: String = env.get_string(&compression)?.into();

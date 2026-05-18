@@ -172,10 +172,13 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeCsvWithOptions<
             None
         };
 
-        let mut write_opts = DataFrameWriteOptions::new();
-        if let Some(v) = p.single_file_output {
-            write_opts = write_opts.with_single_file_output(v);
-        }
+        // When the caller left `singleFileOutput` unset, force directory output (`false`)
+        // rather than leaving DataFusion in `Automatic` mode. Automatic mode treats paths
+        // with an extension (e.g. `out.csv`) as single-file targets, which would silently
+        // contradict the documented "directory unless overridden" default and surprise any
+        // caller that hands writeCsv a `.csv` path.
+        let mut write_opts = DataFrameWriteOptions::new()
+            .with_single_file_output(p.single_file_output.unwrap_or(false));
         if !p.partition_cols.is_empty() {
             write_opts = write_opts.with_partition_by(p.partition_cols.clone());
         }
