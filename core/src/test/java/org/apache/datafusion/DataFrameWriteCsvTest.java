@@ -112,7 +112,7 @@ class DataFrameWriteCsvTest {
         DataFrame df = ctx.readCsv(src.toAbsolutePath().toString())) {
       df.writeCsv(
           out.toString(),
-          new CsvWriteOptions().fileCompressionType(CsvReadOptions.FileCompressionType.GZIP));
+          new CsvWriteOptions().fileCompressionType(FileCompressionType.GZIP));
     }
 
     try (Stream<Path> stream = Files.walk(out)) {
@@ -127,7 +127,7 @@ class DataFrameWriteCsvTest {
 
     CsvReadOptions readOpts =
         new CsvReadOptions()
-            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP)
+            .fileCompressionType(FileCompressionType.GZIP)
             .fileExtension(".csv.gz");
     assertEquals(4L, countRowsAt(out, readOpts));
   }

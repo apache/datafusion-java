@@ -19,6 +19,8 @@ syntax = "proto3";
 
 package datafusion_java;
 
+import "file_compression_type.proto";
+
 option java_package = "org.apache.datafusion.protobuf";
 option java_multiple_files = true;
 
@@ -36,13 +38,4 @@ message CsvReadOptionsProto {
   optional uint64 schema_infer_max_records = 8;
   string file_extension = 9;
   FileCompressionType file_compression_type = 10;
-}
-
-enum FileCompressionType {
-  FILE_COMPRESSION_TYPE_UNSPECIFIED = 0;
-  FILE_COMPRESSION_TYPE_UNCOMPRESSED = 1;
-  FILE_COMPRESSION_TYPE_GZIP = 2;
-  FILE_COMPRESSION_TYPE_BZIP2 = 3;
-  FILE_COMPRESSION_TYPE_XZ = 4;
-  FILE_COMPRESSION_TYPE_ZSTD = 5;
 }

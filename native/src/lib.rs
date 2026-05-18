@@ -17,8 +17,10 @@
 
 mod csv;
 mod errors;
+mod json;
 mod proto;
 mod schema;
+mod udf;
 
 pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
@@ -30,15 +32,18 @@ use std::sync::{Arc, OnceLock};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::record_batch::RecordBatchIterator;
+use datafusion::common::UnnestOptions;
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::logical_expr::{ScalarUDF, Signature};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
-use jni::objects::{JByteArray, JClass, JObjectArray, JString};
+use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
+use jni::JavaVM;
 use prost::Message;
 use tokio::runtime::Runtime;
 
@@ -46,6 +51,21 @@ use crate::errors::{try_unwrap_or_throw, JniResult};
 use crate::proto_gen::ParquetReadOptionsProto;
 use crate::proto_gen::SessionOptions;
 use crate::schema::decode_optional_schema;
+
+static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
+
+#[no_mangle]
+pub extern "system" fn JNI_OnLoad(vm: JavaVM, _reserved: *mut std::ffi::c_void) -> jni::sys::jint {
+    let _ = JAVA_VM.set(vm);
+    jni::sys::JNI_VERSION_1_8
+}
+
+#[allow(dead_code)]
+pub(crate) fn jvm() -> &'static JavaVM {
+    JAVA_VM
+        .get()
+        .expect("JNI_OnLoad has not been called; JavaVM unavailable")
+}
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
@@ -359,6 +379,56 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_renameColumn<'local>
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_withColumnExpr<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+    expr: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let name: String = env.get_string(&name)?.into();
+        let expr: String = env.get_string(&expr)?.into();
+        let parsed = df.parse_sql_expr(&expr)?;
+        let new_df = df.with_column(&name, parsed)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    columns: JObjectArray<'local>,
+    preserve_nulls: jboolean,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+        let opts = UnnestOptions::new().with_preserve_nulls(preserve_nulls != 0);
+        let new_df = df.unnest_columns_with_options(&refs, opts)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -547,5 +617,63 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_readParquetWith
             let df = runtime().block_on(ctx.read_parquet(path, opts))?;
             Ok(Box::into_raw(Box::new(df)) as jlong)
         })
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarUdf<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+    signature_schema_bytes: JByteArray<'local>,
+    volatility: jni::sys::jbyte,
+    udf: JObject<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext.
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+
+        // Decode the signature schema (field 0 = return type, fields 1..N = arg types).
+        let signature_schema = crate::schema::decode_optional_schema(env, signature_schema_bytes)?
+            .ok_or("signature schema bytes were null")?;
+        let fields = signature_schema.fields();
+        if fields.is_empty() {
+            return Err("signature schema must have at least a return-type field".into());
+        }
+        let return_type = fields[0].data_type().clone();
+        let arg_types: Vec<datafusion::arrow::datatypes::DataType> = fields
+            .iter()
+            .skip(1)
+            .map(|f| f.data_type().clone())
+            .collect();
+
+        let volatility = crate::udf::volatility_from_byte(volatility as u8)?;
+        let signature = Signature::exact(arg_types, volatility);
+
+        // Hold references that survive the JNI call.
+        let udf_global_ref = env.new_global_ref(&udf)?;
+        let bridge_class_local = env.find_class("org/apache/datafusion/internal/JniBridge")?;
+        let bridge_class = env.new_global_ref(&bridge_class_local)?;
+        let invoke_method = env.get_static_method_id(
+            &bridge_class_local,
+            "invokeScalarUdf",
+            "(Lorg/apache/datafusion/ScalarFunction;JJJJI)V",
+        )?;
+
+        let java_udf = crate::udf::JavaScalarUdf {
+            name: name.clone(),
+            signature,
+            return_type,
+            udf_global_ref,
+            bridge_class,
+            invoke_method,
+        };
+        ctx.register_udf(ScalarUDF::new_from_impl(java_udf));
+        Ok(())
     })
 }

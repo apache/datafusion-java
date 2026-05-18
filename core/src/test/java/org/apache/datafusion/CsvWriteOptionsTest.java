@@ -24,7 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.datafusion.protobuf.CsvWriteOptionsProto;
-import org.apache.datafusion.protobuf.FileCompressionType;
 import org.junit.jupiter.api.Test;
 
 class CsvWriteOptionsTest {
@@ -54,7 +53,7 @@ class CsvWriteOptionsTest {
             .quote((byte) '\'')
             .escape((byte) '\\')
             .nullValue("\\N")
-            .fileCompressionType(CsvReadOptions.FileCompressionType.GZIP);
+            .fileCompressionType(FileCompressionType.GZIP);
 
     CsvWriteOptionsProto p = CsvWriteOptionsProto.parseFrom(opts.toBytes());
 
@@ -67,7 +66,9 @@ class CsvWriteOptionsTest {
     assertEquals((int) '\'', p.getQuote());
     assertEquals((int) '\\', p.getEscape());
     assertEquals("\\N", p.getNullValue());
-    assertEquals(FileCompressionType.FILE_COMPRESSION_TYPE_GZIP, p.getFileCompressionType());
+    assertEquals(
+        org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP,
+        p.getFileCompressionType());
   }
 
   @Test

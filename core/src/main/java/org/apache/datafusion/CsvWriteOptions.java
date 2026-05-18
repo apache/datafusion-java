@@ -35,9 +35,8 @@ import java.util.List;
  * partition columns, the path is treated as a directory that DataFusion populates with one or more
  * part-files.
  *
- * <p>Compression reuses {@link CsvReadOptions.FileCompressionType} -- both the read and write sides
- * accept the same codec set ({@code UNCOMPRESSED}, {@code GZIP}, {@code BZIP2}, {@code XZ}, {@code
- * ZSTD}).
+ * <p>Compression reuses {@link FileCompressionType} -- both the read and write sides accept the
+ * same codec set ({@code UNCOMPRESSED}, {@code GZIP}, {@code BZIP2}, {@code XZ}, {@code ZSTD}).
  */
 public final class CsvWriteOptions {
 
@@ -48,7 +47,7 @@ public final class CsvWriteOptions {
   private Byte quote;
   private Byte escape;
   private String nullValue;
-  private CsvReadOptions.FileCompressionType fileCompressionType;
+  private FileCompressionType fileCompressionType;
 
   /**
    * When {@code true}, write to a single file at the supplied path. When left unset (the default)
@@ -104,7 +103,7 @@ public final class CsvWriteOptions {
   }
 
   /** Output compression codec. Defaults to uncompressed. */
-  public CsvWriteOptions fileCompressionType(CsvReadOptions.FileCompressionType t) {
+  public CsvWriteOptions fileCompressionType(FileCompressionType t) {
     this.fileCompressionType = t;
     return this;
   }
@@ -132,27 +131,8 @@ public final class CsvWriteOptions {
       b.setNullValue(nullValue);
     }
     if (fileCompressionType != null) {
-      b.setFileCompressionType(toProto(fileCompressionType));
+      b.setFileCompressionType(FileCompressionTypes.toProto(fileCompressionType));
     }
     return b.build().toByteArray();
-  }
-
-  private static org.apache.datafusion.protobuf.FileCompressionType toProto(
-      CsvReadOptions.FileCompressionType t) {
-    switch (t) {
-      case UNCOMPRESSED:
-        return org.apache.datafusion.protobuf.FileCompressionType
-            .FILE_COMPRESSION_TYPE_UNCOMPRESSED;
-      case GZIP:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_GZIP;
-      case BZIP2:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_BZIP2;
-      case XZ:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_XZ;
-      case ZSTD:
-        return org.apache.datafusion.protobuf.FileCompressionType.FILE_COMPRESSION_TYPE_ZSTD;
-      default:
-        throw new IllegalArgumentException("unhandled FileCompressionType: " + t);
-    }
   }
 }
