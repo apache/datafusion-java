@@ -38,6 +38,7 @@ dataframe
 parquet
 proto-plans
 scalar-udf
+data-source
 api-reference
 ```
 
