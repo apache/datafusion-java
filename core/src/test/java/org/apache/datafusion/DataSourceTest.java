@@ -267,6 +267,41 @@ class DataSourceTest {
     }
   }
 
+  static final class NullReturningDataSource implements DataSource {
+    @Override
+    public Schema schema() {
+      return new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
+    }
+
+    @Override
+    public ArrowReader scan(BufferAllocator allocator) {
+      return null;
+    }
+  }
+
+  @Test
+  void registerDataSource_scanReturnsNull_failsWithIllegalStateException() {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      ctx.registerDataSource("t", new NullReturningDataSource());
+
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT id FROM t");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      String msg = ex.getMessage();
+      assertTrue(
+          msg.contains("IllegalStateException"),
+          "expected IllegalStateException in error, got: " + msg);
+      assertTrue(msg.contains("returned null"), "expected 'returned null' wording, got: " + msg);
+    }
+  }
+
   /** Declares (id INT) but scan() returns (id INT, extra UTF8). */
   static final class SchemaLyingDataSource implements DataSource {
     @Override
