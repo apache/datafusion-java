@@ -24,6 +24,7 @@ pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
@@ -170,9 +171,27 @@ impl Iterator for StreamingReader {
     type Item = Result<RecordBatch, ArrowError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        runtime()
-            .block_on(self.stream.next())
-            .map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e))))
+        // Arrow's C ABI invokes this iterator through FFI_ArrowArrayStream's
+        // vtable, outside the JNI handler's try_unwrap_or_throw guard. A panic
+        // here (buggy UDF, arrow cast that panics, runtime poison) would
+        // unwind across C/FFI -- undefined behaviour. Catch it and surface as
+        // an ArrowError so the Java side sees a normal exception instead.
+        let next = catch_unwind(AssertUnwindSafe(|| runtime().block_on(self.stream.next())));
+        match next {
+            Ok(item) => item.map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e)))),
+            Err(panic) => {
+                let msg = if let Some(s) = panic.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else {
+                    "rust panic with non-string payload".to_string()
+                };
+                Some(Err(ArrowError::ExternalError(
+                    format!("panic in DataFrame stream: {msg}").into(),
+                )))
+            }
+        }
     }
 }
 
