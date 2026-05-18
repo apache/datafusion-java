@@ -122,6 +122,8 @@ pub(crate) struct JavaScanExec {
     plan_properties: Arc<PlanProperties>,
 }
 
+// SAFETY: same reasoning as JavaDataSource above — GlobalRefs via Arc keep
+// Java objects alive; JStaticMethodID is stable; nothing mutated after construction.
 unsafe impl Send for JavaScanExec {}
 unsafe impl Sync for JavaScanExec {}
 
@@ -181,6 +183,12 @@ impl ExecutionPlan for JavaScanExec {
         let ffi_addr = ffi_box.as_mut() as *mut FFI_ArrowArrayStream as jlong;
 
         // 2. Attach the JVM and call the bridge.
+        //
+        // The attachment scope is just this function: we need the JVM attached for
+        // the synchronous `invokeDataSourceScan` call. Subsequent polls of the
+        // returned stream do not need this attachment, because the FFI release /
+        // get_next callbacks installed by arrow-java's `Data.exportArrayStream`
+        // self-attach to the JVM via the global `JavaVM` set in our `JNI_OnLoad`.
         let mut env = crate::jvm()
             .attach_current_thread()
             .map_err(|e| DataFusionError::Execution(format!("JNI attach failed: {}", e)))?;
@@ -225,6 +233,9 @@ impl ExecutionPlan for JavaScanExec {
 
         // 5. Verify the producer's declared schema matches our registered schema.
         let reader_schema = reader.schema();
+        // Schema::PartialEq compares fields AND metadata. If IPC / FFI round-trips
+        // ever normalise metadata differently between the registration path and the
+        // scan path, switch to comparing `.fields()` only.
         if reader_schema.as_ref() != self.full_schema.as_ref() {
             return Err(DataFusionError::Execution(format!(
                 "Java DataSource '{}' returned schema {:?}; registered schema was {:?}",
