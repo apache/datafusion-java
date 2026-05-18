@@ -37,6 +37,7 @@ sessioncontext
 dataframe
 parquet
 proto-plans
+scalar-udf
 api-reference
 ```
 

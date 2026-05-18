@@ -23,6 +23,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -30,6 +32,9 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -188,6 +193,67 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  public void registerJson(String name, String path) {
+    registerJson(name, path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Register a newline-delimited JSON file (or directory of NDJSON files) as a table with the
+   * supplied {@link NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
+   */
+  public void registerJson(String name, String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerJson name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerJson options must be non-null");
+    }
+    registerJsonWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read a newline-delimited JSON file as a {@link DataFrame} without registering it. */
+  public DataFrame readJson(String path) {
+    return readJson(path, new NdJsonReadOptions());
+  }
+
+  /**
+   * Read a newline-delimited JSON file as a {@link DataFrame} with the supplied {@link
+   * NdJsonReadOptions}.
+   *
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readJson(String path, NdJsonReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readJson options must be non-null");
+    }
+    long dfHandle =
+        readJsonWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
   public void registerParquet(String name, String path) {
     registerParquet(name, path, new ParquetReadOptions());
   }
@@ -232,6 +298,7 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  /** Register an Arrow IPC file (or directory of Arrow IPC files) as a table. */
   public void registerArrow(String name, String path) {
     registerArrow(name, path, new ArrowReadOptions());
   }
@@ -295,6 +362,36 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  /**
+   * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
+   * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
+   *
+   * <p>The UDF is registered with an exact signature: the runtime will reject calls whose argument
+   * types do not match the declared {@link ScalarFunction#argTypes()} exactly.
+   *
+   * @throws RuntimeException if registration fails (e.g., name already registered with an
+   *     incompatible signature, schema serialisation failure).
+   */
+  public void registerUdf(ScalarUdf udf) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    java.util.Objects.requireNonNull(udf, "udf");
+    ScalarFunction impl = udf.impl();
+    String name = udf.name();
+    ArrowType returnType = udf.returnType();
+    List<ArrowType> argTypes = udf.argTypes();
+    Volatility volatility = udf.volatility();
+    List<Field> fields = new ArrayList<>(argTypes.size() + 1);
+    fields.add(new Field("return", FieldType.nullable(returnType), null));
+    for (int i = 0; i < argTypes.size(); i++) {
+      fields.add(new Field("arg" + i, FieldType.nullable(argTypes.get(i)), null));
+    }
+    Schema signatureSchema = new Schema(fields);
+    byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
+    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
+  }
+
   private static byte[] serializeSchemaIpc(Schema schema) {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (BufferAllocator allocator = new RootAllocator();
@@ -346,5 +443,14 @@ public final class SessionContext implements AutoCloseable {
   private static native long readArrowWithOptions(
       long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
+  private static native void registerJsonWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readJsonWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
   private static native void closeSessionContext(long handle);
+
+  private static native void registerScalarUdf(
+      long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
 }

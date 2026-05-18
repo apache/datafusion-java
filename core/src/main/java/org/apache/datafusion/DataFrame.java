@@ -172,6 +172,55 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Add a column to this DataFrame computed from a SQL expression. If a column with the given name
+   * already exists, it is replaced in place; otherwise the new column is appended. The expression
+   * is parsed against this DataFrame's own schema, matching the convention used by {@link
+   * #filter(String)}. The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code name} or {@code expr} is {@code null}.
+   */
+  public DataFrame withColumn(String name, String expr) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("withColumn name must be non-null");
+    }
+    if (expr == null) {
+      throw new IllegalArgumentException("withColumn expr must be non-null");
+    }
+    return new DataFrame(withColumnExpr(nativeHandle, name, expr));
+  }
+
+  /**
+   * Expand list or struct columns into rows or fields, with default {@link UnnestOptions} (i.e.
+   * {@code preserveNulls = true}). The receiver remains usable and must still be closed
+   * independently.
+   */
+  public DataFrame unnestColumns(String... columns) {
+    return unnestColumns(new UnnestOptions(), columns);
+  }
+
+  /**
+   * Expand list or struct columns into rows or fields with the supplied {@link UnnestOptions}. The
+   * receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code options} or {@code columns} is {@code null}.
+   */
+  public DataFrame unnestColumns(UnnestOptions options, String... columns) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("unnestColumns options must be non-null");
+    }
+    if (columns == null) {
+      throw new IllegalArgumentException("unnestColumns columns must be non-null");
+    }
+    return new DataFrame(unnestColumns(nativeHandle, columns, options.preserveNulls()));
+  }
+
+  /**
    * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
    * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
    * remains usable and must still be closed independently.
@@ -230,6 +279,10 @@ public final class DataFrame implements AutoCloseable {
   private static native long dropColumns(long handle, String[] columnNames);
 
   private static native long renameColumn(long handle, String oldName, String newName);
+
+  private static native long withColumnExpr(long handle, String name, String expr);
+
+  private static native long unnestColumns(long handle, String[] columns, boolean preserveNulls);
 
   private static native void writeParquetWithOptions(
       long handle,
