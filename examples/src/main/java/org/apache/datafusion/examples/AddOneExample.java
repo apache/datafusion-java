@@ -28,6 +28,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.datafusion.DataFrame;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarUdf;
@@ -47,13 +48,13 @@ public final class AddOneExample {
     }
 
     @Override
-    public List<ArrowType> argTypes() {
-      return List.of(INT32);
+    public List<Field> argFields() {
+      return List.of(Field.nullable("x", INT32));
     }
 
     @Override
-    public ArrowType returnType() {
-      return INT32;
+    public Field returnField() {
+      return Field.nullable("y", INT32);
     }
 
     @Override

@@ -20,6 +20,8 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
@@ -28,13 +30,18 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.junit.jupiter.api.Test;
 
 class ScalarUdfTest {
 
   private static final ArrowType INT32 = new ArrowType.Int(32, true);
+  private static final ArrowType INT64 = new ArrowType.Int(64, true);
   private static final ArrowType FLOAT64 =
       new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
   private static final ArrowType UTF8 = new ArrowType.Utf8();
@@ -42,15 +49,15 @@ class ScalarUdfTest {
   /** Test-only base that supplies the four metadata getters from constructor args. */
   abstract static class AbstractScalarFunction implements ScalarFunction {
     private final String name;
-    private final List<ArrowType> argTypes;
-    private final ArrowType returnType;
+    private final List<Field> argFields;
+    private final Field returnField;
     private final Volatility volatility;
 
     AbstractScalarFunction(
-        String name, List<ArrowType> argTypes, ArrowType returnType, Volatility volatility) {
+        String name, List<Field> argFields, Field returnField, Volatility volatility) {
       this.name = name;
-      this.argTypes = argTypes;
-      this.returnType = returnType;
+      this.argFields = argFields;
+      this.returnField = returnField;
       this.volatility = volatility;
     }
 
@@ -60,13 +67,13 @@ class ScalarUdfTest {
     }
 
     @Override
-    public final List<ArrowType> argTypes() {
-      return argTypes;
+    public final List<Field> argFields() {
+      return argFields;
     }
 
     @Override
-    public final ArrowType returnType() {
-      return returnType;
+    public final Field returnField() {
+      return returnField;
     }
 
     @Override
@@ -82,7 +89,7 @@ class ScalarUdfTest {
     }
 
     AddOne(String name, Volatility volatility) {
-      super(name, List.of(INT32), INT32, volatility);
+      super(name, List.of(Field.nullable("x", INT32)), Field.nullable("y", INT32), volatility);
     }
 
     @Override
@@ -129,7 +136,11 @@ class ScalarUdfTest {
   /** Concatenates two Utf8 columns. */
   static final class Concat extends AbstractScalarFunction {
     Concat() {
-      super("java_concat", List.of(UTF8, UTF8), UTF8, Volatility.IMMUTABLE);
+      super(
+          "java_concat",
+          List.of(Field.nullable("a", UTF8), Field.nullable("b", UTF8)),
+          Field.nullable("c", UTF8),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -184,7 +195,11 @@ class ScalarUdfTest {
   /** Squares a Float64 column. */
   static final class Square extends AbstractScalarFunction {
     Square() {
-      super("java_square", List.of(FLOAT64), FLOAT64, Volatility.IMMUTABLE);
+      super(
+          "java_square",
+          List.of(Field.nullable("x", FLOAT64)),
+          Field.nullable("y", FLOAT64),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -248,7 +263,11 @@ class ScalarUdfTest {
 
   static final class ReturnsNull extends AbstractScalarFunction {
     ReturnsNull() {
-      super("bad_null", List.of(INT32), INT32, Volatility.IMMUTABLE);
+      super(
+          "bad_null",
+          List.of(Field.nullable("x", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -279,7 +298,11 @@ class ScalarUdfTest {
 
   static final class WrongRowCount extends AbstractScalarFunction {
     WrongRowCount() {
-      super("bad_rows", List.of(INT32), INT32, Volatility.IMMUTABLE);
+      super(
+          "bad_rows",
+          List.of(Field.nullable("x", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -315,7 +338,11 @@ class ScalarUdfTest {
 
   static final class WrongType extends AbstractScalarFunction {
     WrongType() {
-      super("bad_type", List.of(INT32), INT32, Volatility.IMMUTABLE);
+      super(
+          "bad_type",
+          List.of(Field.nullable("x", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -352,7 +379,11 @@ class ScalarUdfTest {
 
   static final class ThrowsIAE extends AbstractScalarFunction {
     ThrowsIAE() {
-      super("boom", List.of(INT32), INT32, Volatility.IMMUTABLE);
+      super(
+          "boom",
+          List.of(Field.nullable("x", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
     }
 
     @Override
@@ -461,6 +492,191 @@ class ScalarUdfTest {
           IntVector y = (IntVector) r.getVectorSchemaRoot().getVector(0);
           assertEquals(1, y.get(0));
         }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Nested-type UDF tests. These pinpoint the regression #58 fixed.
+  // ---------------------------------------------------------------------
+
+  /**
+   * UDF taking a {@code List<Int32>} argument and returning its length as Int32. Exercises that
+   * nested Arrow types -- whose element / member types live on the parent {@link Field}'s {@code
+   * children} list, not inside {@link ArrowType} -- can be declared and registered.
+   */
+  static final class ListLength extends AbstractScalarFunction {
+    ListLength() {
+      super(
+          "java_list_length",
+          List.of(
+              new Field(
+                  "vals",
+                  FieldType.nullable(new ArrowType.List()),
+                  List.of(Field.nullable("item", INT32)))),
+          Field.nullable("len", INT32),
+          Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      ListVector in = (ListVector) args.get(0);
+      IntVector out = new IntVector("len_out", allocator);
+      int n = in.getValueCount();
+      out.allocateNew(n);
+      for (int i = 0; i < n; i++) {
+        if (in.isNull(i)) {
+          out.setNull(i);
+        } else {
+          out.set(i, in.getElementEndIndex(i) - in.getElementStartIndex(i));
+        }
+      }
+      out.setValueCount(n);
+      return out;
+    }
+  }
+
+  @Test
+  void udfWithListArg_canBeRegistered() {
+    // Smoke test: registration alone must succeed for nested-type UDFs. Without #58's fix the
+    // schema-IPC writer rejects List with no children.
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.registerUdf(new ScalarUdf(new ListLength()));
+    }
+  }
+
+  @Test
+  void udfWithListArg_canBeInvokedFromSql() throws Exception {
+    // End-to-end: the registered UDF is callable from SQL with literal list arguments and the
+    // body sees the right element type. SELECT java_list_length([10, 20, 30]) -> 3.
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new ListLength()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT java_list_length(make_array(CAST(10 AS INT), CAST(20 AS INT),"
+                      + " CAST(30 AS INT))) AS n");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        IntVector n = (IntVector) r.getVectorSchemaRoot().getVector("n");
+        assertEquals(1, n.getValueCount());
+        assertEquals(3, n.get(0));
+      }
+    }
+  }
+
+  /**
+   * UDF taking a {@code Struct<a: Int32, b: Int32>} and returning the sum {@code a + b} as Int64.
+   * Confirms the fix is structural rather than List-specific.
+   */
+  static final class SumStructFields extends AbstractScalarFunction {
+    SumStructFields() {
+      super(
+          "java_sum_struct",
+          List.of(
+              new Field(
+                  "ab",
+                  FieldType.nullable(new ArrowType.Struct()),
+                  List.of(Field.nullable("a", INT32), Field.nullable("b", INT32)))),
+          Field.nullable("s", INT64),
+          Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      StructVector in = (StructVector) args.get(0);
+      IntVector a = (IntVector) in.getChild("a");
+      IntVector b = (IntVector) in.getChild("b");
+      org.apache.arrow.vector.BigIntVector out =
+          new org.apache.arrow.vector.BigIntVector("sum_out", allocator);
+      int n = in.getValueCount();
+      out.allocateNew(n);
+      for (int i = 0; i < n; i++) {
+        if (in.isNull(i) || a.isNull(i) || b.isNull(i)) {
+          out.setNull(i);
+        } else {
+          out.set(i, (long) a.get(i) + (long) b.get(i));
+        }
+      }
+      out.setValueCount(n);
+      return out;
+    }
+  }
+
+  @Test
+  void udfWithStructArg_canBeRegistered() {
+    // Struct child fields ride through the same Field children list as List elements; if the fix
+    // works for List it should work for Struct. This pins that.
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.registerUdf(new ScalarUdf(new SumStructFields()));
+    }
+  }
+
+  @Test
+  void udfWithStructArg_canBeInvokedFromSql() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new SumStructFields()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT java_sum_struct(named_struct('a', CAST(3 AS INT), 'b', CAST(4 AS INT)))"
+                      + " AS s");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        org.apache.arrow.vector.BigIntVector s =
+            (org.apache.arrow.vector.BigIntVector) r.getVectorSchemaRoot().getVector("s");
+        assertEquals(1, s.getValueCount());
+        assertEquals(7L, s.get(0));
+      }
+    }
+  }
+
+  /**
+   * UDF declaring a non-nullable return Field. DataFusion's default {@code return_field_from_args}
+   * wraps the return type in a fresh always-nullable Field, so without the {@code
+   * JavaScalarUdf::return_field_from_args} override the planner sees this UDF's output as nullable
+   * even though the Java caller said otherwise.
+   */
+  static final class NonNullableConstOne extends AbstractScalarFunction {
+    NonNullableConstOne() {
+      super(
+          "java_const_one_nn",
+          List.of(),
+          new Field("v", new FieldType(false, INT32, null), null),
+          Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+      // 'args' is empty; we'll be invoked once per batch with rowCount=1 here since the call
+      // sites use a 1-row table. Sized to match.
+      IntVector out = new IntVector("out", allocator);
+      out.allocateNew(1);
+      out.set(0, 1);
+      out.setValueCount(1);
+      return out;
+    }
+  }
+
+  @Test
+  void udfWithNonNullableReturnField_preservesNullabilityInResultSchema() throws Exception {
+    // The result column's schema must reflect the declared non-nullable return Field. Before the
+    // fix the JavaScalarUdf only stored a DataType; DataFusion's default return_field_from_args
+    // synthesised a fresh always-nullable Field, so the column came back as nullable.
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new NonNullableConstOne()));
+
+      try (DataFrame df = ctx.sql("SELECT java_const_one_nn() AS v");
+          ArrowReader r = df.collect(allocator)) {
+        assertTrue(r.loadNextBatch());
+        Field resultField = r.getVectorSchemaRoot().getSchema().findField("v");
+        assertFalse(
+            resultField.isNullable(),
+            "expected declared non-nullable return Field to round-trip through registration,"
+                + " got nullable=true");
       }
     }
   }

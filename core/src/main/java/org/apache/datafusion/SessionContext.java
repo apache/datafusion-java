@@ -32,9 +32,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
-import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -367,7 +365,7 @@ public final class SessionContext implements AutoCloseable {
    * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
    *
    * <p>The UDF is registered with an exact signature: the runtime will reject calls whose argument
-   * types do not match the declared {@link ScalarFunction#argTypes()} exactly.
+   * types do not match the declared {@link ScalarFunction#argFields()} exactly.
    *
    * @throws RuntimeException if registration fails (e.g., name already registered with an
    *     incompatible signature, schema serialisation failure).
@@ -379,14 +377,10 @@ public final class SessionContext implements AutoCloseable {
     java.util.Objects.requireNonNull(udf, "udf");
     ScalarFunction impl = udf.impl();
     String name = udf.name();
-    ArrowType returnType = udf.returnType();
-    List<ArrowType> argTypes = udf.argTypes();
     Volatility volatility = udf.volatility();
-    List<Field> fields = new ArrayList<>(argTypes.size() + 1);
-    fields.add(new Field("return", FieldType.nullable(returnType), null));
-    for (int i = 0; i < argTypes.size(); i++) {
-      fields.add(new Field("arg" + i, FieldType.nullable(argTypes.get(i)), null));
-    }
+    List<Field> fields = new ArrayList<>(udf.argFields().size() + 1);
+    fields.add(udf.returnField());
+    fields.addAll(udf.argFields());
     Schema signatureSchema = new Schema(fields);
     byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
     registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);

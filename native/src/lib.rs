@@ -646,7 +646,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         if fields.is_empty() {
             return Err("signature schema must have at least a return-type field".into());
         }
-        let return_type = fields[0].data_type().clone();
+        let return_field = fields[0].clone();
         let arg_types: Vec<datafusion::arrow::datatypes::DataType> = fields
             .iter()
             .skip(1)
@@ -669,7 +669,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         let java_udf = crate::udf::JavaScalarUdf {
             name: name.clone(),
             signature,
-            return_type,
+            return_field,
             udf_global_ref,
             bridge_class,
             invoke_method,
