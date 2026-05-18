@@ -166,4 +166,24 @@ class DataSourceTest {
       assertEquals(1, src.scanCount());
     }
   }
+
+  @Test
+  void registerDataSource_unionAllSelf_callsScanTwice() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      InMemoryDataSource src = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
+      ctx.registerDataSource("t", src);
+
+      try (DataFrame df = ctx.sql("SELECT id FROM t UNION ALL SELECT id FROM t");
+          ArrowReader r = df.collect(allocator)) {
+        long total = 0;
+        while (r.loadNextBatch()) {
+          IntVector id = (IntVector) r.getVectorSchemaRoot().getVector("id");
+          total += id.getValueCount();
+        }
+        assertEquals(4, total);
+      }
+      assertEquals(2, src.scanCount());
+    }
+  }
 }
