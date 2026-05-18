@@ -19,19 +19,21 @@
 
 package org.apache.datafusion;
 
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
  * A Java-implemented table that can be registered with a {@link SessionContext}.
  *
- * <p>Each call to {@link #scan()} must return a fresh, independent {@link ArrowReader} so that
- * queries which touch the table more than once (self-joins, {@code UNION ALL}, repeated reads) work
- * correctly. The returned reader is closed by the framework when the stream ends.
+ * <p>Each call to {@link #scan(BufferAllocator)} must return a fresh, independent {@link
+ * ArrowReader} so that queries which touch the table more than once (self-joins, {@code UNION ALL},
+ * repeated reads) work correctly. The returned reader is closed by the framework when the stream
+ * ends.
  *
  * <p>The schema returned by {@link #schema()} is captured once at registration time. Every batch
- * produced by every {@code ArrowReader} returned from {@link #scan()} must conform to it; a
- * mismatch fails the query.
+ * produced by every {@code ArrowReader} returned from {@link #scan(BufferAllocator)} must conform
+ * to it; a mismatch fails the query.
  */
 public interface DataSource {
   /** The fixed schema of this table. Called once, at registration time. */
@@ -41,7 +43,9 @@ public interface DataSource {
    * Open a fresh batch stream for this table. Called once per query that scans the table.
    *
    * <p>Each invocation MUST return an independent {@link ArrowReader}. The reader's schema MUST
-   * equal {@link #schema()}.
+   * equal {@link #schema()}. The reader's buffers MUST be allocated from {@code allocator} (or from
+   * a child of it) — the framework needs the reader's allocator hierarchy to share a root with the
+   * one it passes here. This mirrors {@link ScalarFunction#evaluate}.
    */
-  ArrowReader scan();
+  ArrowReader scan(BufferAllocator allocator);
 }

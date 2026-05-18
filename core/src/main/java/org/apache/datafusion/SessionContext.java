@@ -397,9 +397,10 @@ public final class SessionContext implements AutoCloseable {
    * call back into {@code source} to fetch batches.
    *
    * <p>{@link DataSource#schema()} is called once here, on the calling thread, and cached on the
-   * native side. {@link DataSource#scan()} is called once per query that touches the table, on a
-   * Tokio worker thread; it must return a fresh, independent {@link
-   * org.apache.arrow.vector.ipc.ArrowReader} on every call.
+   * native side. {@link DataSource#scan(org.apache.arrow.memory.BufferAllocator)} is called once
+   * per query that touches the table, on a Tokio worker thread; it must return a fresh, independent
+   * {@link org.apache.arrow.vector.ipc.ArrowReader} on every call, with its buffers allocated from
+   * the {@link org.apache.arrow.memory.BufferAllocator} the framework supplies.
    *
    * @throws IllegalArgumentException if {@code name} or {@code source} is {@code null}.
    * @throws IllegalStateException if {@code source.schema()} returns {@code null}, or this context

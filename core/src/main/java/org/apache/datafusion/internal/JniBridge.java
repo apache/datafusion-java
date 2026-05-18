@@ -147,12 +147,16 @@ public final class JniBridge {
    * Open a fresh batch stream from a Java {@link DataSource} and export it through the supplied
    * Arrow C Data Interface address. Called from native code; not for application use.
    *
+   * <p>{@link DataSource#scan(org.apache.arrow.memory.BufferAllocator)} is called with {@link
+   * #ALLOCATOR} so that the reader's buffers share the same allocator root required by {@link
+   * Data#exportArrayStream}.
+   *
    * <p>On success, ownership of the returned reader transfers to the FFI stream's release callback,
    * so the native side closing the stream also closes the reader. On any failure during export, the
    * reader is closed here before the exception propagates.
    */
   public static void invokeDataSourceScan(DataSource source, long ffiStreamAddr) {
-    ArrowReader reader = source.scan();
+    ArrowReader reader = source.scan(ALLOCATOR);
     if (reader == null) {
       throw new IllegalStateException("DataSource.scan returned null");
     }
