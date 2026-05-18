@@ -1,0 +1,47 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.datafusion;
+
+import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.types.pojo.Schema;
+
+/**
+ * A Java-implemented table that can be registered with a {@link SessionContext}.
+ *
+ * <p>Each call to {@link #scan()} must return a fresh, independent {@link ArrowReader} so that
+ * queries which touch the table more than once (self-joins, {@code UNION ALL}, repeated reads) work
+ * correctly. The returned reader is closed by the framework when the stream ends.
+ *
+ * <p>The schema returned by {@link #schema()} is captured once at registration time. Every batch
+ * produced by every {@code ArrowReader} returned from {@link #scan()} must conform to it; a
+ * mismatch fails the query.
+ */
+public interface DataSource {
+  /** The fixed schema of this table. Called once, at registration time. */
+  Schema schema();
+
+  /**
+   * Open a fresh batch stream for this table. Called once per query that scans the table.
+   *
+   * <p>Each invocation MUST return an independent {@link ArrowReader}. The reader's schema MUST
+   * equal {@link #schema()}.
+   */
+  ArrowReader scan();
+}

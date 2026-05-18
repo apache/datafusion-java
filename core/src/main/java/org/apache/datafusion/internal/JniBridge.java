@@ -23,12 +23,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowArrayStream;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.ColumnarValue;
+import org.apache.datafusion.DataSource;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarFunctionArgs;
 
@@ -137,6 +140,32 @@ public final class JniBridge {
       }
 
       return resultKind;
+    }
+  }
+
+  /**
+   * Open a fresh batch stream from a Java {@link DataSource} and export it through the supplied
+   * Arrow C Data Interface address. Called from native code; not for application use.
+   *
+   * <p>On success, ownership of the returned reader transfers to the FFI stream's release callback,
+   * so the native side closing the stream also closes the reader. On any failure during export, the
+   * reader is closed here before the exception propagates.
+   */
+  public static void invokeDataSourceScan(DataSource source, long ffiStreamAddr) {
+    ArrowReader reader = source.scan();
+    if (reader == null) {
+      throw new IllegalStateException("DataSource.scan returned null");
+    }
+    ArrowArrayStream stream = ArrowArrayStream.wrap(ffiStreamAddr);
+    try {
+      Data.exportArrayStream(ALLOCATOR, reader, stream);
+    } catch (Throwable t) {
+      try {
+        reader.close();
+      } catch (Exception ignored) {
+        // best-effort cleanup; original error wins
+      }
+      throw t;
     }
   }
 }
