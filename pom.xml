@@ -43,6 +43,7 @@ under the License.
         <datafusion.version>53.1.0</datafusion.version>
         <protobuf.version>3.25.5</protobuf.version>
         <arrow.version>19.0.0</arrow.version>
+        <avro.version>1.12.0</avro.version>
     </properties>
 
     <dependencyManagement>
@@ -76,6 +77,11 @@ under the License.
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter</artifactId>
                 <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
