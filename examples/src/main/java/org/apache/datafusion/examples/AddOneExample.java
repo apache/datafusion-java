@@ -23,13 +23,14 @@ import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.datafusion.ColumnarValue;
 import org.apache.datafusion.DataFrame;
 import org.apache.datafusion.ScalarFunction;
+import org.apache.datafusion.ScalarFunctionArgs;
 import org.apache.datafusion.ScalarUdf;
 import org.apache.datafusion.SessionContext;
 import org.apache.datafusion.Volatility;
@@ -62,8 +63,8 @@ public final class AddOneExample {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      IntVector in = (IntVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector in = (IntVector) args.args().get(0).vector();
       IntVector out = new IntVector("add_one_out", allocator);
       int n = in.getValueCount();
       out.allocateNew(n);
@@ -75,7 +76,7 @@ public final class AddOneExample {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
