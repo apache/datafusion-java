@@ -86,7 +86,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       IntVector in = (IntVector) args.get(0);
       IntVector out = new IntVector("add_one_out", allocator);
       int n = in.getValueCount();
@@ -133,7 +133,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       org.apache.arrow.vector.VarCharVector left =
           (org.apache.arrow.vector.VarCharVector) args.get(0);
       org.apache.arrow.vector.VarCharVector right =
@@ -188,7 +188,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       org.apache.arrow.vector.Float8Vector in = (org.apache.arrow.vector.Float8Vector) args.get(0);
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("square_out", allocator);
@@ -252,7 +252,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       return null;
     }
   }
@@ -283,7 +283,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       IntVector in = (IntVector) args.get(0);
       IntVector out = new IntVector("out", allocator);
       out.allocateNew(in.getValueCount() + 1); // off by one
@@ -319,7 +319,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       // Declared return type is Int32; return Float64.
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("out", allocator);
@@ -356,7 +356,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       throw new IllegalArgumentException("custom boom from UDF");
     }
   }
@@ -444,6 +444,108 @@ class ScalarUdfTest {
         assertEquals(100, rows);
         // Sum of 2..101 = (2+101)*100/2 = 5150
         assertEquals(5150L, total);
+      }
+    }
+  }
+
+  /**
+   * Nullary UDF (zero arguments) returning one Float64 per row, sized from the batch row count.
+   * Marked {@link Volatility#VOLATILE} so DataFusion's optimizer cannot constant-fold the call into
+   * a single broadcast value -- the function must be invoked once per batch with the real row
+   * count. Mirrors the canonical shape for built-ins like {@code random()}.
+   */
+  static final class VolatileNullary extends AbstractScalarFunction {
+    VolatileNullary() {
+      super("java_volatile_pi", List.of(), FLOAT64, Volatility.VOLATILE);
+    }
+
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
+      // args is empty for a nullary UDF; rowCount is the only channel by which the body can
+      // learn how many rows DataFusion expects.
+      org.apache.arrow.vector.Float8Vector out =
+          new org.apache.arrow.vector.Float8Vector("pi_out", allocator);
+      out.allocateNew(rowCount);
+      for (int i = 0; i < rowCount; i++) {
+        out.set(i, Math.PI);
+      }
+      out.setValueCount(rowCount);
+      return out;
+    }
+  }
+
+  @Test
+  void nullaryUdfOverMultiRowQuery_canDetermineBatchRowCount() throws Exception {
+    // SELECT java_volatile_pi() FROM (3-row VALUES) must produce 3 values. A nullary UDF has
+    // no way to learn the batch row count from its input vectors, so the framework must
+    // communicate it via the rowCount parameter on evaluate().
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new VolatileNullary()));
+
+      try (DataFrame df =
+              ctx.sql("SELECT java_volatile_pi() AS p FROM (VALUES (1), (2), (3)) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        org.apache.arrow.vector.Float8Vector p =
+            (org.apache.arrow.vector.Float8Vector) root.getVector("p");
+        assertEquals(3, p.getValueCount());
+        assertEquals(Math.PI, p.get(0), 0.0);
+        assertEquals(Math.PI, p.get(1), 0.0);
+        assertEquals(Math.PI, p.get(2), 0.0);
+      }
+    }
+  }
+
+  /**
+   * Nullary UDF that emits {@code [0, 1, 2, ..., rowCount-1]} per batch. Exercises that the
+   * rowCount parameter genuinely reaches the body and is the value DataFusion drives the operator
+   * with -- not just an unused constant equal to one for every call.
+   */
+  static final class VolatileRowIndex extends AbstractScalarFunction {
+    VolatileRowIndex() {
+      super("java_volatile_idx", List.of(), INT32, Volatility.VOLATILE);
+    }
+
+    @Override
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
+      IntVector out = new IntVector("idx_out", allocator);
+      out.allocateNew(rowCount);
+      for (int i = 0; i < rowCount; i++) {
+        out.set(i, i);
+      }
+      out.setValueCount(rowCount);
+      return out;
+    }
+  }
+
+  @Test
+  void nullaryUdfReceivesRealRowCount() throws Exception {
+    // Run the UDF over a 5-row table and assert the per-row output is [0..4]. If the framework
+    // ever passed rowCount=1 the test would catch it: the result would be [0] instead.
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new VolatileRowIndex()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT java_volatile_idx() AS i"
+                      + " FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        int total = 0;
+        int rows = 0;
+        while (r.loadNextBatch()) {
+          IntVector i = (IntVector) r.getVectorSchemaRoot().getVector("i");
+          for (int k = 0; k < i.getValueCount(); k++) {
+            // Within a single batch, values must be 0, 1, 2, ... batchRowCount-1.
+            assertEquals(k, i.get(k));
+            rows++;
+            total++;
+          }
+        }
+        assertEquals(5, rows);
+        assertEquals(5, total);
       }
     }
   }

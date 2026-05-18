@@ -66,7 +66,7 @@ public final class JniBridge {
     try (VectorSchemaRoot root = Data.importVectorSchemaRoot(ALLOCATOR, argsArr, argsSch, null)) {
       List<FieldVector> argVectors = root.getFieldVectors();
 
-      FieldVector result = impl.evaluate(ALLOCATOR, argVectors);
+      FieldVector result = impl.evaluate(ALLOCATOR, argVectors, expectedRowCount);
 
       if (result == null) {
         throw new IllegalStateException("ScalarFunction.evaluate returned null");

@@ -62,7 +62,7 @@ public final class AddOneExample {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount) {
       IntVector in = (IntVector) args.get(0);
       IntVector out = new IntVector("add_one_out", allocator);
       int n = in.getValueCount();

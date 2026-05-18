@@ -62,11 +62,15 @@ public interface ScalarFunction {
    * @param allocator the {@link BufferAllocator} that MUST be used for any new {@link FieldVector}
    *     allocation, including the result. Buffers allocated from other allocators will not survive
    *     the JNI handoff.
-   * @param args one {@link FieldVector} per declared argument, all of the same length. These are
-   *     read-only views; the implementation must NOT close them.
-   * @return a {@link FieldVector} of the declared return type and the same length as the inputs.
-   *     Ownership transfers to the framework on return; the implementation must NOT close the
-   *     returned vector.
+   * @param args one {@link FieldVector} per declared argument, all of length {@code rowCount}.
+   *     These are read-only views; the implementation must NOT close them.
+   * @param rowCount the batch row count -- the number of rows the returned vector must contain. For
+   *     UDFs with at least one argument this equals {@code args.get(0).getValueCount()}; for
+   *     nullary UDFs (where {@code args} is empty) this is the only channel by which the body can
+   *     learn the batch length.
+   * @return a {@link FieldVector} of the declared return type and {@code rowCount} rows. Ownership
+   *     transfers to the framework on return; the implementation must NOT close the returned
+   *     vector.
    */
-  FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args);
+  FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args, int rowCount);
 }
