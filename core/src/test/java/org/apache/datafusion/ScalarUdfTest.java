@@ -86,8 +86,8 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      IntVector in = (IntVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector in = (IntVector) args.args().get(0).vector();
       IntVector out = new IntVector("add_one_out", allocator);
       int n = in.getValueCount();
       out.allocateNew(n);
@@ -99,7 +99,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -133,11 +133,11 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       org.apache.arrow.vector.VarCharVector left =
-          (org.apache.arrow.vector.VarCharVector) args.get(0);
+          (org.apache.arrow.vector.VarCharVector) args.args().get(0).vector();
       org.apache.arrow.vector.VarCharVector right =
-          (org.apache.arrow.vector.VarCharVector) args.get(1);
+          (org.apache.arrow.vector.VarCharVector) args.args().get(1).vector();
       org.apache.arrow.vector.VarCharVector out =
           new org.apache.arrow.vector.VarCharVector("concat_out", allocator);
       int n = left.getValueCount();
@@ -155,7 +155,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -188,8 +188,9 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      org.apache.arrow.vector.Float8Vector in = (org.apache.arrow.vector.Float8Vector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      org.apache.arrow.vector.Float8Vector in =
+          (org.apache.arrow.vector.Float8Vector) args.args().get(0).vector();
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("square_out", allocator);
       int n = in.getValueCount();
@@ -203,7 +204,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -252,7 +253,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       return null;
     }
   }
@@ -283,13 +284,13 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      IntVector in = (IntVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector in = (IntVector) args.args().get(0).vector();
       IntVector out = new IntVector("out", allocator);
       out.allocateNew(in.getValueCount() + 1); // off by one
       for (int i = 0; i < in.getValueCount() + 1; i++) out.set(i, 0);
       out.setValueCount(in.getValueCount() + 1);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -319,14 +320,15 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       // Declared return type is Int32; return Float64.
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("out", allocator);
-      out.allocateNew(args.get(0).getValueCount());
-      for (int i = 0; i < args.get(0).getValueCount(); i++) out.set(i, 0.0);
-      out.setValueCount(args.get(0).getValueCount());
-      return out;
+      FieldVector in = args.args().get(0).vector();
+      out.allocateNew(in.getValueCount());
+      for (int i = 0; i < in.getValueCount(); i++) out.set(i, 0.0);
+      out.setValueCount(in.getValueCount());
+      return ColumnarValue.array(out);
     }
   }
 
@@ -356,7 +358,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       throw new IllegalArgumentException("custom boom from UDF");
     }
   }

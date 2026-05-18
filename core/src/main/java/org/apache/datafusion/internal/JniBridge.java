@@ -19,6 +19,7 @@
 
 package org.apache.datafusion.internal;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.arrow.c.ArrowArray;
@@ -27,7 +28,9 @@ import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.datafusion.ColumnarValue;
 import org.apache.datafusion.ScalarFunction;
+import org.apache.datafusion.ScalarFunctionArgs;
 
 /** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
 public final class JniBridge {
@@ -40,54 +43,100 @@ public final class JniBridge {
 
   private JniBridge() {}
 
+  /** argKind byte signalling a {@link ColumnarValue.Array} arg. */
+  private static final byte KIND_ARRAY = 0;
+
+  /** argKind byte signalling a {@link ColumnarValue.Scalar} arg. */
+  private static final byte KIND_SCALAR = 1;
+
   /**
    * Invoke a scalar UDF for one batch. Called from native code; not for application use.
    *
-   * @param impl the registered {@link ScalarFunction} implementation
-   * @param argsArrayAddr address of a populated {@code FFI_ArrowArray} struct holding the input
-   *     batch as a struct array (one field per UDF argument)
-   * @param argsSchemaAddr address of the matching {@code FFI_ArrowSchema}
-   * @param resultArrayAddr address of an empty {@code FFI_ArrowArray} the bridge writes into
-   * @param resultSchemaAddr address of an empty {@code FFI_ArrowSchema} the bridge writes into
-   * @param expectedRowCount the row count the result vector must have
+   * <p>Args arrive split into two struct arrays: {@code arrayArgs*} of length {@code rowCount}
+   * holding the {@link ColumnarValue.Array} arguments in their relative order, and {@code
+   * scalarArgs*} of length 1 holding the {@link ColumnarValue.Scalar} arguments. {@code argKinds}
+   * records the original positional order so the bridge can interleave them back into a single
+   * {@code List<ColumnarValue>} for the user.
+   *
+   * @return {@link #KIND_ARRAY} if the UDF returned an Array, {@link #KIND_SCALAR} if it returned a
+   *     Scalar. The native caller uses this to reconstruct the right {@code ColumnarValue} variant.
    */
-  public static void invokeScalarUdf(
+  public static byte invokeScalarUdf(
       ScalarFunction impl,
-      long argsArrayAddr,
-      long argsSchemaAddr,
+      long arrayArgsArrayAddr,
+      long arrayArgsSchemaAddr,
+      long scalarArgsArrayAddr,
+      long scalarArgsSchemaAddr,
+      byte[] argKinds,
       long resultArrayAddr,
       long resultSchemaAddr,
-      int expectedRowCount) {
-    ArrowArray argsArr = ArrowArray.wrap(argsArrayAddr);
-    ArrowSchema argsSch = ArrowSchema.wrap(argsSchemaAddr);
+      int rowCount) {
+    ArrowArray arrayArr = ArrowArray.wrap(arrayArgsArrayAddr);
+    ArrowSchema arraySch = ArrowSchema.wrap(arrayArgsSchemaAddr);
+    ArrowArray scalarArr = ArrowArray.wrap(scalarArgsArrayAddr);
+    ArrowSchema scalarSch = ArrowSchema.wrap(scalarArgsSchemaAddr);
     ArrowArray resultArr = ArrowArray.wrap(resultArrayAddr);
     ArrowSchema resultSch = ArrowSchema.wrap(resultSchemaAddr);
 
-    try (VectorSchemaRoot root = Data.importVectorSchemaRoot(ALLOCATOR, argsArr, argsSch, null)) {
-      List<FieldVector> argVectors = root.getFieldVectors();
+    try (VectorSchemaRoot arrayRoot =
+            Data.importVectorSchemaRoot(ALLOCATOR, arrayArr, arraySch, null);
+        VectorSchemaRoot scalarRoot =
+            Data.importVectorSchemaRoot(ALLOCATOR, scalarArr, scalarSch, null)) {
 
-      FieldVector result = impl.evaluate(ALLOCATOR, argVectors);
+      List<FieldVector> arrayFields = arrayRoot.getFieldVectors();
+      List<FieldVector> scalarFields = scalarRoot.getFieldVectors();
+
+      List<ColumnarValue> args = new ArrayList<>(argKinds.length);
+      int arrayIdx = 0;
+      int scalarIdx = 0;
+      for (byte kind : argKinds) {
+        if (kind == KIND_ARRAY) {
+          args.add(ColumnarValue.array(arrayFields.get(arrayIdx++)));
+        } else if (kind == KIND_SCALAR) {
+          args.add(ColumnarValue.scalar(scalarFields.get(scalarIdx++)));
+        } else {
+          throw new IllegalStateException("Unknown argKind byte: " + kind);
+        }
+      }
+
+      ColumnarValue result = impl.evaluate(ALLOCATOR, new ScalarFunctionArgs(args, rowCount));
 
       if (result == null) {
         throw new IllegalStateException("ScalarFunction.evaluate returned null");
       }
-      if (result.getValueCount() != expectedRowCount) {
+
+      FieldVector resultVec = result.vector();
+      byte resultKind;
+      int expectedLen;
+      if (result instanceof ColumnarValue.Array) {
+        resultKind = KIND_ARRAY;
+        expectedLen = rowCount;
+      } else {
+        resultKind = KIND_SCALAR;
+        expectedLen = 1;
+      }
+
+      if (resultVec.getValueCount() != expectedLen) {
         try {
           throw new IllegalStateException(
-              "ScalarFunction.evaluate returned vector with "
-                  + result.getValueCount()
+              "ScalarFunction.evaluate returned "
+                  + (resultKind == KIND_ARRAY ? "Array" : "Scalar")
+                  + " vector with "
+                  + resultVec.getValueCount()
                   + " rows; expected "
-                  + expectedRowCount);
+                  + expectedLen);
         } finally {
-          result.close();
+          resultVec.close();
         }
       }
 
       try {
-        Data.exportVector(ALLOCATOR, result, null, resultArr, resultSch);
+        Data.exportVector(ALLOCATOR, resultVec, null, resultArr, resultSch);
       } finally {
-        result.close();
+        resultVec.close();
       }
+
+      return resultKind;
     }
   }
 }
