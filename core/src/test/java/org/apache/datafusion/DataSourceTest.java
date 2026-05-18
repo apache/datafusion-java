@@ -230,6 +230,43 @@ class DataSourceTest {
     }
   }
 
+  static final class ThrowingDataSource implements DataSource {
+    @Override
+    public Schema schema() {
+      return new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
+    }
+
+    @Override
+    public ArrowReader scan(BufferAllocator allocator) {
+      throw new IllegalArgumentException("custom boom from DataSource");
+    }
+  }
+
+  @Test
+  void registerDataSource_scanThrows_propagatesClassAndMessage() {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      ctx.registerDataSource("t", new ThrowingDataSource());
+
+      RuntimeException ex =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class,
+              () -> {
+                try (DataFrame df = ctx.sql("SELECT id FROM t");
+                    ArrowReader r = df.collect(allocator)) {
+                  while (r.loadNextBatch()) {}
+                }
+              });
+      String msg = ex.getMessage();
+      assertTrue(
+          msg.contains("IllegalArgumentException"),
+          "expected exception class in error, got: " + msg);
+      assertTrue(
+          msg.contains("custom boom from DataSource"),
+          "expected user message in error, got: " + msg);
+    }
+  }
+
   /** Declares (id INT) but scan() returns (id INT, extra UTF8). */
   static final class SchemaLyingDataSource implements DataSource {
     @Override
