@@ -130,21 +130,13 @@ impl ScalarUDFImpl for JavaScalarUdf {
             let ty = signature_types[i].clone();
             match cv {
                 ColumnarValue::Array(a) => {
-                    array_fields.push(Field::new(
-                        format!("arg{}", array_arrays.len()),
-                        ty,
-                        true,
-                    ));
+                    array_fields.push(Field::new(format!("arg{}", array_arrays.len()), ty, true));
                     array_arrays.push(a.clone());
                     arg_kinds.push(0);
                 }
                 ColumnarValue::Scalar(s) => {
                     let arr = s.to_array_of_size(1)?;
-                    scalar_fields.push(Field::new(
-                        format!("arg{}", scalar_arrays.len()),
-                        ty,
-                        true,
-                    ));
+                    scalar_fields.push(Field::new(format!("arg{}", scalar_arrays.len()), ty, true));
                     scalar_arrays.push(arr);
                     arg_kinds.push(1);
                 }
@@ -160,13 +152,9 @@ impl ScalarUDFImpl for JavaScalarUdf {
             number_rows,
         )
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-        let scalar_struct = StructArray::try_new_with_length(
-            Fields::from(scalar_fields),
-            scalar_arrays,
-            None,
-            1,
-        )
-        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        let scalar_struct =
+            StructArray::try_new_with_length(Fields::from(scalar_fields), scalar_arrays, None, 1)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
         let (array_ffi_arr, array_ffi_sch) = to_ffi(&array_struct.into_data())
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
@@ -198,11 +186,9 @@ impl ScalarUDFImpl for JavaScalarUdf {
             .map_err(|e| DataFusionError::Execution(format!("JNI attach failed: {}", e)))?;
 
         // 6. Build the byte[] for argKinds inside the JVM heap. JNI local; freed when env drops.
-        let arg_kinds_array = env
-            .byte_array_from_slice(&arg_kinds)
-            .map_err(|e| {
-                DataFusionError::Execution(format!("byte_array_from_slice failed: {}", e))
-            })?;
+        let arg_kinds_array = env.byte_array_from_slice(&arg_kinds).map_err(|e| {
+            DataFusionError::Execution(format!("byte_array_from_slice failed: {}", e))
+        })?;
 
         let expected_rows = i32::try_from(number_rows).map_err(|_| {
             DataFusionError::Execution(format!(
@@ -214,12 +200,16 @@ impl ScalarUDFImpl for JavaScalarUdf {
         let udf_jobject = self.udf_global_ref.as_obj();
         // SAFETY: udf_global_ref and arg_kinds_array are alive for the duration of this call.
         let call_args: [jvalue; 9] = [
-            jvalue { l: udf_jobject.as_raw() },
+            jvalue {
+                l: udf_jobject.as_raw(),
+            },
             jvalue { j: array_arr_addr },
             jvalue { j: array_sch_addr },
             jvalue { j: scalar_arr_addr },
             jvalue { j: scalar_sch_addr },
-            jvalue { l: arg_kinds_array.as_raw() },
+            jvalue {
+                l: arg_kinds_array.as_raw(),
+            },
             jvalue { j: result_arr_addr },
             jvalue { j: result_sch_addr },
             jvalue { i: expected_rows },

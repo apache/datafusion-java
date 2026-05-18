@@ -451,10 +451,10 @@ class ScalarUdfTest {
   }
 
   /**
-   * Nullary UDF returning a length-1 Float8 vector. Marked VOLATILE so DataFusion's constant
-   * folder does not collapse the call before reaching us. Exercises the path that the abandoned
-   * PR #57 added a separate rowCount parameter for: a nullary UDF can now broadcast its value
-   * through {@link ColumnarValue#scalar(FieldVector)} and the framework handles per-row expansion.
+   * Nullary UDF returning a length-1 Float8 vector. Marked VOLATILE so DataFusion's constant folder
+   * does not collapse the call before reaching us. Exercises the path that the abandoned PR #57
+   * added a separate rowCount parameter for: a nullary UDF can now broadcast its value through
+   * {@link ColumnarValue#scalar(FieldVector)} and the framework handles per-row expansion.
    */
   static final class JavaPi extends AbstractScalarFunction {
     JavaPi() {
@@ -478,8 +478,7 @@ class ScalarUdfTest {
         BufferAllocator allocator = new RootAllocator()) {
       ctx.registerUdf(new ScalarUdf(new JavaPi()));
 
-      try (DataFrame df =
-              ctx.sql("SELECT java_pi() AS p FROM (VALUES (1), (2), (3)) AS t(x)");
+      try (DataFrame df = ctx.sql("SELECT java_pi() AS p FROM (VALUES (1), (2), (3)) AS t(x)");
           ArrowReader r = df.collect(allocator)) {
         assertEquals(true, r.loadNextBatch());
         VectorSchemaRoot root = r.getVectorSchemaRoot();
@@ -494,8 +493,8 @@ class ScalarUdfTest {
   }
 
   /**
-   * UDF over (int_col, int_literal). On every invocation it asserts that arg 0 is an Array and
-   * arg 1 is a Scalar (length-1 vector). Proves the FFI protocol preserves scalar-ness end-to-end
+   * UDF over (int_col, int_literal). On every invocation it asserts that arg 0 is an Array and arg
+   * 1 is a Scalar (length-1 vector). Proves the FFI protocol preserves scalar-ness end-to-end
    * rather than materialising the literal to a length-N array on the native side.
    */
   static final class AssertSecondArgIsScalar extends AbstractScalarFunction {
