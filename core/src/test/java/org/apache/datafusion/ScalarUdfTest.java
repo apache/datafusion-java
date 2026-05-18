@@ -450,6 +450,153 @@ class ScalarUdfTest {
     }
   }
 
+  /**
+   * Nullary UDF returning a length-1 Float8 vector. Marked VOLATILE so DataFusion's constant
+   * folder does not collapse the call before reaching us. Exercises the path that the abandoned
+   * PR #57 added a separate rowCount parameter for: a nullary UDF can now broadcast its value
+   * through {@link ColumnarValue#scalar(FieldVector)} and the framework handles per-row expansion.
+   */
+  static final class JavaPi extends AbstractScalarFunction {
+    JavaPi() {
+      super("java_pi", List.of(), FLOAT64, Volatility.VOLATILE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      org.apache.arrow.vector.Float8Vector out =
+          new org.apache.arrow.vector.Float8Vector("pi_out", allocator);
+      out.allocateNew(1);
+      out.set(0, Math.PI);
+      out.setValueCount(1);
+      return ColumnarValue.scalar(out);
+    }
+  }
+
+  @Test
+  void nullaryScalarReturnUdf_overMultiRowQuery_broadcasts() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new JavaPi()));
+
+      try (DataFrame df =
+              ctx.sql("SELECT java_pi() AS p FROM (VALUES (1), (2), (3)) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        org.apache.arrow.vector.Float8Vector p =
+            (org.apache.arrow.vector.Float8Vector) root.getVector("p");
+        assertEquals(3, p.getValueCount());
+        assertEquals(Math.PI, p.get(0), 0.0);
+        assertEquals(Math.PI, p.get(1), 0.0);
+        assertEquals(Math.PI, p.get(2), 0.0);
+      }
+    }
+  }
+
+  /**
+   * UDF over (int_col, int_literal). On every invocation it asserts that arg 0 is an Array and
+   * arg 1 is a Scalar (length-1 vector). Proves the FFI protocol preserves scalar-ness end-to-end
+   * rather than materialising the literal to a length-N array on the native side.
+   */
+  static final class AssertSecondArgIsScalar extends AbstractScalarFunction {
+    AssertSecondArgIsScalar() {
+      super("assert_scalar_arg", List.of(INT32, INT32), INT32, Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      if (!(args.args().get(0) instanceof ColumnarValue.Array)) {
+        throw new AssertionError(
+            "arg 0 expected Array, got " + args.args().get(0).getClass().getSimpleName());
+      }
+      if (!(args.args().get(1) instanceof ColumnarValue.Scalar)) {
+        throw new AssertionError(
+            "arg 1 expected Scalar, got " + args.args().get(1).getClass().getSimpleName());
+      }
+      IntVector left = (IntVector) args.args().get(0).vector();
+      IntVector right = (IntVector) args.args().get(1).vector();
+      if (right.getValueCount() != 1) {
+        throw new AssertionError(
+            "Scalar arg vector should have length 1, got " + right.getValueCount());
+      }
+      int rightVal = right.get(0);
+      IntVector out = new IntVector("out", allocator);
+      int n = left.getValueCount();
+      out.allocateNew(n);
+      for (int i = 0; i < n; i++) {
+        if (left.isNull(i)) {
+          out.setNull(i);
+        } else {
+          out.set(i, left.get(i) + rightVal);
+        }
+      }
+      out.setValueCount(n);
+      return ColumnarValue.array(out);
+    }
+  }
+
+  @Test
+  void scalarLiteralArg_arrivesAsScalarColumnarValue() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new AssertSecondArgIsScalar()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT assert_scalar_arg(x, CAST(100 AS INT)) AS y"
+                      + " FROM (VALUES (CAST(1 AS INT)), (CAST(2 AS INT)), (CAST(3 AS INT)))"
+                      + " AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector y = (IntVector) root.getVector("y");
+        assertEquals(3, y.getValueCount());
+        assertEquals(101, y.get(0));
+        assertEquals(102, y.get(1));
+        assertEquals(103, y.get(2));
+      }
+    }
+  }
+
+  /** UDF that ignores its input and returns a constant Scalar. */
+  static final class IgnoreInputReturnFortyTwo extends AbstractScalarFunction {
+    IgnoreInputReturnFortyTwo() {
+      super("forty_two", List.of(INT32), INT32, Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector out = new IntVector("out", allocator);
+      out.allocateNew(1);
+      out.set(0, 42);
+      out.setValueCount(1);
+      return ColumnarValue.scalar(out);
+    }
+  }
+
+  @Test
+  void udfReturningScalar_isBroadcastByFramework() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new IgnoreInputReturnFortyTwo()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT forty_two(x) AS y"
+                      + " FROM (VALUES (CAST(1 AS INT)), (CAST(2 AS INT)),"
+                      + " (CAST(3 AS INT)), (CAST(4 AS INT)), (CAST(5 AS INT))) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector y = (IntVector) root.getVector("y");
+        assertEquals(5, y.getValueCount());
+        for (int i = 0; i < 5; i++) {
+          assertEquals(42, y.get(i));
+        }
+      }
+    }
+  }
+
   @Test
   void volatilityBytesRoundTrip_forAllThreeKinds() throws Exception {
     for (Volatility v : Volatility.values()) {
