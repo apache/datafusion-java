@@ -663,7 +663,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         let invoke_method = env.get_static_method_id(
             &bridge_class_local,
             "invokeScalarUdf",
-            "(Lorg/apache/datafusion/ScalarFunction;JJJJI)V",
+            "(Lorg/apache/datafusion/ScalarFunction;JJJJ[BJJI)B",
         )?;
 
         let java_udf = crate::udf::JavaScalarUdf {
