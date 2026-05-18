@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Quickstart &#8212; Apache DataFusion Java  documentation</title>
+    <title>Scalar UDFs &#8212; Apache DataFusion Java  documentation</title>
   
   
   
@@ -41,11 +41,11 @@
     <script src="../_static/documentation_options.js?v=5929fcd5"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/quickstart';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/scalar-udf';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="SessionContext" href="sessioncontext.html" />
-    <link rel="prev" title="Installation" href="installation.html" />
+    <link rel="next" title="API Reference" href="api-reference.html" />
+    <link rel="prev" title="Logical plans via datafusion-proto" href="proto-plans.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -318,12 +318,12 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quickstart</a></li>
 <li class="toctree-l1"><a class="reference internal" href="sessioncontext.html">SessionContext</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dataframe.html">DataFrame and SQL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="parquet.html">Parquet</a></li>
 <li class="toctree-l1"><a class="reference internal" href="proto-plans.html">Logical plans via datafusion-proto</a></li>
-<li class="toctree-l1"><a class="reference internal" href="scalar-udf.html">Scalar UDFs</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Scalar UDFs</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api-reference.html">API Reference</a></li>
 </ul>
 </div>
@@ -368,7 +368,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">User Guide</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Quickstart</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Scalar UDFs</span></li>
   </ul>
 </nav>
 </div>
@@ -403,55 +403,91 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<section id="quickstart">
-<h1>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h1>
-<p>This page walks through a complete query end-to-end.</p>
-<section id="the-full-example">
-<h2>The full example<a class="headerlink" href="#the-full-example" title="Link to this heading">#</a></h2>
-<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.RootAllocator</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.ipc.ArrowReader</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.DataFrame</span><span class="p">;</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.SessionContext</span><span class="p">;</span>
+<section id="scalar-udfs">
+<h1>Scalar UDFs<a class="headerlink" href="#scalar-udfs" title="Link to this heading">#</a></h1>
+<p>A scalar UDF is a Java-implemented SQL function that operates on one row at a
+time, expressed in vectorised form: each invocation receives a batch of input
+columns and returns a single output column of the same length.</p>
+<section id="implement">
+<h2>Implement<a class="headerlink" href="#implement" title="Link to this heading">#</a></h2>
+<p>Implement the <code class="docutils literal notranslate"><span class="pre">ScalarFunction</span></code> interface. The implementation declares its own
+SQL name, argument types, return type, and volatility, and supplies the
+per-batch <code class="docutils literal notranslate"><span class="pre">evaluate</span></code> body:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.List</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.BufferAllocator</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.FieldVector</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.IntVector</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.ArrowType</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ScalarFunction</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.Volatility</span><span class="p">;</span>
 
-<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="kd">var</span><span class="w"> </span><span class="n">allocator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RootAllocator</span><span class="p">();</span>
-<span class="w">     </span><span class="kd">var</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">AddOne</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">ScalarFunction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="n">INT32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Int</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
 
-<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">);</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;add_one&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ArrowType</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argTypes</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">INT32</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="nf">returnType</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">INT32</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="nf">volatility</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Volatility</span><span class="p">.</span><span class="na">IMMUTABLE</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
-<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span>
-<span class="w">            </span><span class="s">&quot;SELECT o_orderpriority, COUNT(*) AS n &quot;</span><span class="w"> </span><span class="o">+</span>
-<span class="w">            </span><span class="s">&quot;FROM orders GROUP BY o_orderpriority&quot;</span><span class="p">);</span>
-<span class="w">         </span><span class="n">ArrowReader</span><span class="w"> </span><span class="n">reader</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">df</span><span class="p">.</span><span class="na">collect</span><span class="p">(</span><span class="n">allocator</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">reader</span><span class="p">.</span><span class="na">loadNextBatch</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="kd">var</span><span class="w"> </span><span class="n">batch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reader</span><span class="p">.</span><span class="na">getVectorSchemaRoot</span><span class="p">();</span>
-<span class="w">            </span><span class="c1">// ...</span>
+<span class="w">    </span><span class="nd">@Override</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">FieldVector</span><span class="w"> </span><span class="nf">evaluate</span><span class="p">(</span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">FieldVector</span><span class="o">&gt;</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">IntVector</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">IntVector</span><span class="p">)</span><span class="w"> </span><span class="n">args</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+<span class="w">        </span><span class="n">IntVector</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IntVector</span><span class="p">(</span><span class="s">&quot;add_one&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">allocator</span><span class="p">);</span>
+<span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">allocateNew</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">());</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="na">isNull</span><span class="p">(</span><span class="n">i</span><span class="p">))</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="na">setNull</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+<span class="w">            </span><span class="k">else</span><span class="w"> </span><span class="n">out</span><span class="p">.</span><span class="na">set</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">.</span><span class="na">get</span><span class="p">(</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
 <span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="n">out</span><span class="p">.</span><span class="na">setValueCount</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="na">getValueCount</span><span class="p">());</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">out</span><span class="p">;</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
+<p>Allocate any new vectors — including the result — from the supplied
+<code class="docutils literal notranslate"><span class="pre">BufferAllocator</span></code>. The input vectors are read-only views; do not close them.
+Ownership of the returned vector transfers to the framework on return.</p>
 </section>
-<section id="walkthrough">
-<h2>Walkthrough<a class="headerlink" href="#walkthrough" title="Link to this heading">#</a></h2>
-<p><strong>Allocator.</strong> <code class="docutils literal notranslate"><span class="pre">RootAllocator</span></code> is the Arrow off-heap memory allocator. Every
-JVM-side Arrow buffer is tracked under an allocator; when the allocator is
-closed, leaked buffers are reported. Use one allocator per query (or one
-per application) and close it in a <code class="docutils literal notranslate"><span class="pre">try</span></code>-with-resources.</p>
-<p><strong>Session context.</strong> <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> is the entry point into DataFusion. It
-holds the catalog of registered tables and the query planner. It is
-<code class="docutils literal notranslate"><span class="pre">AutoCloseable</span></code> and <strong>not thread-safe</strong> — use one per thread, or guard
-access externally.</p>
-<p><strong>Registering data.</strong> <code class="docutils literal notranslate"><span class="pre">registerParquet(name,</span> <span class="pre">path)</span></code> reads the file’s footer
-on call and exposes it under the given table name. See
-<a class="reference internal" href="parquet.html"><span class="std std-doc">Parquet</span></a> for the options form.</p>
-<p><strong>SQL.</strong> <code class="docutils literal notranslate"><span class="pre">ctx.sql(&quot;...&quot;)</span></code> plans the query and returns a <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>. The
-query is not executed until results are pulled.</p>
-<p><strong>Collecting results.</strong> <code class="docutils literal notranslate"><span class="pre">df.collect(allocator)</span></code> starts native execution and
-returns an <code class="docutils literal notranslate"><span class="pre">ArrowReader</span></code>. Each <code class="docutils literal notranslate"><span class="pre">loadNextBatch()</span></code> call pulls the next
-<code class="docutils literal notranslate"><span class="pre">VectorSchemaRoot</span></code>; iterate until it returns <code class="docutils literal notranslate"><span class="pre">false</span></code>.</p>
-<p><strong>Cleanup.</strong> Both <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> and <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code> are <code class="docutils literal notranslate"><span class="pre">AutoCloseable</span></code>. Use
-<code class="docutils literal notranslate"><span class="pre">try</span></code>-with-resources so native resources and Arrow buffers are released
-even on exception.</p>
+<section id="register">
+<h2>Register<a class="headerlink" href="#register" title="Link to this heading">#</a></h2>
+<p>Wrap the implementation in a <code class="docutils literal notranslate"><span class="pre">ScalarUdf</span></code> and pass it to
+<code class="docutils literal notranslate"><span class="pre">SessionContext.registerUdf</span></code>:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerUdf</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ScalarUdf</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AddOne</span><span class="p">()));</span>
+
+<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">&quot;SELECT add_one(x) FROM t&quot;</span><span class="p">);</span>
+<span class="w">         </span><span class="n">ArrowReader</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">df</span><span class="p">.</span><span class="na">collect</span><span class="p">(</span><span class="n">allocator</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// ...</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">ScalarUdf</span></code> mirrors DataFusion’s <code class="docutils literal notranslate"><span class="pre">ScalarUDF</span></code> struct; <code class="docutils literal notranslate"><span class="pre">ScalarFunction</span></code> mirrors
+<code class="docutils literal notranslate"><span class="pre">ScalarUDFImpl</span></code>. The signature is exact: a call must match the declared
+<code class="docutils literal notranslate"><span class="pre">argTypes</span></code> exactly. Use <code class="docutils literal notranslate"><span class="pre">Volatility.IMMUTABLE</span></code> for pure functions, <code class="docutils literal notranslate"><span class="pre">STABLE</span></code> for
+functions that are deterministic within a single query, and <code class="docutils literal notranslate"><span class="pre">VOLATILE</span></code> for
+non-deterministic functions.</p>
+</section>
+<section id="errors">
+<h2>Errors<a class="headerlink" href="#errors" title="Link to this heading">#</a></h2>
+<p>If the UDF throws, the exception class and message surface in the
+<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> raised from <code class="docutils literal notranslate"><span class="pre">collect()</span></code>. If the returned vector is <code class="docutils literal notranslate"><span class="pre">null</span></code>,
+has the wrong row count, or the wrong type, the runtime raises a
+<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> with a descriptive message.</p>
+</section>
+<section id="threading">
+<h2>Threading<a class="headerlink" href="#threading" title="Link to this heading">#</a></h2>
+<p>DataFusion may invoke a UDF concurrently from multiple worker threads. If the
+implementation carries mutable state, the implementation must synchronize it.</p>
+</section>
+<section id="limitations-v1">
+<h2>Limitations (v1)<a class="headerlink" href="#limitations-v1" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Scalar UDFs only — no aggregates, window functions, or table functions.</p></li>
+<li><p>Exact-signature only — no variadic or polymorphic argument lists.</p></li>
+<li><p>No nullable-argument short-circuiting; null inputs are passed through to the
+UDF as nulls in the input vector.</p></li>
+</ul>
 </section>
 </section>
 
@@ -466,20 +502,20 @@ even on exception.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="installation.html"
+       href="proto-plans.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Installation</p>
+        <p class="prev-next-title">Logical plans via datafusion-proto</p>
       </div>
     </a>
     <a class="right-next"
-       href="sessioncontext.html"
+       href="api-reference.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">SessionContext</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -502,8 +538,11 @@ even on exception.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-full-example">The full example</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#walkthrough">Walkthrough</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implement">Implement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register">Register</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations-v1">Limitations (v1)</a></li>
 </ul>
   </nav></div>
 
@@ -511,7 +550,7 @@ even on exception.</p>
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="../_sources/user-guide/quickstart.md.txt"
+      <li><a href="../_sources/user-guide/scalar-udf.md.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>

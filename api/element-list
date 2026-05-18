@@ -1,2 +1,3 @@
 org.apache.datafusion
+org.apache.datafusion.internal
 org.apache.datafusion.proto

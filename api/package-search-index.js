@@ -1,1 +1,1 @@
-packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"org.apache.datafusion"},{"l":"org.apache.datafusion.proto"}];updateSearchResults();
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"org.apache.datafusion"},{"l":"org.apache.datafusion.internal"},{"l":"org.apache.datafusion.proto"}];updateSearchResults();
