@@ -250,6 +250,38 @@ public final class DataFrame implements AutoCloseable {
         options.singleFileOutput() != null && options.singleFileOutput());
   }
 
+  /**
+   * Materialize this DataFrame as newline-delimited JSON at {@code path}. The path is treated as a
+   * directory unless overridden via {@link JsonWriteOptions#singleFileOutput(boolean)}. The
+   * receiver remains usable and must still be closed independently.
+   *
+   * @throws RuntimeException if the write fails.
+   */
+  public void writeJson(String path) {
+    writeJson(path, new JsonWriteOptions());
+  }
+
+  /**
+   * Materialize this DataFrame as newline-delimited JSON at {@code path} with the supplied {@link
+   * JsonWriteOptions}. The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code path} or {@code options} is {@code null}.
+   * @throws RuntimeException if the write fails (path inaccessible, invalid compression spec,
+   *     etc.).
+   */
+  public void writeJson(String path, JsonWriteOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("writeJson path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("writeJson options must be non-null");
+    }
+    writeJsonWithOptions(nativeHandle, path, options.toBytes());
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -290,4 +322,6 @@ public final class DataFrame implements AutoCloseable {
       String compression,
       boolean singleFileOutputSet,
       boolean singleFileOutputValue);
+
+  private static native void writeJsonWithOptions(long handle, String path, byte[] optionsBytes);
 }

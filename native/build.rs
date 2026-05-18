@@ -22,6 +22,7 @@ fn main() {
         "../proto/arrow_read_options.proto",
         "../proto/csv_read_options.proto",
         "../proto/json_read_options.proto",
+        "../proto/json_write_options.proto",
         "../proto/parquet_read_options.proto",
     ];
     for p in PROTOS {
