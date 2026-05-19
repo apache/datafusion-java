@@ -1141,6 +1141,7 @@ dependencies = [
  "arrow",
  "datafusion",
  "datafusion-proto",
+ "futures",
  "jni",
  "prost",
  "prost-build",

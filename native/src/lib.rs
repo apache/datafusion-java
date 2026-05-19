@@ -27,20 +27,25 @@ pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
+use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
-use datafusion::arrow::record_batch::RecordBatchIterator;
+use datafusion::arrow::record_batch::{RecordBatchIterator, RecordBatchReader};
 use datafusion::common::UnnestOptions;
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::{ScalarUDF, Signature};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
+use futures::StreamExt;
 use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
@@ -194,6 +199,80 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
             let batches = df.collect().await?;
             let iter = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
             Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(iter)))
+        })?;
+
+        unsafe {
+            std::ptr::write(ffi_stream_addr as *mut FFI_ArrowArrayStream, ffi);
+        }
+        Ok(())
+    })
+}
+
+/// Bridges DataFusion's async [`SendableRecordBatchStream`] to the synchronous
+/// [`RecordBatchReader`] interface that `FFI_ArrowArrayStream` (and therefore
+/// the Java `ArrowReader`) consumes. Each call to `next()` drives one
+/// `runtime().block_on(stream.next())`, so memory pressure stays bounded by the
+/// executor pipeline plus a single in-flight batch.
+struct StreamingReader {
+    schema: SchemaRef,
+    stream: SendableRecordBatchStream,
+}
+
+impl Iterator for StreamingReader {
+    type Item = Result<RecordBatch, ArrowError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Arrow's C ABI invokes this iterator through FFI_ArrowArrayStream's
+        // vtable, outside the JNI handler's try_unwrap_or_throw guard. A panic
+        // here (buggy UDF, arrow cast that panics, runtime poison) would
+        // unwind across C/FFI -- undefined behaviour. Catch it and surface as
+        // an ArrowError so the Java side sees a normal exception instead.
+        let next = catch_unwind(AssertUnwindSafe(|| runtime().block_on(self.stream.next())));
+        match next {
+            Ok(item) => item.map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e)))),
+            Err(panic) => {
+                let msg = if let Some(s) = panic.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else {
+                    "rust panic with non-string payload".to_string()
+                };
+                Some(Err(ArrowError::ExternalError(
+                    format!("panic in DataFrame stream: {msg}").into(),
+                )))
+            }
+        }
+    }
+}
+
+impl RecordBatchReader for StreamingReader {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_executeStreamDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    ffi_stream_addr: jlong,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        if ffi_stream_addr == 0 {
+            return Err("ffi stream address is null".into());
+        }
+        let df = unsafe { *Box::from_raw(handle as *mut DataFrame) };
+
+        let ffi: FFI_ArrowArrayStream = runtime().block_on(async {
+            let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
+            let stream = df.execute_stream().await?;
+            let reader = StreamingReader { schema, stream };
+            Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(reader)))
         })?;
 
         unsafe {
@@ -446,10 +525,17 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOpti
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         let path: String = env.get_string(&path)?.into();
 
-        let mut write_opts = DataFrameWriteOptions::new();
-        if single_file_output_set != 0 {
-            write_opts = write_opts.with_single_file_output(single_file_output_value != 0);
-        }
+        // When the caller left `singleFileOutput` unset, force directory output (`false`)
+        // rather than leaving DataFusion in `Automatic` mode. Automatic mode treats paths
+        // with an extension (e.g. `out.parquet`) as single-file targets, which would silently
+        // contradict the documented "directory unless overridden" default and surprise any
+        // caller that hands writeParquet a `.parquet` path.
+        let single_file = if single_file_output_set != 0 {
+            single_file_output_value != 0
+        } else {
+            false
+        };
+        let write_opts = DataFrameWriteOptions::new().with_single_file_output(single_file);
 
         let writer_opts: Option<TableParquetOptions> = if !compression.is_null() {
             let c: String = env.get_string(&compression)?.into();
@@ -663,7 +749,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         let invoke_method = env.get_static_method_id(
             &bridge_class_local,
             "invokeScalarUdf",
-            "(Lorg/apache/datafusion/ScalarFunction;JJJJI)V",
+            "(Lorg/apache/datafusion/ScalarFunction;JJJJ[BJJI)B",
         )?;
 
         let java_udf = crate::udf::JavaScalarUdf {

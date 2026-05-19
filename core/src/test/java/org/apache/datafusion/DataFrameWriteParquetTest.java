@@ -109,4 +109,27 @@ class DataFrameWriteParquetTest {
       assertEquals(LINEITEM_ROWS, df.count());
     }
   }
+
+  @Test
+  void writeParquetDefaultsToDirectoryEvenWithExtensionInPath(@TempDir Path tempDir)
+      throws Exception {
+    // The Javadoc promises "directory unless overridden via singleFileOutput(true)". DataFusion's
+    // own DataFrameWriteOptions defaults to Automatic mode, where an extension in the path
+    // (".parquet" here) silently flips the output to a single file. The native handler explicitly
+    // pins the default to directory mode so this contract holds regardless of path shape.
+    //
+    // Uses an in-memory 3-row source so this regression test runs without TPC-H fixtures.
+    Path out = tempDir.resolve("out.parquet");
+
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df =
+            ctx.sql(
+                "SELECT * FROM (VALUES (CAST(1 AS BIGINT), 'alice'), (CAST(2 AS BIGINT), 'bob'),"
+                    + " (CAST(3 AS BIGINT), 'carol')) AS t(id, name)")) {
+      df.writeParquet(out.toString());
+    }
+
+    assertTrue(Files.isDirectory(out), "expected directory output at " + out + ", got a file");
+    assertEquals(3L, countRowsAt(out));
+  }
 }
