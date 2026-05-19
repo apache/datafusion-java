@@ -22,7 +22,6 @@ package org.apache.datafusion;
 import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.types.pojo.Field;
 
 /**
@@ -55,8 +54,8 @@ public interface ScalarFunction {
   List<Field> argFields();
 
   /**
-   * Declared return field. The returned {@link FieldVector} must have this exact type, including
-   * any nested children. Same construction rules as {@link #argFields()}.
+   * Declared return field. The returned {@link ColumnarValue}'s vector must have this exact type,
+   * including any nested children. Same construction rules as {@link #argFields()}.
    */
   Field returnField();
 
@@ -70,14 +69,16 @@ public interface ScalarFunction {
   /**
    * Compute the function result for one input batch.
    *
-   * @param allocator the {@link BufferAllocator} that MUST be used for any new {@link FieldVector}
+   * @param allocator the {@link BufferAllocator} that MUST be used for any new Arrow vector
    *     allocation, including the result. Buffers allocated from other allocators will not survive
    *     the JNI handoff.
-   * @param args one {@link FieldVector} per declared argument, all of the same length. These are
-   *     read-only views; the implementation must NOT close them.
-   * @return a {@link FieldVector} of the declared return type and the same length as the inputs.
-   *     Ownership transfers to the framework on return; the implementation must NOT close the
-   *     returned vector.
+   * @param args the per-arg {@link ColumnarValue}s and the batch row count. Each {@link
+   *     ColumnarValue} is a read-only view; the implementation must NOT close its underlying
+   *     vector.
+   * @return a {@link ColumnarValue} of the declared return type. If {@link ColumnarValue.Array},
+   *     the underlying vector must have length {@code args.rowCount()}; if {@link
+   *     ColumnarValue.Scalar}, length 1. Ownership of the returned vector transfers to the
+   *     framework; the implementation must NOT close it.
    */
-  FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args);
+  ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args);
 }

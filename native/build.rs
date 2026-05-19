@@ -21,6 +21,7 @@ fn main() {
         "../proto/file_compression_type.proto",
         "../proto/arrow_read_options.proto",
         "../proto/csv_read_options.proto",
+        "../proto/csv_write_options.proto",
         "../proto/json_read_options.proto",
         "../proto/parquet_read_options.proto",
     ];

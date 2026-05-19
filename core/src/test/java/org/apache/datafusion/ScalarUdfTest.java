@@ -93,8 +93,8 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      IntVector in = (IntVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector in = (IntVector) args.args().get(0).vector();
       IntVector out = new IntVector("add_one_out", allocator);
       int n = in.getValueCount();
       out.allocateNew(n);
@@ -106,7 +106,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -144,11 +144,11 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       org.apache.arrow.vector.VarCharVector left =
-          (org.apache.arrow.vector.VarCharVector) args.get(0);
+          (org.apache.arrow.vector.VarCharVector) args.args().get(0).vector();
       org.apache.arrow.vector.VarCharVector right =
-          (org.apache.arrow.vector.VarCharVector) args.get(1);
+          (org.apache.arrow.vector.VarCharVector) args.args().get(1).vector();
       org.apache.arrow.vector.VarCharVector out =
           new org.apache.arrow.vector.VarCharVector("concat_out", allocator);
       int n = left.getValueCount();
@@ -166,7 +166,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -203,8 +203,9 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      org.apache.arrow.vector.Float8Vector in = (org.apache.arrow.vector.Float8Vector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      org.apache.arrow.vector.Float8Vector in =
+          (org.apache.arrow.vector.Float8Vector) args.args().get(0).vector();
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("square_out", allocator);
       int n = in.getValueCount();
@@ -218,7 +219,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -271,7 +272,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       return null;
     }
   }
@@ -306,13 +307,13 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      IntVector in = (IntVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector in = (IntVector) args.args().get(0).vector();
       IntVector out = new IntVector("out", allocator);
       out.allocateNew(in.getValueCount() + 1); // off by one
       for (int i = 0; i < in.getValueCount() + 1; i++) out.set(i, 0);
       out.setValueCount(in.getValueCount() + 1);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -346,14 +347,15 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       // Declared return type is Int32; return Float64.
       org.apache.arrow.vector.Float8Vector out =
           new org.apache.arrow.vector.Float8Vector("out", allocator);
-      out.allocateNew(args.get(0).getValueCount());
-      for (int i = 0; i < args.get(0).getValueCount(); i++) out.set(i, 0.0);
-      out.setValueCount(args.get(0).getValueCount());
-      return out;
+      FieldVector in = args.args().get(0).vector();
+      out.allocateNew(in.getValueCount());
+      for (int i = 0; i < in.getValueCount(); i++) out.set(i, 0.0);
+      out.setValueCount(in.getValueCount());
+      return ColumnarValue.array(out);
     }
   }
 
@@ -387,7 +389,7 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
       throw new IllegalArgumentException("custom boom from UDF");
     }
   }
@@ -479,6 +481,160 @@ class ScalarUdfTest {
     }
   }
 
+  /**
+   * Nullary UDF returning a length-1 Float8 vector. Marked VOLATILE so DataFusion's constant folder
+   * does not collapse the call before reaching us. Exercises the path that the abandoned PR #57
+   * added a separate rowCount parameter for: a nullary UDF can now broadcast its value through
+   * {@link ColumnarValue#scalar(FieldVector)} and the framework handles per-row expansion.
+   */
+  static final class JavaPi extends AbstractScalarFunction {
+    JavaPi() {
+      super("java_pi", List.of(), Field.nullable("p", FLOAT64), Volatility.VOLATILE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      org.apache.arrow.vector.Float8Vector out =
+          new org.apache.arrow.vector.Float8Vector("pi_out", allocator);
+      out.allocateNew(1);
+      out.set(0, Math.PI);
+      out.setValueCount(1);
+      return ColumnarValue.scalar(out);
+    }
+  }
+
+  @Test
+  void nullaryScalarReturnUdf_overMultiRowQuery_broadcasts() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new JavaPi()));
+
+      try (DataFrame df = ctx.sql("SELECT java_pi() AS p FROM (VALUES (1), (2), (3)) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        org.apache.arrow.vector.Float8Vector p =
+            (org.apache.arrow.vector.Float8Vector) root.getVector("p");
+        assertEquals(3, p.getValueCount());
+        assertEquals(Math.PI, p.get(0), 0.0);
+        assertEquals(Math.PI, p.get(1), 0.0);
+        assertEquals(Math.PI, p.get(2), 0.0);
+      }
+    }
+  }
+
+  /**
+   * UDF over (int_col, int_literal). On every invocation it asserts that arg 0 is an Array and arg
+   * 1 is a Scalar (length-1 vector). Proves the FFI protocol preserves scalar-ness end-to-end
+   * rather than materialising the literal to a length-N array on the native side.
+   */
+  static final class AssertSecondArgIsScalar extends AbstractScalarFunction {
+    AssertSecondArgIsScalar() {
+      super(
+          "assert_scalar_arg",
+          List.of(Field.nullable("a", INT32), Field.nullable("b", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      if (!(args.args().get(0) instanceof ColumnarValue.Array)) {
+        throw new AssertionError(
+            "arg 0 expected Array, got " + args.args().get(0).getClass().getSimpleName());
+      }
+      if (!(args.args().get(1) instanceof ColumnarValue.Scalar)) {
+        throw new AssertionError(
+            "arg 1 expected Scalar, got " + args.args().get(1).getClass().getSimpleName());
+      }
+      IntVector left = (IntVector) args.args().get(0).vector();
+      IntVector right = (IntVector) args.args().get(1).vector();
+      if (right.getValueCount() != 1) {
+        throw new AssertionError(
+            "Scalar arg vector should have length 1, got " + right.getValueCount());
+      }
+      int rightVal = right.get(0);
+      IntVector out = new IntVector("out", allocator);
+      int n = left.getValueCount();
+      out.allocateNew(n);
+      for (int i = 0; i < n; i++) {
+        if (left.isNull(i)) {
+          out.setNull(i);
+        } else {
+          out.set(i, left.get(i) + rightVal);
+        }
+      }
+      out.setValueCount(n);
+      return ColumnarValue.array(out);
+    }
+  }
+
+  @Test
+  void scalarLiteralArg_arrivesAsScalarColumnarValue() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new AssertSecondArgIsScalar()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT assert_scalar_arg(x, CAST(100 AS INT)) AS y"
+                      + " FROM (VALUES (CAST(1 AS INT)), (CAST(2 AS INT)), (CAST(3 AS INT)))"
+                      + " AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector y = (IntVector) root.getVector("y");
+        assertEquals(3, y.getValueCount());
+        assertEquals(101, y.get(0));
+        assertEquals(102, y.get(1));
+        assertEquals(103, y.get(2));
+      }
+    }
+  }
+
+  /** UDF that ignores its input and returns a constant Scalar. */
+  static final class IgnoreInputReturnFortyTwo extends AbstractScalarFunction {
+    IgnoreInputReturnFortyTwo() {
+      super(
+          "forty_two",
+          List.of(Field.nullable("x", INT32)),
+          Field.nullable("y", INT32),
+          Volatility.IMMUTABLE);
+    }
+
+    @Override
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      IntVector out = new IntVector("out", allocator);
+      out.allocateNew(1);
+      out.set(0, 42);
+      out.setValueCount(1);
+      return ColumnarValue.scalar(out);
+    }
+  }
+
+  @Test
+  void udfReturningScalar_isBroadcastByFramework() throws Exception {
+    try (SessionContext ctx = new SessionContext();
+        BufferAllocator allocator = new RootAllocator()) {
+      ctx.registerUdf(new ScalarUdf(new IgnoreInputReturnFortyTwo()));
+
+      try (DataFrame df =
+              ctx.sql(
+                  "SELECT forty_two(x) AS y"
+                      + " FROM (VALUES (CAST(1 AS INT)), (CAST(2 AS INT)),"
+                      + " (CAST(3 AS INT)), (CAST(4 AS INT)), (CAST(5 AS INT))) AS t(x)");
+          ArrowReader r = df.collect(allocator)) {
+        assertEquals(true, r.loadNextBatch());
+        VectorSchemaRoot root = r.getVectorSchemaRoot();
+        IntVector y = (IntVector) root.getVector("y");
+        assertEquals(5, y.getValueCount());
+        for (int i = 0; i < 5; i++) {
+          assertEquals(42, y.get(i));
+        }
+      }
+    }
+  }
+
   @Test
   void volatilityBytesRoundTrip_forAllThreeKinds() throws Exception {
     for (Volatility v : Volatility.values()) {
@@ -519,8 +675,8 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      ListVector in = (ListVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      ListVector in = (ListVector) args.args().get(0).vector();
       IntVector out = new IntVector("len_out", allocator);
       int n = in.getValueCount();
       out.allocateNew(n);
@@ -532,7 +688,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -584,8 +740,8 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      StructVector in = (StructVector) args.get(0);
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      StructVector in = (StructVector) args.args().get(0).vector();
       IntVector a = (IntVector) in.getChild("a");
       IntVector b = (IntVector) in.getChild("b");
       org.apache.arrow.vector.BigIntVector out =
@@ -600,7 +756,7 @@ class ScalarUdfTest {
         }
       }
       out.setValueCount(n);
-      return out;
+      return ColumnarValue.array(out);
     }
   }
 
@@ -649,14 +805,14 @@ class ScalarUdfTest {
     }
 
     @Override
-    public FieldVector evaluate(BufferAllocator allocator, List<FieldVector> args) {
-      // 'args' is empty; we'll be invoked once per batch with rowCount=1 here since the call
-      // sites use a 1-row table. Sized to match.
+    public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
+      // Nullary -- broadcast a single value as a Scalar. The framework expands it to
+      // args.rowCount() rows downstream, so we only need a length-1 vector here.
       IntVector out = new IntVector("out", allocator);
       out.allocateNew(1);
       out.set(0, 1);
       out.setValueCount(1);
-      return out;
+      return ColumnarValue.scalar(out);
     }
   }
 
