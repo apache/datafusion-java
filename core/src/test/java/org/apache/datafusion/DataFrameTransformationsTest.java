@@ -123,7 +123,8 @@ class DataFrameTransformationsTest {
 
   @Test
   void methodsThrowAfterClose() {
-    try (SessionContext ctx = new SessionContext()) {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame other = ctx.sql("SELECT 1 AS x")) {
       DataFrame df = ctx.sql("SELECT 1 AS x");
       df.close();
       assertThrows(IllegalStateException.class, () -> df.select("x"));
@@ -135,6 +136,14 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, () -> df.withColumn("y", "x + 1"));
       assertThrows(IllegalStateException.class, () -> df.unnestColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.union(other));
+      assertThrows(IllegalStateException.class, () -> df.unionDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.unionByName(other));
+      assertThrows(IllegalStateException.class, () -> df.unionByNameDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.intersect(other));
+      assertThrows(IllegalStateException.class, () -> df.intersectDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.except(other));
+      assertThrows(IllegalStateException.class, () -> df.exceptDistinct(other));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -145,7 +154,8 @@ class DataFrameTransformationsTest {
   void methodsThrowAfterCollect() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext();
-        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+        DataFrame df = ctx.sql("SELECT 1 AS x");
+        DataFrame other = ctx.sql("SELECT 1 AS x")) {
       try (ArrowReader reader = df.collect(allocator)) {
         assertTrue(reader.loadNextBatch());
       }
@@ -158,6 +168,14 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, () -> df.withColumnRenamed("x", "y"));
       assertThrows(IllegalStateException.class, () -> df.withColumn("y", "x + 1"));
       assertThrows(IllegalStateException.class, () -> df.unnestColumns("x"));
+      assertThrows(IllegalStateException.class, () -> df.union(other));
+      assertThrows(IllegalStateException.class, () -> df.unionDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.unionByName(other));
+      assertThrows(IllegalStateException.class, () -> df.unionByNameDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.intersect(other));
+      assertThrows(IllegalStateException.class, () -> df.intersectDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.except(other));
+      assertThrows(IllegalStateException.class, () -> df.exceptDistinct(other));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -502,6 +520,152 @@ class DataFrameTransformationsTest {
       assertThrows(
           IllegalArgumentException.class,
           () -> df.unnestColumns(new UnnestOptions(), (String[]) null));
+    }
+  }
+
+  // -- Set operations -------------------------------------------------------
+
+  @Test
+  void unionKeepsDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (2), (2)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (2), (3)) AS t(x)");
+        DataFrame combined = left.union(right)) {
+      // union = UNION ALL: 3 + 2 = 5 rows, duplicates preserved.
+      assertEquals(5L, combined.count());
+    }
+  }
+
+  @Test
+  void unionDistinctRemovesDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (2), (2)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (2), (3)) AS t(x)");
+        DataFrame combined = left.unionDistinct(right)) {
+      // unionDistinct = UNION (deduplicated): {1, 2, 3} = 3 rows.
+      assertEquals(3L, combined.count());
+    }
+  }
+
+  @Test
+  void unionByNameAlignsColumnsByName() {
+    try (SessionContext ctx = new SessionContext();
+        // Left: (a, b). Right: (b, a) -- same names, swapped column positions.
+        DataFrame left = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame right = ctx.sql("SELECT 4 AS b, 3 AS a");
+        DataFrame combined = left.unionByName(right)) {
+      // 2 rows: positional union would mix columns, but unionByName aligns them.
+      assertEquals(2L, combined.count());
+    }
+  }
+
+  @Test
+  void unionByNameDistinctRemovesDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT 1 AS a, 2 AS b");
+        DataFrame right = ctx.sql("SELECT 2 AS b, 1 AS a");
+        DataFrame combined = left.unionByNameDistinct(right)) {
+      // After name-aligning, both rows are (a=1, b=2). Distinct collapses to 1.
+      assertEquals(1L, combined.count());
+    }
+  }
+
+  @Test
+  void intersectKeepsCommonRowsWithDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (2), (2), (3)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (2), (2), (3)) AS t(x)");
+        DataFrame inter = left.intersect(right)) {
+      // INTERSECT ALL: row r appears min(count(r) in left, count(r) in right) times.
+      // 2 appears 2 times in both => 2 rows; 3 appears 1 time in both => 1 row. Total 3.
+      assertEquals(3L, inter.count());
+    }
+  }
+
+  @Test
+  void intersectDistinctReturnsUniqueCommonRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (2), (2), (3)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (2), (2), (3)) AS t(x)");
+        DataFrame inter = left.intersectDistinct(right)) {
+      // INTERSECT (deduplicated): {2, 3} = 2 rows.
+      assertEquals(2L, inter.count());
+    }
+  }
+
+  @Test
+  void exceptKeepsLeftMinusRightWithDuplicates() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (1), (3)) AS t(x)");
+        DataFrame diff = left.except(right)) {
+      // DataFusion's EXCEPT ALL is implemented as a LeftAnti join, so a left row is kept iff
+      // its key has no match in right. With left {1, 1, 2, 2, 3} and right {1, 3}: both 1s and
+      // the 3 are dropped, both 2s are kept. Total 2 rows -- duplicates of 2 preserved.
+      assertEquals(2L, diff.count());
+    }
+  }
+
+  @Test
+  void exceptDistinctReturnsUniqueLeftOnlyRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (1), (2), (2), (3)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (1), (3)) AS t(x)");
+        DataFrame diff = left.exceptDistinct(right)) {
+      // EXCEPT (DISTINCT): left is deduplicated to {1, 2, 3}, then anti-joined against
+      // right {1, 3}. Result: {2} = 1 row.
+      assertEquals(1L, diff.count());
+    }
+  }
+
+  @Test
+  void setOpsAreNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT * FROM (VALUES (1), (2)) AS t(x)");
+        DataFrame right = ctx.sql("SELECT * FROM (VALUES (2), (3)) AS t(x)")) {
+      try (DataFrame combined = left.union(right)) {
+        assertEquals(4L, combined.count());
+      }
+      // Both originals still usable after the set-op call.
+      assertEquals(2L, left.count());
+      assertEquals(2L, right.count());
+    }
+  }
+
+  @Test
+  void setOpsRejectNullOther() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.union(null));
+      assertThrows(IllegalArgumentException.class, () -> df.unionDistinct(null));
+      assertThrows(IllegalArgumentException.class, () -> df.unionByName(null));
+      assertThrows(IllegalArgumentException.class, () -> df.unionByNameDistinct(null));
+      assertThrows(IllegalArgumentException.class, () -> df.intersect(null));
+      assertThrows(IllegalArgumentException.class, () -> df.intersectDistinct(null));
+      assertThrows(IllegalArgumentException.class, () -> df.except(null));
+      assertThrows(IllegalArgumentException.class, () -> df.exceptDistinct(null));
+    }
+  }
+
+  @Test
+  void setOpsRejectClosedOther() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      DataFrame other = ctx.sql("SELECT 1 AS x");
+      other.close();
+      assertThrows(IllegalStateException.class, () -> df.union(other));
+      assertThrows(IllegalStateException.class, () -> df.intersectDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.exceptDistinct(other));
+    }
+  }
+
+  @Test
+  void unionWithIncompatibleSchemaThrows() {
+    // Different column count -- LogicalPlanBuilder rejects at plan-build time.
+    try (SessionContext ctx = new SessionContext();
+        DataFrame left = ctx.sql("SELECT 1 AS x, 2 AS y");
+        DataFrame right = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(RuntimeException.class, () -> left.union(right));
     }
   }
 }
