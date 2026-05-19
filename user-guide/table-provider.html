@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>API Reference &#8212; Apache DataFusion Java  documentation</title>
+    <title>Java table providers &#8212; Apache DataFusion Java  documentation</title>
   
   
   
@@ -41,11 +41,11 @@
     <script src="../_static/documentation_options.js?v=5929fcd5"></script>
     <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/api-reference';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user-guide/table-provider';</script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Contributor Guide" href="../contributor-guide/index.html" />
-    <link rel="prev" title="Java table providers" href="table-provider.html" />
+    <link rel="next" title="API Reference" href="api-reference.html" />
+    <link rel="prev" title="Scalar UDFs" href="scalar-udf.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -324,8 +324,8 @@
 <li class="toctree-l1"><a class="reference internal" href="parquet.html">Parquet</a></li>
 <li class="toctree-l1"><a class="reference internal" href="proto-plans.html">Logical plans via datafusion-proto</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scalar-udf.html">Scalar UDFs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="table-provider.html">Java table providers</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">API Reference</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Java table providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api-reference.html">API Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -369,7 +369,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">User Guide</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">API Reference</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Java table providers</span></li>
   </ul>
 </nav>
 </div>
@@ -404,18 +404,107 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<section id="api-reference">
-<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">#</a></h1>
-<p>Generated Javadoc for the public Java API lives at</p>
-<!-- Raw HTML link: MyST resolves relative .html Markdown links as
-     cross-references, which fails sphinx-build -W. The Javadoc tree is
-     copied verbatim via html_extra_path and is unknown to Sphinx. -->
-<p><a href="../api/index.html"><strong>api/index.html</strong></a>.</p>
-<p>The reference covers the <code class="docutils literal notranslate"><span class="pre">org.apache.datafusion</span></code> package, including
-<code class="docutils literal notranslate"><span class="pre">SessionContext</span></code>, <code class="docutils literal notranslate"><span class="pre">SessionContextBuilder</span></code>, <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code>, <code class="docutils literal notranslate"><span class="pre">CsvReadOptions</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ParquetReadOptions</span></code>, and <code class="docutils literal notranslate"><span class="pre">NativeLibraryLoader</span></code>, plus the
-<code class="docutils literal notranslate"><span class="pre">org.apache.datafusion.proto</span></code> helpers. Auto-generated protobuf classes are
-intentionally excluded from the Javadoc — they are an implementation detail.</p>
+<section id="java-table-providers">
+<h1>Java table providers<a class="headerlink" href="#java-table-providers" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">SessionContext.registerTable(name,</span> <span class="pre">provider)</span></code> registers a Java-implemented
+table. SQL queries that reference <code class="docutils literal notranslate"><span class="pre">name</span></code> call back into your <code class="docutils literal notranslate"><span class="pre">TableProvider</span></code>
+to fetch batches. Data flows from Java to native code via the Arrow C Data
+Interface, so there are no extra copies in the hot path. This is the Java
+counterpart to DataFusion’s Rust <code class="docutils literal notranslate"><span class="pre">SessionContext::register_table</span></code>.</p>
+<section id="implement">
+<h2>Implement<a class="headerlink" href="#implement" title="Link to this heading">#</a></h2>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.BufferAllocator</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.ipc.ArrowReader</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.Schema</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.TableProvider</span><span class="p">;</span>
+
+<span class="kd">public</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="kd">class</span> <span class="nc">MyTable</span><span class="w"> </span><span class="kd">implements</span><span class="w"> </span><span class="n">TableProvider</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">Schema</span><span class="w"> </span><span class="n">schema</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="nf">MyTable</span><span class="p">(</span><span class="n">Schema</span><span class="w"> </span><span class="n">schema</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">this</span><span class="p">.</span><span class="na">schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">schema</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Schema</span><span class="w"> </span><span class="nf">schema</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">schema</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nd">@Override</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="n">ArrowReader</span><span class="w"> </span><span class="nf">scan</span><span class="p">(</span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// Return a fresh ArrowReader. The reader must allocate its buffers</span>
+<span class="w">        </span><span class="c1">// from `allocator` (or a child of it) — the framework needs the</span>
+<span class="w">        </span><span class="c1">// allocator hierarchy to share a root.</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">openMyReader</span><span class="p">(</span><span class="n">allocator</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>For the common case of “I have a schema and a function that returns an
+<code class="docutils literal notranslate"><span class="pre">ArrowReader</span></code>,” <code class="docutils literal notranslate"><span class="pre">SimpleTableProvider</span></code> packages those two into a ready-made
+<code class="docutils literal notranslate"><span class="pre">TableProvider</span></code> without having to subclass:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">TableProvider</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SimpleTableProvider</span><span class="p">(</span><span class="n">mySchema</span><span class="p">(),</span><span class="w"> </span><span class="n">allocator</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">openMyReader</span><span class="p">(</span><span class="n">allocator</span><span class="p">));</span>
+<span class="n">ctx</span><span class="p">.</span><span class="na">registerTable</span><span class="p">(</span><span class="s">&quot;t&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">t</span><span class="p">);</span>
+</pre></div>
+</div>
+</section>
+<section id="register-and-query">
+<h2>Register and query<a class="headerlink" href="#register-and-query" title="Link to this heading">#</a></h2>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">();</span>
+<span class="w">     </span><span class="n">BufferAllocator</span><span class="w"> </span><span class="n">allocator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RootAllocator</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerTable</span><span class="p">(</span><span class="s">&quot;t&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">MyTable</span><span class="p">(</span><span class="n">mySchema</span><span class="p">()));</span>
+
+<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">&quot;SELECT * FROM t WHERE x &gt; 10&quot;</span><span class="p">);</span>
+<span class="w">         </span><span class="n">ArrowReader</span><span class="w"> </span><span class="n">r</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">df</span><span class="p">.</span><span class="na">collect</span><span class="p">(</span><span class="n">allocator</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">r</span><span class="p">.</span><span class="na">loadNextBatch</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// ...</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="contract">
+<h2>Contract<a class="headerlink" href="#contract" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">schema()</span></code> is called exactly once, on the caller’s thread, at registration
+time. Throwing from it aborts registration with the original exception.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scan(allocator)</span></code> is called once per SQL query that touches the table, on a
+worker thread. It must return a fresh, independent <code class="docutils literal notranslate"><span class="pre">ArrowReader</span></code> on every
+call — this is what makes self-joins and <code class="docutils literal notranslate"><span class="pre">UNION</span> <span class="pre">ALL</span></code> over the same table
+work.</p></li>
+<li><p>The reader returned by <code class="docutils literal notranslate"><span class="pre">scan</span></code> must allocate its buffers from the supplied
+<code class="docutils literal notranslate"><span class="pre">allocator</span></code> (or a child of it). Arrow Java’s <code class="docutils literal notranslate"><span class="pre">Data.exportArrayStream</span></code>
+requires the reader’s allocator and the export allocator to share a root.</p></li>
+<li><p>The returned reader’s schema must equal the schema returned by <code class="docutils literal notranslate"><span class="pre">schema()</span></code>.
+A mismatch fails the query.</p></li>
+<li><p>You do not need to close the returned reader yourself. The framework
+installs a release callback that closes it when the underlying FFI stream
+is dropped.</p></li>
+</ul>
+</section>
+<section id="errors">
+<h2>Errors<a class="headerlink" href="#errors" title="Link to this heading">#</a></h2>
+<p>Exceptions thrown from <code class="docutils literal notranslate"><span class="pre">scan()</span></code> or from the returned reader surface in the
+<code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> raised by <code class="docutils literal notranslate"><span class="pre">collect()</span></code>. The error message includes the Java
+exception class and <code class="docutils literal notranslate"><span class="pre">getMessage()</span></code>, in the same format used for scalar UDF
+errors.</p>
+</section>
+<section id="threading">
+<h2>Threading<a class="headerlink" href="#threading" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> is single-threaded, but <code class="docutils literal notranslate"><span class="pre">scan(allocator)</span></code> may be invoked from
+any DataFusion worker thread. If your implementation maintains mutable state
+across scans, synchronise it.</p>
+</section>
+<section id="limitations-v1">
+<h2>Limitations (v1)<a class="headerlink" href="#limitations-v1" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Single-partition scans only. DataFusion sees the table as one partition;
+multi-partition parallelism is a follow-up.</p></li>
+<li><p>No projection or filter pushdown. DataFusion applies projection and
+filters on top of the batches you return; the Java side always sees the
+full schema. The interface is intentionally minimal so it can grow these
+capabilities (as default methods) without breaking existing implementations.</p></li>
+<li><p>No <code class="docutils literal notranslate"><span class="pre">deregisterTable</span></code>. Tables live until the <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> is closed.</p></li>
+</ul>
+</section>
 </section>
 
 
@@ -429,20 +518,20 @@ intentionally excluded from the Javadoc — they are an implementation detail.</
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="table-provider.html"
+       href="scalar-udf.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Java table providers</p>
+        <p class="prev-next-title">Scalar UDFs</p>
       </div>
     </a>
     <a class="right-next"
-       href="../contributor-guide/index.html"
+       href="api-reference.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Contributor Guide</p>
+        <p class="prev-next-title">API Reference</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -458,10 +547,27 @@ intentionally excluded from the Javadoc — they are an implementation detail.</
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implement">Implement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register-and-query">Register and query</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contract">Contract</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations-v1">Limitations (v1)</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
   <div role="note" aria-label="source link">
     <h3>This Page</h3>
     <ul class="this-page-menu">
-      <li><a href="../_sources/user-guide/api-reference.md.txt"
+      <li><a href="../_sources/user-guide/table-provider.md.txt"
             rel="nofollow">Show Source</a></li>
     </ul>
    </div></div>
