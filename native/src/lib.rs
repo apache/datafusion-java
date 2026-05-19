@@ -16,6 +16,7 @@
 // under the License.
 
 mod arrow;
+mod avro;
 mod csv;
 mod errors;
 mod json;

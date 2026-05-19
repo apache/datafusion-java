@@ -362,6 +362,70 @@ public final class SessionContext implements AutoCloseable {
     return new DataFrame(dfHandle);
   }
 
+  /** Register an Avro file (or directory of Avro files) as a table. */
+  public void registerAvro(String name, String path) {
+    registerAvro(name, path, new AvroReadOptions());
+  }
+
+  /**
+   * Register an Avro file (or directory of Avro files) as a table with the supplied {@link
+   * AvroReadOptions}.
+   *
+   * @throws IllegalArgumentException if any of {@code name}, {@code path}, or {@code options} is
+   *     {@code null}.
+   * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
+   */
+  public void registerAvro(String name, String path, AvroReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerAvro name must be non-null");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("registerAvro path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerAvro options must be non-null");
+    }
+    registerAvroWithOptions(
+        nativeHandle,
+        name,
+        path,
+        options.toBytes(),
+        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+  }
+
+  /** Read an Avro file as a {@link DataFrame} without registering it. */
+  public DataFrame readAvro(String path) {
+    return readAvro(path, new AvroReadOptions());
+  }
+
+  /**
+   * Read an Avro file as a {@link DataFrame} with the supplied {@link AvroReadOptions}.
+   *
+   * @throws IllegalArgumentException if {@code path} or {@code options} is {@code null}.
+   * @throws RuntimeException if the read fails.
+   */
+  public DataFrame readAvro(String path, AvroReadOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (path == null) {
+      throw new IllegalArgumentException("readAvro path must be non-null");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("readAvro options must be non-null");
+    }
+    long dfHandle =
+        readAvroWithOptions(
+            nativeHandle,
+            path,
+            options.toBytes(),
+            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    return new DataFrame(dfHandle);
+  }
+
   /**
    * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
    * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
@@ -441,6 +505,12 @@ public final class SessionContext implements AutoCloseable {
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native long readArrowWithOptions(
+      long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native void registerAvroWithOptions(
+      long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
+
+  private static native long readAvroWithOptions(
       long handle, String path, byte[] optionsBytes, byte[] schemaIpcBytes);
 
   private static native void registerJsonWithOptions(
