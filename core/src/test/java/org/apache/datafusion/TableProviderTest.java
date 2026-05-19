@@ -43,22 +43,22 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Test;
 
-class DataSourceTest {
+class TableProviderTest {
 
   private static final ArrowType INT32 = new ArrowType.Int(32, true);
   private static final ArrowType UTF8 = new ArrowType.Utf8();
 
   /**
-   * In-memory {@link DataSource} fixture. The batches are serialised to Arrow IPC bytes once at
+   * In-memory {@link TableProvider} fixture. The batches are serialised to Arrow IPC bytes once at
    * construction (using a private allocator); each {@link #scan(BufferAllocator)} call returns a
    * fresh {@link ArrowStreamReader} backed by those bytes, using the framework-supplied allocator.
    */
-  static final class InMemoryDataSource implements DataSource {
+  static final class InMemoryTableProvider implements TableProvider {
     private final Schema schema;
     private final byte[] ipcBytes;
     private final AtomicInteger scanCount = new AtomicInteger();
 
-    InMemoryDataSource(Schema schema, byte[] ipcBytes) {
+    InMemoryTableProvider(Schema schema, byte[] ipcBytes) {
       this.schema = schema;
       this.ipcBytes = ipcBytes;
     }
@@ -67,8 +67,8 @@ class DataSourceTest {
      * Build a fixture from one or more vector-schema-root batches. The caller's allocator may be a
      * temporary RootAllocator; this constructor reads all data into IPC bytes immediately.
      */
-    static InMemoryDataSource fromBatches(Schema schema, List<VectorSchemaRoot> batches) {
-      return new InMemoryDataSource(schema, serializeBatches(schema, batches));
+    static InMemoryTableProvider fromBatches(Schema schema, List<VectorSchemaRoot> batches) {
+      return new InMemoryTableProvider(schema, serializeBatches(schema, batches));
     }
 
     static byte[] serializeBatches(Schema schema, List<VectorSchemaRoot> batches) {
@@ -116,7 +116,7 @@ class DataSourceTest {
   }
 
   /** Build a one-batch in-memory fixture of (id INT, name UTF8) with the given rows. */
-  private static InMemoryDataSource buildTwoColumnTable(int[] ids, String[] names) {
+  private static InMemoryTableProvider buildTwoColumnTable(int[] ids, String[] names) {
     Schema schema =
         new Schema(
             List.of(
@@ -136,17 +136,17 @@ class DataSourceTest {
       idVec.setValueCount(n);
       nameVec.setValueCount(n);
       root.setRowCount(n);
-      return InMemoryDataSource.fromBatches(schema, List.of(root));
+      return InMemoryTableProvider.fromBatches(schema, List.of(root));
     }
   }
 
   @Test
-  void registerDataSource_selectStar_returnsAllRows() throws Exception {
+  void registerTable_selectStar_returnsAllRows() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      InMemoryDataSource src =
+      InMemoryTableProvider src =
           buildTwoColumnTable(new int[] {1, 2, 3}, new String[] {"a", "b", "c"});
-      ctx.registerDataSource("t", src);
+      ctx.registerTable("t", src);
 
       try (DataFrame df = ctx.sql("SELECT id, name FROM t ORDER BY id");
           ArrowReader r = df.collect(allocator)) {
@@ -168,11 +168,11 @@ class DataSourceTest {
   }
 
   @Test
-  void registerDataSource_unionAllSelf_callsScanTwice() throws Exception {
+  void registerTable_unionAllSelf_callsScanTwice() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      InMemoryDataSource src = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
-      ctx.registerDataSource("t", src);
+      InMemoryTableProvider src = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
+      ctx.registerTable("t", src);
 
       try (DataFrame df = ctx.sql("SELECT id FROM t UNION ALL SELECT id FROM t");
           ArrowReader r = df.collect(allocator)) {
@@ -188,12 +188,12 @@ class DataSourceTest {
   }
 
   @Test
-  void registerDataSource_emptyStream_yieldsNoRows() throws Exception {
+  void registerTable_emptyStream_yieldsNoRows() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
       Schema schema = new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
-      InMemoryDataSource src = InMemoryDataSource.fromBatches(schema, List.of());
-      ctx.registerDataSource("t", src);
+      InMemoryTableProvider src = InMemoryTableProvider.fromBatches(schema, List.of());
+      ctx.registerTable("t", src);
 
       try (DataFrame df = ctx.sql("SELECT id FROM t");
           ArrowReader r = df.collect(allocator)) {
@@ -208,12 +208,12 @@ class DataSourceTest {
   }
 
   @Test
-  void registerDataSource_projectSingleColumn_returnsOnlyThatColumn() throws Exception {
+  void registerTable_projectSingleColumn_returnsOnlyThatColumn() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      InMemoryDataSource src =
+      InMemoryTableProvider src =
           buildTwoColumnTable(new int[] {10, 20, 30}, new String[] {"x", "y", "z"});
-      ctx.registerDataSource("t", src);
+      ctx.registerTable("t", src);
 
       try (DataFrame df = ctx.sql("SELECT name FROM t ORDER BY name");
           ArrowReader r = df.collect(allocator)) {
@@ -230,7 +230,7 @@ class DataSourceTest {
     }
   }
 
-  static final class ThrowingDataSource implements DataSource {
+  static final class ThrowingTableProvider implements TableProvider {
     @Override
     public Schema schema() {
       return new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
@@ -238,15 +238,15 @@ class DataSourceTest {
 
     @Override
     public ArrowReader scan(BufferAllocator allocator) {
-      throw new IllegalArgumentException("custom boom from DataSource");
+      throw new IllegalArgumentException("custom boom from TableProvider");
     }
   }
 
   @Test
-  void registerDataSource_scanThrows_propagatesClassAndMessage() {
+  void registerTable_scanThrows_propagatesClassAndMessage() {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      ctx.registerDataSource("t", new ThrowingDataSource());
+      ctx.registerTable("t", new ThrowingTableProvider());
 
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
@@ -262,12 +262,12 @@ class DataSourceTest {
           msg.contains("IllegalArgumentException"),
           "expected exception class in error, got: " + msg);
       assertTrue(
-          msg.contains("custom boom from DataSource"),
+          msg.contains("custom boom from TableProvider"),
           "expected user message in error, got: " + msg);
     }
   }
 
-  static final class NullReturningDataSource implements DataSource {
+  static final class NullReturningTableProvider implements TableProvider {
     @Override
     public Schema schema() {
       return new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
@@ -280,10 +280,10 @@ class DataSourceTest {
   }
 
   @Test
-  void registerDataSource_scanReturnsNull_failsWithIllegalStateException() {
+  void registerTable_scanReturnsNull_failsWithIllegalStateException() {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      ctx.registerDataSource("t", new NullReturningDataSource());
+      ctx.registerTable("t", new NullReturningTableProvider());
 
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
@@ -303,7 +303,7 @@ class DataSourceTest {
   }
 
   /** Declares (id INT) but scan() returns (id INT, extra UTF8). */
-  static final class SchemaLyingDataSource implements DataSource {
+  static final class SchemaLyingTableProvider implements TableProvider {
     @Override
     public Schema schema() {
       return new Schema(List.of(new Field("id", FieldType.nullable(INT32), null)));
@@ -319,17 +319,17 @@ class DataSourceTest {
       try (BufferAllocator tmp = new RootAllocator();
           VectorSchemaRoot root = VectorSchemaRoot.create(actualSchema, tmp)) {
         root.setRowCount(0);
-        byte[] ipc = InMemoryDataSource.serializeBatches(actualSchema, List.of(root));
+        byte[] ipc = InMemoryTableProvider.serializeBatches(actualSchema, List.of(root));
         return new ArrowStreamReader(new ByteArrayInputStream(ipc), allocator);
       }
     }
   }
 
   @Test
-  void registerDataSource_schemaMismatch_failsQueryWithReadableError() {
+  void registerTable_schemaMismatch_failsQueryWithReadableError() {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      ctx.registerDataSource("t", new SchemaLyingDataSource());
+      ctx.registerTable("t", new SchemaLyingTableProvider());
 
       RuntimeException ex =
           org.junit.jupiter.api.Assertions.assertThrows(
@@ -348,13 +348,13 @@ class DataSourceTest {
   }
 
   @Test
-  void registerDataSource_twoTables_joinable() throws Exception {
+  void registerTable_twoTables_joinable() throws Exception {
     try (BufferAllocator allocator = new RootAllocator();
         SessionContext ctx = new SessionContext()) {
-      InMemoryDataSource left = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
-      InMemoryDataSource right = buildTwoColumnTable(new int[] {2, 3}, new String[] {"B", "C"});
-      ctx.registerDataSource("l", left);
-      ctx.registerDataSource("r", right);
+      InMemoryTableProvider left = buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
+      InMemoryTableProvider right = buildTwoColumnTable(new int[] {2, 3}, new String[] {"B", "C"});
+      ctx.registerTable("l", left);
+      ctx.registerTable("r", right);
 
       int totalRows = 0;
       int lidVal = -1;
@@ -392,6 +392,32 @@ class DataSourceTest {
       assertEquals("B", rnameVal);
       assertEquals(1, left.scanCount());
       assertEquals(1, right.scanCount());
+    }
+  }
+
+  @Test
+  void simpleTableProvider_registerAndQuery_returnsRows() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      InMemoryTableProvider backing =
+          buildTwoColumnTable(new int[] {1, 2}, new String[] {"a", "b"});
+      TableProvider provider = new SimpleTableProvider(backing.schema(), backing::scan);
+      ctx.registerTable("t", provider);
+
+      try (DataFrame df = ctx.sql("SELECT id, name FROM t ORDER BY id");
+          ArrowReader r = df.collect(allocator)) {
+        assertTrue(r.loadNextBatch());
+        VectorSchemaRoot out = r.getVectorSchemaRoot();
+        IntVector id = (IntVector) out.getVector("id");
+        VarCharVector name = (VarCharVector) out.getVector("name");
+        assertEquals(2, id.getValueCount());
+        assertEquals(1, id.get(0));
+        assertEquals(2, id.get(1));
+        assertEquals("a", new String(name.get(0)));
+        assertEquals("b", new String(name.get(1)));
+        while (r.loadNextBatch()) {}
+      }
+      assertEquals(1, backing.scanCount());
     }
   }
 }

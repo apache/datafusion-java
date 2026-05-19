@@ -45,12 +45,12 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.datafusion.DataFrame;
-import org.apache.datafusion.DataSource;
 import org.apache.datafusion.SessionContext;
+import org.apache.datafusion.TableProvider;
 
 /**
- * Demonstrates a JDBC-backed {@link DataSource}. Populates an H2 in-memory table, registers it with
- * DataFusion via {@link SessionContext#registerDataSource}, and runs an aggregation query against
+ * Demonstrates a JDBC-backed {@link TableProvider}. Populates an H2 in-memory table, registers it
+ * with DataFusion via {@link SessionContext#registerTable}, and runs an aggregation query against
  * it.
  *
  * <p>Run with:
@@ -66,12 +66,12 @@ public final class JdbcExample {
    * {@link PreparedStatement#getMetaData()}; each {@link #scan} re-executes the query and streams
    * the result through {@code arrow-jdbc}'s {@link ArrowVectorIterator}.
    */
-  public static final class JdbcDataSource implements DataSource {
+  public static final class JdbcTableProvider implements TableProvider {
     private final String url;
     private final String query;
     private final Schema schema;
 
-    public JdbcDataSource(String url, String query) {
+    public JdbcTableProvider(String url, String query) {
       this.url = url;
       this.query = query;
       this.schema = fetchSchema();
@@ -230,12 +230,12 @@ public final class JdbcExample {
               + " (3, 'alice', 100.00)");
     }
 
-    JdbcDataSource src =
-        new JdbcDataSource(url, "SELECT \"id\", \"customer\", \"total\" FROM \"orders\"");
+    JdbcTableProvider src =
+        new JdbcTableProvider(url, "SELECT \"id\", \"customer\", \"total\" FROM \"orders\"");
 
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerDataSource("orders", src);
+      ctx.registerTable("orders", src);
 
       try (DataFrame df =
               ctx.sql(

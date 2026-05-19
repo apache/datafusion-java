@@ -38,7 +38,7 @@ dataframe
 parquet
 proto-plans
 scalar-udf
-data-source
+table-provider
 api-reference
 ```
 

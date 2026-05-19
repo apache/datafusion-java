@@ -17,12 +17,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Java data sources
+# Java table providers
 
-`SessionContext.registerDataSource(name, source)` registers a Java-implemented
-table. SQL queries that reference `name` call back into your `DataSource` to
-fetch batches. Data flows from Java to native code via the Arrow C Data
-Interface, so there are no extra copies in the hot path.
+`SessionContext.registerTable(name, provider)` registers a Java-implemented
+table. SQL queries that reference `name` call back into your `TableProvider`
+to fetch batches. Data flows from Java to native code via the Arrow C Data
+Interface, so there are no extra copies in the hot path. This is the Java
+counterpart to DataFusion's Rust `SessionContext::register_table`.
 
 ## Implement
 
@@ -30,9 +31,9 @@ Interface, so there are no extra copies in the hot path.
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.datafusion.DataSource;
+import org.apache.datafusion.TableProvider;
 
-public final class MyTable implements DataSource {
+public final class MyTable implements TableProvider {
     private final Schema schema;
 
     public MyTable(Schema schema) {
@@ -51,12 +52,21 @@ public final class MyTable implements DataSource {
 }
 ```
 
+For the common case of "I have a schema and a function that returns an
+`ArrowReader`," `SimpleTableProvider` packages those two into a ready-made
+`TableProvider` without having to subclass:
+
+```java
+TableProvider t = new SimpleTableProvider(mySchema(), allocator -> openMyReader(allocator));
+ctx.registerTable("t", t);
+```
+
 ## Register and query
 
 ```java
 try (SessionContext ctx = new SessionContext();
      BufferAllocator allocator = new RootAllocator()) {
-    ctx.registerDataSource("t", new MyTable(mySchema()));
+    ctx.registerTable("t", new MyTable(mySchema()));
 
     try (DataFrame df = ctx.sql("SELECT * FROM t WHERE x > 10");
          ArrowReader r = df.collect(allocator)) {
@@ -103,5 +113,6 @@ across scans, synchronise it.
   multi-partition parallelism is a follow-up.
 - No projection or filter pushdown. DataFusion applies projection and
   filters on top of the batches you return; the Java side always sees the
-  full schema.
+  full schema. The interface is intentionally minimal so it can grow these
+  capabilities (as default methods) without breaking existing implementations.
 - No `deregisterTable`. Tables live until the `SessionContext` is closed.

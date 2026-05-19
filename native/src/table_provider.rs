@@ -15,7 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Java-backed table providers.
+//! Java-backed [`TableProvider`] implementation.
+//!
+//! Used by `SessionContext::registerTable` on the Java side to register user-implemented
+//! `TableProvider`s. The internal struct here mirrors the role of DataFusion's Rust
+//! `TableProvider` trait; it currently only supports a single-partition, no-pushdown scan,
+//! with future pushdown and partitioning support tracked as follow-ups.
 
 use std::any::Any;
 use std::fmt;
@@ -44,7 +49,7 @@ use jni::sys::{jlong, jvalue};
 
 use crate::jni_util::jthrowable_to_string;
 
-pub(crate) struct JavaDataSource {
+pub(crate) struct JavaTableProvider {
     pub(crate) name: String,
     pub(crate) schema: SchemaRef,
     pub(crate) source_global_ref: Arc<GlobalRef>,
@@ -55,12 +60,12 @@ pub(crate) struct JavaDataSource {
 // SAFETY: see the matching unsafe impls on JavaScalarUdf. The GlobalRefs keep
 // the Java objects alive; JStaticMethodID points into the class held by
 // bridge_class; nothing is mutated after construction.
-unsafe impl Send for JavaDataSource {}
-unsafe impl Sync for JavaDataSource {}
+unsafe impl Send for JavaTableProvider {}
+unsafe impl Sync for JavaTableProvider {}
 
-impl fmt::Debug for JavaDataSource {
+impl fmt::Debug for JavaTableProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JavaDataSource")
+        f.debug_struct("JavaTableProvider")
             .field("name", &self.name)
             .field("schema", &self.schema)
             .finish()
@@ -68,7 +73,7 @@ impl fmt::Debug for JavaDataSource {
 }
 
 #[async_trait]
-impl TableProvider for JavaDataSource {
+impl TableProvider for JavaTableProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -122,7 +127,7 @@ pub(crate) struct JavaScanExec {
     plan_properties: Arc<PlanProperties>,
 }
 
-// SAFETY: same reasoning as JavaDataSource above — GlobalRefs via Arc keep
+// SAFETY: same reasoning as JavaTableProvider above — GlobalRefs via Arc keep
 // Java objects alive; JStaticMethodID is stable; nothing mutated after construction.
 unsafe impl Send for JavaScanExec {}
 unsafe impl Sync for JavaScanExec {}
@@ -185,7 +190,7 @@ impl ExecutionPlan for JavaScanExec {
         // 2. Attach the JVM and call the bridge.
         //
         // The attachment scope is just this function: we need the JVM attached for
-        // the synchronous `invokeDataSourceScan` call. Subsequent polls of the
+        // the synchronous `invokeTableScan` call. Subsequent polls of the
         // returned stream do not need this attachment, because the FFI release /
         // get_next callbacks installed by arrow-java's `Data.exportArrayStream`
         // self-attach to the JVM via the global `JavaVM` set in our `JNI_OnLoad`.
@@ -219,7 +224,7 @@ impl ExecutionPlan for JavaScanExec {
             return Err(DataFusionError::Execution(jthrowable_to_string(
                 &mut env,
                 &throwable,
-                "DataSource",
+                "TableProvider",
                 &self.name,
             )));
         }
@@ -238,7 +243,7 @@ impl ExecutionPlan for JavaScanExec {
         // scan path, switch to comparing `.fields()` only.
         if reader_schema.as_ref() != self.full_schema.as_ref() {
             return Err(DataFusionError::Execution(format!(
-                "Java DataSource '{}' returned schema {:?}; registered schema was {:?}",
+                "Java TableProvider '{}' returned schema {:?}; registered schema was {:?}",
                 self.name, reader_schema, self.full_schema
             )));
         }

@@ -24,7 +24,14 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
- * A Java-implemented table that can be registered with a {@link SessionContext}.
+ * A Java-implemented table that can be registered with a {@link SessionContext} via {@link
+ * SessionContext#registerTable(String, TableProvider)}. Mirrors the role of DataFusion's Rust
+ * {@code TableProvider} trait, but at present only exposes the methods needed for a full table
+ * scan; future versions may add filter/projection pushdown and multi-partition support as default
+ * methods so existing implementations keep working.
+ *
+ * <p>{@link SimpleTableProvider} is a ready-made implementation for the common case of "I have a
+ * schema and a function that returns an {@link ArrowReader}".
  *
  * <p>Each call to {@link #scan(BufferAllocator)} must return a fresh, independent {@link
  * ArrowReader} so that queries which touch the table more than once (self-joins, {@code UNION ALL},
@@ -35,7 +42,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * produced by every {@code ArrowReader} returned from {@link #scan(BufferAllocator)} must conform
  * to it; a mismatch fails the query.
  */
-public interface DataSource {
+public interface TableProvider {
   /** The fixed schema of this table. Called once, at registration time. */
   Schema schema();
 

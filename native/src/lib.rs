@@ -17,7 +17,7 @@
 
 mod arrow;
 mod csv;
-mod data_source;
+mod table_provider;
 mod errors;
 mod jni_util;
 mod json;
@@ -682,15 +682,13 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
 }
 
 #[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerDataSourceNative<
-    'local,
->(
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNative<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
     name: JString<'local>,
     schema_ipc_bytes: JByteArray<'local>,
-    source: JObject<'local>,
+    provider: JObject<'local>,
 ) {
     try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
         if handle == 0 {
@@ -704,23 +702,23 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerDataSou
             .ok_or("schema bytes were null")?;
         let schema = Arc::new(schema);
 
-        let source_global_ref = Arc::new(env.new_global_ref(&source)?);
+        let source_global_ref = Arc::new(env.new_global_ref(&provider)?);
         let bridge_class_local = env.find_class("org/apache/datafusion/internal/JniBridge")?;
         let bridge_class = Arc::new(env.new_global_ref(&bridge_class_local)?);
         let invoke_method = env.get_static_method_id(
             &bridge_class_local,
-            "invokeDataSourceScan",
-            "(Lorg/apache/datafusion/DataSource;J)V",
+            "invokeTableScan",
+            "(Lorg/apache/datafusion/TableProvider;J)V",
         )?;
 
-        let java_ds = crate::data_source::JavaDataSource {
+        let java_tp = crate::table_provider::JavaTableProvider {
             name: name.clone(),
             schema,
             source_global_ref,
             bridge_class,
             invoke_method,
         };
-        let _ = ctx.register_table(name.as_str(), Arc::new(java_ds))?;
+        let _ = ctx.register_table(name.as_str(), Arc::new(java_tp))?;
         Ok(())
     })
 }

@@ -393,36 +393,38 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
-   * Register a Java-implemented data source as a table. SQL queries that reference {@code name}
-   * call back into {@code source} to fetch batches.
+   * Register a Java-implemented {@link TableProvider} under {@code name}. SQL queries that
+   * reference {@code name} call back into {@code provider} to fetch batches.
    *
-   * <p>{@link DataSource#schema()} is called once here, on the calling thread, and cached on the
-   * native side. {@link DataSource#scan(org.apache.arrow.memory.BufferAllocator)} is called once
+   * <p>{@link TableProvider#schema()} is called once here, on the calling thread, and cached on the
+   * native side. {@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called once
    * per query that touches the table, on a Tokio worker thread; it must return a fresh, independent
    * {@link org.apache.arrow.vector.ipc.ArrowReader} on every call, with its buffers allocated from
    * the {@link org.apache.arrow.memory.BufferAllocator} the framework supplies.
    *
-   * @throws IllegalArgumentException if {@code name} or {@code source} is {@code null}.
-   * @throws IllegalStateException if {@code source.schema()} returns {@code null}, or this context
-   *     is closed.
+   * <p>This is the Java counterpart to DataFusion's Rust {@code SessionContext::register_table}.
+   *
+   * @throws IllegalArgumentException if {@code name} or {@code provider} is {@code null}.
+   * @throws IllegalStateException if {@code provider.schema()} returns {@code null}, or this
+   *     context is closed.
    * @throws RuntimeException if native registration fails.
    */
-  public void registerDataSource(String name, DataSource source) {
+  public void registerTable(String name, TableProvider provider) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
     if (name == null) {
-      throw new IllegalArgumentException("registerDataSource name must be non-null");
+      throw new IllegalArgumentException("registerTable name must be non-null");
     }
-    if (source == null) {
-      throw new IllegalArgumentException("registerDataSource source must be non-null");
+    if (provider == null) {
+      throw new IllegalArgumentException("registerTable provider must be non-null");
     }
-    Schema schema = source.schema();
+    Schema schema = provider.schema();
     if (schema == null) {
-      throw new IllegalStateException("DataSource.schema returned null");
+      throw new IllegalStateException("TableProvider.schema returned null");
     }
     byte[] schemaIpc = serializeSchemaIpc(schema);
-    registerDataSourceNative(nativeHandle, name, schemaIpc, source);
+    registerTableNative(nativeHandle, name, schemaIpc, provider);
   }
 
   private static byte[] serializeSchemaIpc(Schema schema) {
@@ -487,6 +489,6 @@ public final class SessionContext implements AutoCloseable {
   private static native void registerScalarUdf(
       long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
 
-  private static native void registerDataSourceNative(
-      long handle, String name, byte[] schemaIpcBytes, DataSource source);
+  private static native void registerTableNative(
+      long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
 }

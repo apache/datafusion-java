@@ -31,9 +31,9 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.ColumnarValue;
-import org.apache.datafusion.DataSource;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarFunctionArgs;
+import org.apache.datafusion.TableProvider;
 
 /** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
 public final class JniBridge {
@@ -144,10 +144,10 @@ public final class JniBridge {
   }
 
   /**
-   * Open a fresh batch stream from a Java {@link DataSource} and export it through the supplied
+   * Open a fresh batch stream from a Java {@link TableProvider} and export it through the supplied
    * Arrow C Data Interface address. Called from native code; not for application use.
    *
-   * <p>{@link DataSource#scan(org.apache.arrow.memory.BufferAllocator)} is called with {@link
+   * <p>{@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called with {@link
    * #ALLOCATOR} so that the reader's buffers share the same allocator root required by {@link
    * Data#exportArrayStream}.
    *
@@ -155,10 +155,10 @@ public final class JniBridge {
    * so the native side closing the stream also closes the reader. On any failure during export, the
    * reader is closed here before the exception propagates.
    */
-  public static void invokeDataSourceScan(DataSource source, long ffiStreamAddr) {
-    ArrowReader reader = source.scan(ALLOCATOR);
+  public static void invokeTableScan(TableProvider provider, long ffiStreamAddr) {
+    ArrowReader reader = provider.scan(ALLOCATOR);
     if (reader == null) {
-      throw new IllegalStateException("DataSource.scan returned null");
+      throw new IllegalStateException("TableProvider.scan returned null");
     }
     ArrowArrayStream stream = ArrowArrayStream.wrap(ffiStreamAddr);
     try {
