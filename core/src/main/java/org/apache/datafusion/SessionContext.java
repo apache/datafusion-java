@@ -427,6 +427,24 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
+   * Allocate a fresh {@link CancellationToken}. Pass it to {@link
+   * DataFrame#collect(BufferAllocator, CancellationToken)} or {@link
+   * DataFrame#executeStream(BufferAllocator, CancellationToken)} to make a query cancellable; fire
+   * the token from any thread to abort the in-flight call.
+   *
+   * <p>The same token may be reused across multiple concurrent calls; firing it cancels them all.
+   * Once fired, a token stays cancelled — allocate a fresh token for the next query.
+   *
+   * <p>The token is independent of this {@link SessionContext}: closing the context does not
+   * implicitly close outstanding tokens, and a token outliving its session is harmless (it just has
+   * nothing left to cancel). Always close tokens in their own try-with-resources to release the
+   * native handle.
+   */
+  public CancellationToken newCancellationToken() {
+    return new CancellationToken(createCancellationToken());
+  }
+
+  /**
    * Register a Java-implemented scalar UDF. After registration, the function can be invoked by SQL
    * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
    *
@@ -523,4 +541,6 @@ public final class SessionContext implements AutoCloseable {
 
   private static native void registerScalarUdf(
       long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
+
+  private static native long createCancellationToken();
 }

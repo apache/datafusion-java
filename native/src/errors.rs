@@ -23,6 +23,13 @@ use jni::JNIEnv;
 
 pub type JniResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// Error message used to round-trip a query-cancellation signal from a JNI
+/// handler to the Java side. `try_unwrap_or_throw` matches on this string and
+/// throws a `java.util.concurrent.CancellationException` instead of the default
+/// `RuntimeException`. Keep this stable across the codebase so the cancellation
+/// path stays grep-friendly.
+pub const CANCELLED_MESSAGE: &str = "datafusion-java: query cancelled";
+
 pub fn try_unwrap_or_throw<T, F>(env: &mut JNIEnv, default: T, f: F) -> T
 where
     F: FnOnce(&mut JNIEnv) -> JniResult<T>,
@@ -30,21 +37,26 @@ where
     match catch_unwind(AssertUnwindSafe(|| f(env))) {
         Ok(Ok(value)) => value,
         Ok(Err(err)) => {
-            throw_runtime_exception(env, &err.to_string());
+            throw_for_message(env, &err.to_string());
             default
         }
         Err(panic) => {
-            throw_runtime_exception(env, &panic_message(&panic));
+            throw_for_message(env, &panic_message(&panic));
             default
         }
     }
 }
 
-fn throw_runtime_exception(env: &mut JNIEnv, message: &str) {
+fn throw_for_message(env: &mut JNIEnv, message: &str) {
     if env.exception_check().unwrap_or(false) {
         return;
     }
-    let _ = env.throw_new("java/lang/RuntimeException", message);
+    let class = if message.contains(CANCELLED_MESSAGE) {
+        "java/util/concurrent/CancellationException"
+    } else {
+        "java/lang/RuntimeException"
+    };
+    let _ = env.throw_new(class, message);
 }
 
 fn panic_message(panic: &Box<dyn Any + Send>) -> String {
