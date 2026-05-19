@@ -43,10 +43,10 @@ use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
-use datafusion::logical_expr::{ScalarUDF, Signature};
+use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
-use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
+use jni::objects::{JBooleanArray, JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jint, jlong};
 use jni::JNIEnv;
 use jni::JavaVM;
@@ -504,6 +504,91 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local
 
         let opts = UnnestOptions::new().with_preserve_nulls(preserve_nulls != 0);
         let new_df = df.unnest_columns_with_options(&refs, opts)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_sortRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    columns: JObjectArray<'local>,
+    ascending: JBooleanArray<'local>,
+    nulls_first: JBooleanArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)? as usize;
+        let mut names: Vec<String> = Vec::with_capacity(len);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i as i32)?;
+            let jstr: JString = elem.into();
+            names.push(env.get_string(&jstr)?.into());
+        }
+
+        // Decode the two parallel boolean arrays via primitive-array region copies.
+        let mut asc_buf = vec![0u8; len];
+        env.get_boolean_array_region(&ascending, 0, &mut asc_buf)?;
+        let mut nf_buf = vec![0u8; len];
+        env.get_boolean_array_region(&nulls_first, 0, &mut nf_buf)?;
+
+        let sort_exprs: Vec<SortExpr> = names
+            .into_iter()
+            .zip(asc_buf.into_iter().zip(nf_buf))
+            .map(|(name, (asc, nf))| SortExpr::new(col(&name), asc != 0, nf != 0))
+            .collect();
+
+        let new_df = df.sort(sort_exprs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionRoundRobinRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.repartition(Partitioning::RoundRobinBatch(num_partitions as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionHashRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+    columns: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let exprs = owned.iter().map(|s| col(s.as_str())).collect();
+
+        let new_df = df.repartition(Partitioning::Hash(exprs, num_partitions as usize))?;
         Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })
 }
