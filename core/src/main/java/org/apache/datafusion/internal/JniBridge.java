@@ -23,14 +23,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowArrayStream;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.ColumnarValue;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarFunctionArgs;
+import org.apache.datafusion.TableProvider;
 
 /** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
 public final class JniBridge {
@@ -137,6 +140,36 @@ public final class JniBridge {
       }
 
       return resultKind;
+    }
+  }
+
+  /**
+   * Open a fresh batch stream from a Java {@link TableProvider} and export it through the supplied
+   * Arrow C Data Interface address. Called from native code; not for application use.
+   *
+   * <p>{@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called with {@link
+   * #ALLOCATOR} so that the reader's buffers share the same allocator root required by {@link
+   * Data#exportArrayStream}.
+   *
+   * <p>On success, ownership of the returned reader transfers to the FFI stream's release callback,
+   * so the native side closing the stream also closes the reader. On any failure during export, the
+   * reader is closed here before the exception propagates.
+   */
+  public static void invokeTableScan(TableProvider provider, long ffiStreamAddr) {
+    ArrowReader reader = provider.scan(ALLOCATOR);
+    if (reader == null) {
+      throw new IllegalStateException("TableProvider.scan returned null");
+    }
+    ArrowArrayStream stream = ArrowArrayStream.wrap(ffiStreamAddr);
+    try {
+      Data.exportArrayStream(ALLOCATOR, reader, stream);
+    } catch (Throwable t) {
+      try {
+        reader.close();
+      } catch (Exception ignored) {
+        // best-effort cleanup; original error wins
+      }
+      throw t;
     }
   }
 }

@@ -474,6 +474,41 @@ public final class SessionContext implements AutoCloseable {
     registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
   }
 
+  /**
+   * Register a Java-implemented {@link TableProvider} under {@code name}. SQL queries that
+   * reference {@code name} call back into {@code provider} to fetch batches.
+   *
+   * <p>{@link TableProvider#schema()} is called once here, on the calling thread, and cached on the
+   * native side. {@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called once
+   * per query that touches the table, on a Tokio worker thread; it must return a fresh, independent
+   * {@link org.apache.arrow.vector.ipc.ArrowReader} on every call, with its buffers allocated from
+   * the {@link org.apache.arrow.memory.BufferAllocator} the framework supplies.
+   *
+   * <p>This is the Java counterpart to DataFusion's Rust {@code SessionContext::register_table}.
+   *
+   * @throws IllegalArgumentException if {@code name} or {@code provider} is {@code null}.
+   * @throws IllegalStateException if {@code provider.schema()} returns {@code null}, or this
+   *     context is closed.
+   * @throws RuntimeException if native registration fails.
+   */
+  public void registerTable(String name, TableProvider provider) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerTable name must be non-null");
+    }
+    if (provider == null) {
+      throw new IllegalArgumentException("registerTable provider must be non-null");
+    }
+    Schema schema = provider.schema();
+    if (schema == null) {
+      throw new IllegalStateException("TableProvider.schema returned null");
+    }
+    byte[] schemaIpc = serializeSchemaIpc(schema);
+    registerTableNative(nativeHandle, name, schemaIpc, provider);
+  }
+
   private static byte[] serializeSchemaIpc(Schema schema) {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (BufferAllocator allocator = new RootAllocator();
@@ -543,4 +578,7 @@ public final class SessionContext implements AutoCloseable {
       long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
 
   private static native long createCancellationToken();
+
+  private static native void registerTableNative(
+      long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
 }

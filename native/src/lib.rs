@@ -20,9 +20,11 @@ mod avro;
 mod cancellation;
 mod csv;
 mod errors;
+mod jni_util;
 mod json;
 mod proto;
 mod schema;
+mod table_provider;
 mod udf;
 
 pub(crate) mod proto_gen {
@@ -820,6 +822,48 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
             invoke_method,
         };
         ctx.register_udf(ScalarUDF::new_from_impl(java_udf));
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+    schema_ipc_bytes: JByteArray<'local>,
+    provider: JObject<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext.
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+
+        let schema = crate::schema::decode_optional_schema(env, schema_ipc_bytes)?
+            .ok_or("schema bytes were null")?;
+        let schema = Arc::new(schema);
+
+        let source_global_ref = Arc::new(env.new_global_ref(&provider)?);
+        let bridge_class_local = env.find_class("org/apache/datafusion/internal/JniBridge")?;
+        let bridge_class = Arc::new(env.new_global_ref(&bridge_class_local)?);
+        let invoke_method = env.get_static_method_id(
+            &bridge_class_local,
+            "invokeTableScan",
+            "(Lorg/apache/datafusion/TableProvider;J)V",
+        )?;
+
+        let java_tp = crate::table_provider::JavaTableProvider {
+            name: name.clone(),
+            schema,
+            source_global_ref,
+            bridge_class,
+            invoke_method,
+        };
+        let _ = ctx.register_table(name.as_str(), Arc::new(java_tp))?;
         Ok(())
     })
 }
