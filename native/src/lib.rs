@@ -38,6 +38,7 @@ use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
+use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::arrow::record_batch::{RecordBatchIterator, RecordBatchReader};
 use datafusion::common::UnnestOptions;
 use datafusion::config::TableParquetOptions;
@@ -50,7 +51,7 @@ use datafusion::logical_expr::{ScalarUDF, Signature};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
 use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jint, jlong};
+use jni::sys::{jboolean, jbyteArray, jint, jlong};
 use jni::JNIEnv;
 use jni::JavaVM;
 use prost::Message;
@@ -298,6 +299,83 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_countRows<'local>(
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         let n = runtime().block_on(async { df.count().await })?;
         Ok(n as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_schemaIpc<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jbyteArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jbyteArray> {
+            if handle == 0 {
+                return Err("DataFrame handle is null".into());
+            }
+            let df = unsafe { &*(handle as *const DataFrame) };
+            let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
+
+            let mut buf: Vec<u8> = Vec::new();
+            {
+                let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
+                writer.finish()?;
+            }
+            let arr = env.byte_array_from_slice(&buf)?;
+            Ok(arr.into_raw())
+        },
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_explainPlan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    verbose: jboolean,
+    analyze: jboolean,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.explain(verbose != 0, analyze != 0)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_cachePlan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = runtime().block_on(async { df.cache().await })?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_describePlan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = runtime().block_on(async { df.describe().await })?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })
 }
 
