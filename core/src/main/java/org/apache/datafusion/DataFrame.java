@@ -257,6 +257,121 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Equi-join this DataFrame with {@code right} on the named columns, using the given {@link
+   * JoinType}. The receiver and {@code right} both remain usable and must still be closed
+   * independently.
+   *
+   * <p>Equivalent to SQL {@code left <type> JOIN right ON l.leftCols[0] = r.rightCols[0] AND ...}.
+   * {@code leftCols} and {@code rightCols} must have the same length.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning fails (column collision in the combined schema,
+   *     unknown column names, etc.).
+   */
+  public DataFrame join(DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, null));
+  }
+
+  /**
+   * Equi-join this DataFrame with {@code right}, restricting the result with a residual SQL filter
+   * parsed against the <em>combined</em> schema (left columns followed by right columns; columns
+   * may be qualified with the relation alias when ambiguous). The receiver and {@code right} both
+   * remain usable and must still be closed independently.
+   *
+   * <p>For outer joins, the filter is applied only to matched rows; unmatched rows are passed
+   * through with nulls on the unmatched side, matching DataFusion's semantics.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning or filter parsing fails.
+   */
+  public DataFrame join(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols, String filter) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    if (filter == null) {
+      throw new IllegalArgumentException("join filter must be non-null");
+    }
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, filter));
+  }
+
+  /**
+   * Join this DataFrame with {@code right} using arbitrary SQL predicates parsed against the
+   * <em>combined</em> schema. Each predicate is parsed independently and the join evaluates their
+   * conjunction. Predicates may reference columns from either side and may be qualified with the
+   * relation alias when ambiguous (e.g. {@code "left.x = right.x"}). The receiver and {@code right}
+   * both remain usable and must still be closed independently.
+   *
+   * <p>DataFusion's optimiser identifies and rewrites equality predicates into hash-join keys
+   * automatically, so {@code joinOn(right, INNER, "l.id = r.id")} plans equivalently to {@link
+   * #join(DataFrame, JoinType, String[], String[])} with a single key. Use {@code joinOn} when the
+   * predicate is not a simple equality, e.g. inequality joins or range conditions.
+   *
+   * @throws IllegalArgumentException if {@code right} or {@code type} is {@code null}, or {@code
+   *     predicates} is {@code null} or empty, or any predicate is {@code null}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if predicate parsing or join planning fails.
+   */
+  public DataFrame joinOn(DataFrame right, JoinType type, String... predicates) {
+    if (right == null) {
+      throw new IllegalArgumentException("joinOn right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("joinOn type must be non-null");
+    }
+    if (predicates == null || predicates.length == 0) {
+      throw new IllegalArgumentException("joinOn predicates must be non-null and non-empty");
+    }
+    for (String p : predicates) {
+      if (p == null) {
+        throw new IllegalArgumentException("joinOn predicates must not contain null");
+      }
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+    return new DataFrame(
+        joinOnDataFrame(nativeHandle, right.nativeHandle, type.code(), predicates));
+  }
+
+  private void checkJoinArgs(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    if (right == null) {
+      throw new IllegalArgumentException("join right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("join type must be non-null");
+    }
+    if (leftCols == null) {
+      throw new IllegalArgumentException("join leftCols must be non-null");
+    }
+    if (rightCols == null) {
+      throw new IllegalArgumentException("join rightCols must be non-null");
+    }
+    if (leftCols.length != rightCols.length) {
+      throw new IllegalArgumentException(
+          "join leftCols and rightCols must have the same length, got "
+              + leftCols.length
+              + " and "
+              + rightCols.length);
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+  }
+
+  /**
    * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
    * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
    * remains usable and must still be closed independently.
@@ -385,6 +500,17 @@ public final class DataFrame implements AutoCloseable {
   private static native long withColumnExpr(long handle, String name, String expr);
 
   private static native long unnestColumns(long handle, String[] columns, boolean preserveNulls);
+
+  private static native long joinDataFrame(
+      long leftHandle,
+      long rightHandle,
+      byte joinType,
+      String[] leftCols,
+      String[] rightCols,
+      String filter);
+
+  private static native long joinOnDataFrame(
+      long leftHandle, long rightHandle, byte joinType, String[] predicates);
 
   private static native void writeParquetWithOptions(
       long handle,
