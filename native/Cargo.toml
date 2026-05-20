@@ -31,8 +31,25 @@ datafusion = { version = "53.1.0", features = ["avro"] }
 datafusion-proto = "53.1.0"
 futures = "0.3"
 jni = "0.21"
+# Pin to the same major as DataFusion 53.1 pulls in transitively (0.13.x)
+# so we share the same `dyn ObjectStore` vtable and don't double-link.
+object_store = { version = "0.13", default-features = false }
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+url = "2"
+
+[features]
+# Enable all three cloud backends by default so `make test` exercises them.
+# Downstream builds that strip a feature get a clear runtime error if a
+# caller tries to register an unsupported backend.
+default = [
+    "object-store-aws",
+    "object-store-gcp",
+    "object-store-http",
+]
+object-store-aws = ["object_store/aws"]
+object-store-gcp = ["object_store/gcp"]
+object-store-http = ["object_store/http"]
 
 [build-dependencies]
 prost-build = "0.14"

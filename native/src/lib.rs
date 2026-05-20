@@ -21,6 +21,7 @@ mod csv;
 mod errors;
 mod jni_util;
 mod json;
+mod object_store;
 mod proto;
 mod schema;
 mod table_provider;
@@ -157,6 +158,12 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
 
         let runtime_env = runtime_builder.build()?;
         let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
+
+        // Object-store registrations come last because they need a built
+        // RuntimeEnv to register against. A failure here drops `ctx` (and its
+        // Arc<RuntimeEnv>) on the floor and surfaces as a Java RuntimeException
+        // via try_unwrap_or_throw.
+        crate::object_store::apply_registrations(&ctx, &opts.object_stores)?;
 
         Ok(Box::into_raw(Box::new(ctx)) as jlong)
     })
