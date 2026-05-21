@@ -36,12 +36,17 @@ jni = "0.21"
 object_store = { version = "0.13", default-features = false }
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+# Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
+# behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
+# requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.
+tokio-metrics = { version = "0.5", optional = true }
 url = "2"
 
 [features]
-# Enable all three cloud backends by default so `make test` exercises them.
-# Downstream builds that strip a feature get a clear runtime error if a
-# caller tries to register an unsupported backend.
+# Object-store backends are on by default so `make test` exercises them;
+# downstream builds that strip a feature get a clear runtime error if a caller
+# tries to register an unsupported backend. `runtime-metrics` is opt-in because
+# it requires the `tokio_unstable` cfg flag at build time (see below).
 default = [
     "object-store-aws",
     "object-store-gcp",
@@ -50,6 +55,17 @@ default = [
 object-store-aws = ["object_store/aws"]
 object-store-gcp = ["object_store/gcp"]
 object-store-http = ["object_store/http"]
+# Pulls in `tokio-metrics` so `SessionContext.runtimeStats()` returns real
+# numbers from the underlying Tokio runtime. Off by default because
+# `tokio-metrics` only compiles when `--cfg tokio_unstable` is set, and we
+# don't want to force that flag onto every build. Enable explicitly:
+#
+#     RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+#
+# The JNI handler returns a clear "feature not enabled" error from the JVM if
+# invoked in a build that compiled the feature off, so the Java surface is
+# unchanged either way.
+runtime-metrics = ["dep:tokio-metrics"]
 
 [build-dependencies]
 prost-build = "0.14"

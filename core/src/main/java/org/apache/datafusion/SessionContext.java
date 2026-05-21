@@ -102,6 +102,73 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
+   * Snapshot the session's memory pool: bytes currently held and the peak observed since this
+   * session was created. Thread-safe; can be polled while queries run.
+   *
+   * <p>For multi-tenant attribution, place each tenant in its own {@link SessionContext}. Within a
+   * single session, the snapshot is the sum across all in-flight queries -- there is no
+   * per-DataFrame breakdown today.
+   *
+   * <p>The session's {@code MemoryPool} is wrapped transparently with a tracking adapter at
+   * construction time; the wrapper layers on top of whatever pool {@link
+   * SessionContextBuilder#memoryLimit(long, double)} produced (or DataFusion's default unbounded
+   * pool) and does not change pool semantics (limits, eviction, spilling).
+   *
+   * <p><b>What this counts:</b> bytes reserved against the {@code MemoryPool} -- operator state for
+   * sorts, hash joins, aggregates, repartition buffers, and anything else that uses DataFusion's
+   * {@code MemoryReservation} machinery during execution.
+   *
+   * <p><b>What this does <i>not</i> count:</b> memory held outside the pool, including record-batch
+   * buffers materialised by {@link DataFrame#cache()} (stored in an in-memory {@code MemTable} as
+   * plain {@code Vec<RecordBatch>} with no reservation), record-batch buffers that have crossed the
+   * FFI boundary into Arrow's Java allocator, and JVM-side allocations. Operator-level reservations
+   * are released as the plan unwinds, so a query that runs to completion typically returns {@code
+   * currentBytes} to ~0 even if the result set is large.
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the native side has not registered a tracker for this handle
+   *     (should not happen in practice -- tracker registration is done by the constructor).
+   */
+  public MemoryUsage memoryUsage() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long[] values = memoryUsageNative(nativeHandle);
+    return new MemoryUsage(values[0], values[1]);
+  }
+
+  /**
+   * Snapshot operational counters from the underlying Tokio runtime: worker count, busy time, queue
+   * depth, etc. Thread-safe; can be polled while queries run.
+   *
+   * <p>The runtime is process-wide rather than per-session because the JNI library drives a single
+   * shared multi-threaded Tokio runtime. The {@link SessionContext} handle is checked only to
+   * ensure the caller still has a live session; the values returned are not session-specific.
+   *
+   * <p>Requires the {@code runtime-metrics} Cargo feature on the native crate (off by default).
+   * Rebuild with:
+   *
+   * <pre>{@code
+   * RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+   * }</pre>
+   *
+   * <p>If invoked against a native binary built without the feature, this method throws {@link
+   * RuntimeException} with a message pointing at the rebuild command.
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the native crate was built without the {@code runtime-metrics}
+   *     feature.
+   */
+  public RuntimeStats runtimeStats() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long[] s = runtimeStatsNative(nativeHandle);
+    return new RuntimeStats(
+        (int) s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10]);
+  }
+
+  /**
    * Return the Arrow {@link Schema} of a registered table. Transferred via Arrow IPC; no {@link
    * org.apache.arrow.memory.BufferAllocator} is required because a schema carries no buffer data.
    *
@@ -523,6 +590,10 @@ public final class SessionContext implements AutoCloseable {
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
   private static native String getOptionNative(long handle, String key);
+
+  private static native long[] memoryUsageNative(long handle);
+
+  private static native long[] runtimeStatsNative(long handle);
 
   private static native void registerParquetWithOptions(
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);

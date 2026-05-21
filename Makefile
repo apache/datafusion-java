@@ -15,12 +15,19 @@
 # specific language governing permissions and limitations
 # under the License.
 
-.PHONY: all native jvm test clean tpch-data
+.PHONY: all native native-runtime-metrics jvm test clean tpch-data
 
 all: native jvm
 
 native:
 	cd native && cargo build
+
+# Build the native crate with the `runtime-metrics` Cargo feature enabled.
+# Requires `--cfg tokio_unstable` because tokio-metrics gates its API there.
+# Default `make native` does not pull this in; callers who need
+# SessionContext.runtimeStats() pick this target explicitly.
+native-runtime-metrics:
+	cd native && RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
 
 jvm:
 	./mvnw package -DskipTests
