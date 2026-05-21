@@ -55,6 +55,63 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrame
     })
 }
 
+/// Decode a Substrait `Plan` proto, translate it to a DataFusion `LogicalPlan`
+/// against this session's catalog, and wrap the result in a `DataFrame`.
+///
+/// Sibling of `createDataFrameFromProto`, but for the cross-engine Substrait
+/// wire format rather than DataFusion's native `LogicalPlanNode`. Gated behind
+/// the `substrait` Cargo feature; the feature-off compile substitutes a stub
+/// that throws a clear error at runtime so the Java surface is unchanged.
+#[cfg(feature = "substrait")]
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrameFromSubstrait<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    plan_bytes: JByteArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let bytes: Vec<u8> = env.convert_byte_array(&plan_bytes)?;
+
+        let plan = runtime().block_on(async {
+            let substrait_plan = datafusion_substrait::serializer::deserialize_bytes(bytes).await?;
+            datafusion_substrait::logical_plan::consumer::from_substrait_plan(
+                &ctx.state(),
+                &substrait_plan,
+            )
+            .await
+        })?;
+        let df: DataFrame = runtime().block_on(ctx.execute_logical_plan(plan))?;
+        Ok(Box::into_raw(Box::new(df)) as jlong)
+    })
+}
+
+#[cfg(not(feature = "substrait"))]
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrameFromSubstrait<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    _handle: jlong,
+    _plan_bytes: JByteArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        Err(
+            "datafusion-jni was built without the `substrait` Cargo feature; \
+             rebuild the native crate with `--features substrait` to enable \
+             SessionContext.fromSubstrait"
+                .into(),
+        )
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableSchemaIpc<'local>(
     mut env: JNIEnv<'local>,

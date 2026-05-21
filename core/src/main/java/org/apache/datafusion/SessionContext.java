@@ -102,6 +102,42 @@ public final class SessionContext implements AutoCloseable {
   }
 
   /**
+   * Decode a <a href="https://substrait.io/">Substrait</a> {@code Plan} message and return a lazy
+   * {@link DataFrame}. The plan is not executed until {@link DataFrame#collect} or {@link
+   * DataFrame#executeStream} is called.
+   *
+   * <p>{@code planBytes} must be a serialised {@code substrait.proto.Plan}. The plan is translated
+   * to a DataFusion {@link DataFrame} against this context's catalog: any tables referenced by the
+   * plan must already be registered (see {@link #registerCsv}, {@link #registerParquet}, etc.).
+   *
+   * <p>This entry point lets Java callers compile plans elsewhere — Calcite via <a
+   * href="https://github.com/substrait-io/substrait-java">Isthmus</a>, custom planners, or any
+   * other Substrait-emitting tool — and hand them to DataFusion without round-tripping through SQL.
+   *
+   * <p>Substrait support is gated behind the {@code substrait} Cargo feature on the native crate
+   * and is <strong>off by default</strong>. Rebuild the native crate with {@code cargo build
+   * --features substrait} (or {@code cargo build --features substrait,protoc} for hermetic builds
+   * that vendor {@code protoc} via {@code cmake}) to enable it. If invoked against a native binary
+   * built without the feature, this method throws {@link RuntimeException} pointing at the flag.
+   *
+   * @throws IllegalArgumentException if {@code planBytes} is {@code null}.
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the bytes are not a valid {@code substrait.proto.Plan}, if
+   *     Substrait→DataFusion translation fails (e.g. the plan references an unregistered table), or
+   *     if the native crate was built without the {@code substrait} feature.
+   */
+  public DataFrame fromSubstrait(byte[] planBytes) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (planBytes == null) {
+      throw new IllegalArgumentException("fromSubstrait planBytes must be non-null");
+    }
+    long dfHandle = createDataFrameFromSubstrait(nativeHandle, planBytes);
+    return new DataFrame(dfHandle);
+  }
+
+  /**
    * Return the Arrow {@link Schema} of a registered table. Transferred via Arrow IPC; no {@link
    * org.apache.arrow.memory.BufferAllocator} is required because a schema carries no buffer data.
    *
@@ -519,6 +555,8 @@ public final class SessionContext implements AutoCloseable {
   private static native long createDataFrame(long handle, String sql);
 
   private static native long createDataFrameFromProto(long handle, byte[] planBytes);
+
+  private static native long createDataFrameFromSubstrait(long handle, byte[] planBytes);
 
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
