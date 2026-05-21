@@ -46,6 +46,7 @@ use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
+use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::{ScalarUDF, Signature};
@@ -127,6 +128,22 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
         }
         if let Some(dir) = opts.temp_directory {
             runtime_builder = runtime_builder.with_temp_file_path(PathBuf::from(dir));
+        }
+        // disk_manager carries the disable / size-cap surface added on top of
+        // the legacy temp_directory field. Java-side builder enforces that
+        // disabled and tempDirectory aren't both set; the Rust layer doesn't
+        // re-validate because there's no path that produces a contradictory
+        // mode here -- with_disk_manager_builder(Disabled) wholesale
+        // replaces any prior with_temp_file_path call, and that's the
+        // semantics callers using the typed Java setters can already see.
+        if let Some(dm) = opts.disk_manager.as_ref() {
+            if dm.disabled() {
+                let builder = DiskManagerBuilder::default().with_mode(DiskManagerMode::Disabled);
+                runtime_builder = runtime_builder.with_disk_manager_builder(builder);
+            }
+            if let Some(size) = dm.max_temp_directory_size {
+                runtime_builder = runtime_builder.with_max_temp_directory_size(size);
+            }
         }
 
         // datafusion.runtime.* keys live on RuntimeEnv (separate object from

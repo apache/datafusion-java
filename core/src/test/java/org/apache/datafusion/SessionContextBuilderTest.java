@@ -347,4 +347,94 @@ class SessionContextBuilderTest {
           "expected runtime-key error, got: " + thrown.getMessage());
     }
   }
+
+  // -------------------------------------------------------------------------
+  // disk_manager surface (disable, size cap)
+  // -------------------------------------------------------------------------
+
+  @Test
+  void disableSpillRoundTripsThroughProto() throws Exception {
+    byte[] bytes = SessionContext.builder().disableSpill().toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertTrue(parsed.hasDiskManager());
+    assertTrue(parsed.getDiskManager().getDisabled());
+  }
+
+  @Test
+  void disableSpillProducesUsableContext() throws Exception {
+    // SELECT 1 doesn't spill, so disabling spill must not break it.
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = SessionContext.builder().disableSpill().build();
+        DataFrame df = ctx.sql("SELECT 1");
+        ArrowReader reader = df.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+    }
+  }
+
+  @Test
+  void disableSpillAndTempDirectoryConflictThrowsAtBuild() {
+    SessionContextBuilder b = SessionContext.builder().disableSpill().tempDirectory("/tmp/x");
+    assertThrows(IllegalStateException.class, b::build);
+  }
+
+  @Test
+  void maxTempDirectorySizeRoundTripsThroughProto() throws Exception {
+    byte[] bytes = SessionContext.builder().maxTempDirectorySize(20L << 30).toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertTrue(parsed.hasDiskManager());
+    assertTrue(parsed.getDiskManager().hasMaxTempDirectorySize());
+    assertEquals(20L << 30, parsed.getDiskManager().getMaxTempDirectorySize());
+  }
+
+  @Test
+  void maxTempDirectorySizeRejectsNegative() {
+    SessionContextBuilder b = SessionContext.builder();
+    assertThrows(IllegalArgumentException.class, () -> b.maxTempDirectorySize(-1));
+  }
+
+  @Test
+  void maxTempDirectorySizeZeroBuildsCleanly() throws Exception {
+    // Upstream allows 0 -- "no spill allowed" -- so the Java setter mirrors
+    // that. Sanity-check that the context constructs and SELECT 1 (which
+    // doesn't spill) still works.
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = SessionContext.builder().maxTempDirectorySize(0).build();
+        DataFrame df = ctx.sql("SELECT 1");
+        ArrowReader reader = df.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+    }
+  }
+
+  @Test
+  void disableSpillCombinesWithMaxTempDirectorySize() throws Exception {
+    // The cap is a no-op when spill is disabled (no directory to cap), but
+    // setting both must not throw -- callers may have code that always
+    // configures the cap and conditionally disables spill.
+    byte[] bytes = SessionContext.builder().disableSpill().maxTempDirectorySize(1L << 30).toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertTrue(parsed.getDiskManager().getDisabled());
+    assertTrue(parsed.getDiskManager().hasMaxTempDirectorySize());
+  }
+
+  @Test
+  void diskManagerFieldIsAbsentWhenNothingSet() throws Exception {
+    // Existing-callers-see-no-change contract: a builder that doesn't touch
+    // any of the new disk_manager setters produces no disk_manager field on
+    // the wire.
+    byte[] bytes = SessionContext.builder().batchSize(8192).toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertFalse(parsed.hasDiskManager());
+  }
+
+  @Test
+  void tempDirectoryStaysOnLegacyField() throws Exception {
+    // tempDirectory(String) writes the existing SessionOptions.temp_directory
+    // field, not disk_manager -- bytes identical to pre-PR behaviour for
+    // builders that touch only that setter.
+    byte[] bytes = SessionContext.builder().tempDirectory("/tmp/df").toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertTrue(parsed.hasTempDirectory());
+    assertEquals("/tmp/df", parsed.getTempDirectory());
+    assertFalse(parsed.hasDiskManager());
+  }
 }

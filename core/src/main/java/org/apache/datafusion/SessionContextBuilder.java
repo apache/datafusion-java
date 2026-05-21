@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.datafusion.protobuf.ConfigOption;
+import org.apache.datafusion.protobuf.DiskManagerOptions;
 import org.apache.datafusion.protobuf.MemoryLimit;
 import org.apache.datafusion.protobuf.SessionOptions;
 
@@ -40,6 +41,8 @@ public final class SessionContextBuilder {
   private Long memoryLimitBytes;
   private Double memoryLimitFraction;
   private String tempDirectory;
+  private boolean spillDisabled;
+  private Long maxTempDirectorySize;
   private final LinkedHashMap<String, String> options = new LinkedHashMap<>();
   private final List<ObjectStoreOptions> objectStores = new ArrayList<>();
 
@@ -90,6 +93,39 @@ public final class SessionContextBuilder {
   /** Directory the DiskManager uses for spill files. */
   public SessionContextBuilder tempDirectory(String path) {
     this.tempDirectory = path;
+    return this;
+  }
+
+  /**
+   * Disable on-disk spill entirely. Queries that need spill fail with a {@link RuntimeException}
+   * carrying DataFusion's "resources exhausted" message rather than going to disk; useful for
+   * memory-only execution profiles or environments without writable disk.
+   *
+   * <p>Mutually exclusive with {@link #tempDirectory(String)} — the combination throws at {@link
+   * #build()} time. {@link #maxTempDirectorySize(long)} is allowed alongside this setter but is a
+   * no-op (no directory to cap).
+   */
+  public SessionContextBuilder disableSpill() {
+    this.spillDisabled = true;
+    return this;
+  }
+
+  /**
+   * Cap the cumulative bytes used by spill files under {@link #tempDirectory(String)}. Mirrors
+   * upstream {@code RuntimeEnvBuilder::with_max_temp_directory_size} 1:1. Once exceeded, queries
+   * that need more spill space fail with a {@link RuntimeException} carrying DataFusion's
+   * "resources exhausted" message. Combinable with {@link #disableSpill()} but a no-op there.
+   *
+   * <p>{@code 0} is accepted — upstream documents zero as legal and equivalent to "no spill
+   * allowed". Negative values are rejected.
+   *
+   * @throws IllegalArgumentException if {@code bytes} is negative.
+   */
+  public SessionContextBuilder maxTempDirectorySize(long bytes) {
+    if (bytes < 0) {
+      throw new IllegalArgumentException("maxTempDirectorySize must be non-negative, got " + bytes);
+    }
+    this.maxTempDirectorySize = bytes;
     return this;
   }
 
@@ -199,9 +235,15 @@ public final class SessionContextBuilder {
   /**
    * Construct a {@link SessionContext} with the configured options.
    *
+   * @throws IllegalStateException if {@link #disableSpill()} was called alongside {@link
+   *     #tempDirectory(String)} — the combination is contradictory.
    * @throws RuntimeException if the native side fails to construct the context.
    */
   public SessionContext build() {
+    if (spillDisabled && tempDirectory != null) {
+      throw new IllegalStateException(
+          "disableSpill() is mutually exclusive with tempDirectory(...)");
+    }
     return new SessionContext(toBytes());
   }
 
@@ -228,6 +270,18 @@ public final class SessionContextBuilder {
     }
     if (tempDirectory != null) {
       b.setTempDirectory(tempDirectory);
+    }
+    DiskManagerOptions.Builder dm = null;
+    if (spillDisabled) {
+      dm = DiskManagerOptions.newBuilder().setDisabled(true);
+    }
+    if (maxTempDirectorySize != null) {
+      dm =
+          (dm != null ? dm : DiskManagerOptions.newBuilder())
+              .setMaxTempDirectorySize(maxTempDirectorySize);
+    }
+    if (dm != null) {
+      b.setDiskManager(dm.build());
     }
     for (Map.Entry<String, String> e : options.entrySet()) {
       b.addOptions(ConfigOption.newBuilder().setKey(e.getKey()).setValue(e.getValue()).build());
