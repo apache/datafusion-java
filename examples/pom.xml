@@ -75,7 +75,6 @@ under the License.
                 <configuration>
                     <executable>java</executable>
                     <arguments>
-                        <argument>-Djava.library.path=${maven.multiModuleProjectDirectory}/native/target/debug</argument>
                         <argument>--add-opens=java.base/java.nio=ALL-UNNAMED</argument>
                         <argument>-classpath</argument>
                         <classpath/>
