@@ -41,18 +41,19 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::arrow::record_batch::{RecordBatchIterator, RecordBatchReader};
-use datafusion::common::UnnestOptions;
+use datafusion::common::{JoinType, UnnestOptions};
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
+use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::{ScalarUDF, Signature};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
 use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jbyteArray, jint, jlong};
+use jni::sys::{jboolean, jbyte, jbyteArray, jint, jlong};
 use jni::JNIEnv;
 use jni::JavaVM;
 use prost::Message;
@@ -592,6 +593,135 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local
 
         let opts = UnnestOptions::new().with_preserve_nulls(preserve_nulls != 0);
         let new_df = df.unnest_columns_with_options(&refs, opts)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+/// Map a Java {@code JoinType.code()} byte back to upstream's enum.
+fn join_type_from_byte(byte: u8) -> JniResult<JoinType> {
+    match byte {
+        0 => Ok(JoinType::Inner),
+        1 => Ok(JoinType::Left),
+        2 => Ok(JoinType::Right),
+        3 => Ok(JoinType::Full),
+        4 => Ok(JoinType::LeftSemi),
+        5 => Ok(JoinType::RightSemi),
+        6 => Ok(JoinType::LeftAnti),
+        7 => Ok(JoinType::RightAnti),
+        8 => Ok(JoinType::LeftMark),
+        9 => Ok(JoinType::RightMark),
+        other => Err(format!("unknown join type byte: {other}").into()),
+    }
+}
+
+/// Build a combined DFSchema for SQL parsing of a join filter or `joinOn` predicate.
+/// Mirrors how upstream's `LogicalPlanBuilder::join_detailed` normalises the parsed Expr
+/// against `&[&[left_schema, right_schema]]`: tolerate unrelated duplicate-named columns
+/// rather than rejecting them via `DFSchema::join`'s `check_names`. `DFSchema::merge`
+/// skips duplicates (left side wins for unqualified collisions), which is fine for the
+/// SQL-to-Expr step -- the subsequent join planner runs the real ambiguity check.
+fn combine_schemas(
+    left: &datafusion::common::DFSchema,
+    right: &datafusion::common::DFSchema,
+) -> datafusion::common::DFSchema {
+    let mut combined = left.clone();
+    combined.merge(right);
+    combined
+}
+
+/// Drain a Java {@code String[]} into an owned {@code Vec<String>}.
+fn collect_jstring_array(env: &mut JNIEnv, arr: &JObjectArray) -> JniResult<Vec<String>> {
+    let len = env.get_array_length(arr)?;
+    let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        let elem = env.get_object_array_element(arr, i)?;
+        let jstr: JString = elem.into();
+        owned.push(env.get_string(&jstr)?.into());
+    }
+    Ok(owned)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_joinDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    left_handle: jlong,
+    right_handle: jlong,
+    join_type: jbyte,
+    left_cols: JObjectArray<'local>,
+    right_cols: JObjectArray<'local>,
+    filter: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if left_handle == 0 {
+            return Err("left DataFrame handle is null".into());
+        }
+        if right_handle == 0 {
+            return Err("right DataFrame handle is null".into());
+        }
+        let left = unsafe { &*(left_handle as *const DataFrame) }.clone();
+        let right = unsafe { &*(right_handle as *const DataFrame) }.clone();
+        let join_type = join_type_from_byte(join_type as u8)?;
+
+        let left_owned: Vec<String> = collect_jstring_array(env, &left_cols)?;
+        let right_owned: Vec<String> = collect_jstring_array(env, &right_cols)?;
+        let left_refs: Vec<&str> = left_owned.iter().map(String::as_str).collect();
+        let right_refs: Vec<&str> = right_owned.iter().map(String::as_str).collect();
+
+        // The optional residual filter spans both sides and must be parsed against the
+        // combined schema. parse_sql_expr only sees one DataFrame's schema, so reach into
+        // the SessionState via into_parts() on a clone. Use DFSchema::merge rather than
+        // DFSchema::join so the parser tolerates unrelated duplicate unqualified columns
+        // shared by both sides (e.g. both inputs carrying a `created_at` field) -- merge
+        // skips the duplicates while join's check_names rejects them. Upstream's join
+        // path normalises the parsed Expr against both schemas as a precedence list, so
+        // ambiguous references genuinely used in the filter are still surfaced after
+        // parsing.
+        let filter_expr: Option<Expr> = if filter.is_null() {
+            None
+        } else {
+            let filter_sql: String = env.get_string(&filter)?.into();
+            let combined = combine_schemas(left.schema(), right.schema());
+            let (state, _plan) = left.clone().into_parts();
+            Some(state.create_logical_expr(&filter_sql, &combined)?)
+        };
+
+        let new_df = left.join(right, join_type, &left_refs, &right_refs, filter_expr)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_joinOnDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    left_handle: jlong,
+    right_handle: jlong,
+    join_type: jbyte,
+    predicates: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if left_handle == 0 {
+            return Err("left DataFrame handle is null".into());
+        }
+        if right_handle == 0 {
+            return Err("right DataFrame handle is null".into());
+        }
+        let left = unsafe { &*(left_handle as *const DataFrame) }.clone();
+        let right = unsafe { &*(right_handle as *const DataFrame) }.clone();
+        let join_type = join_type_from_byte(join_type as u8)?;
+
+        let predicates_owned: Vec<String> = collect_jstring_array(env, &predicates)?;
+        // See joinDataFrame for the rationale behind combine_schemas vs DFSchema::join.
+        let combined = combine_schemas(left.schema(), right.schema());
+        let (state, _plan) = left.clone().into_parts();
+        let exprs: Vec<Expr> = predicates_owned
+            .iter()
+            .map(|sql| state.create_logical_expr(sql, &combined))
+            .collect::<datafusion::error::Result<Vec<_>>>()?;
+
+        let new_df = left.join_on(right, join_type, exprs)?;
         Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })
 }
