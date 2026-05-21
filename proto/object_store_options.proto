@@ -1,0 +1,75 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto3";
+
+package datafusion_java;
+
+option java_package = "org.apache.datafusion.protobuf";
+option java_multiple_files = true;
+
+// One object_store registration to apply to a SessionContext's RuntimeEnv.
+//
+// Discriminated by the `backend` oneof so the Rust side cannot misinterpret
+// an inconsistent options mix as a different backend. The `url` field is
+// optional: if unset, the JNI layer derives the canonical scheme + host
+// from the typed backend options below (s3://<bucket>, gs://<bucket>).
+// For the HTTP backend `url` is the listing root and is required.
+//
+// Each backend message uses `optional` for nullable fields so unset-ness
+// survives the boundary -- credentials, region, endpoint, etc., that are
+// not supplied here let the Rust side fall back to the upstream
+// object_store builder's default (which for S3 means the AWS SDK's
+// default credential chain).
+message ObjectStoreRegistration {
+  optional string url = 1;
+  oneof backend {
+    HttpOptions http = 2;
+    S3Options s3 = 3;
+    GcsOptions gcs = 4;
+  }
+}
+
+message S3Options {
+  string bucket = 1;
+  optional string region = 2;
+  optional string endpoint = 3;
+  optional string access_key_id = 4;
+  optional string secret_access_key = 5;
+  optional string session_token = 6;
+  optional bool allow_http = 7;
+  optional bool skip_signature = 8;
+  optional bool imdsv1_fallback = 9;
+}
+
+message GcsOptions {
+  string bucket = 1;
+  // Inline service-account JSON. Mutually exclusive with `service_account_path`.
+  optional string service_account_key = 2;
+  // Path on the local filesystem to the service-account JSON.
+  optional string service_account_path = 3;
+  // Path on the local filesystem to the application-default-credentials
+  // JSON. Maps to `with_application_credentials` on the upstream builder
+  // (which takes a path, not inline content).
+  optional string application_credentials = 4;
+}
+
+message HttpOptions {
+  // The listing-root URL is required (no scheme-default exists for HTTP).
+  // It must be carried via the outer `ObjectStoreRegistration.url` field.
+  optional bool allow_http = 1;
+}

@@ -19,10 +19,17 @@
 
 package org.apache.datafusion;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.channels.Channels;
+
 import org.apache.arrow.c.ArrowArrayStream;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
+import org.apache.arrow.vector.ipc.ReadChannel;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
  * A lazy representation of a query plan, mirroring the Rust DataFusion {@code DataFrame}. Created
@@ -104,6 +111,77 @@ public final class DataFrame implements AutoCloseable {
       stream.close();
       throw e;
     }
+  }
+
+  /**
+   * Return the Arrow {@link Schema} of this DataFrame's output. Non-consuming: the receiver remains
+   * usable and must still be closed independently. Schema inspection does not execute the plan.
+   *
+   * <p>The schema is transferred via Arrow IPC; no {@link BufferAllocator} is required because a
+   * schema carries no buffer data.
+   */
+  public Schema schema() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    byte[] ipcBytes = schemaIpc(nativeHandle);
+    try {
+      return MessageSerializer.deserializeSchema(
+          new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))));
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to deserialize IPC schema", e);
+    }
+  }
+
+  /**
+   * Return a new DataFrame whose rows describe the plan that would execute this DataFrame.
+   * Non-consuming: the receiver remains usable and must still be closed independently.
+   *
+   * <p>With {@code verbose=false} and {@code analyze=false} (the cheap, lazy variant), the result
+   * contains the logical plan only. {@code verbose=true} adds optimised-plan and physical-plan
+   * rows; {@code analyze=true} runs the plan and attaches per-operator metrics. Render via {@link
+   * #show()} or {@link #collect(BufferAllocator)}.
+   */
+  public DataFrame explain(boolean verbose, boolean analyze) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(explainPlan(nativeHandle, verbose, analyze));
+  }
+
+  /**
+   * Materialise this DataFrame into an in-memory table and return a new DataFrame that scans it.
+   * Non-consuming: the receiver remains usable and must still be closed independently.
+   *
+   * <p>Executes the plan eagerly: the entire result set is held in native memory until the returned
+   * DataFrame is closed. Suitable for intermediate results that will be reused across multiple
+   * downstream queries.
+   *
+   * @throws RuntimeException if execution fails.
+   */
+  public DataFrame cache() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(cachePlan(nativeHandle));
+  }
+
+  /**
+   * Compute summary statistics (count, null_count, mean, std, min, max, median) over this
+   * DataFrame's columns and return them as a new DataFrame. Non-consuming: the receiver remains
+   * usable and must still be closed independently.
+   *
+   * <p>Executes the plan: DataFusion runs seven aggregate sub-plans against this DataFrame to build
+   * the summary table. Numeric columns receive every statistic; non-numeric columns receive {@code
+   * count} / {@code null_count} / {@code min} / {@code max} where applicable.
+   *
+   * @throws RuntimeException if execution fails.
+   */
+  public DataFrame describe() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    return new DataFrame(describePlan(nativeHandle));
   }
 
   /** Execute the plan and return the number of rows. */
@@ -480,6 +558,14 @@ public final class DataFrame implements AutoCloseable {
   private static native void closeDataFrame(long handle);
 
   private static native long countRows(long handle);
+
+  private static native byte[] schemaIpc(long handle);
+
+  private static native long explainPlan(long handle, boolean verbose, boolean analyze);
+
+  private static native long cachePlan(long handle);
+
+  private static native long describePlan(long handle);
 
   private static native void showDataFrame(long handle);
 
