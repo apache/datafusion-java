@@ -27,7 +27,7 @@ single value broadcast to every row (`Scalar`).
 ## Implement
 
 Implement the `ScalarFunction` interface. The implementation declares its own
-SQL name, argument types, return type, and volatility, and supplies the
+SQL name, argument fields, return field, and volatility, and supplies the
 per-batch `evaluate` body:
 
 ```java
@@ -35,6 +35,7 @@ import java.util.List;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.datafusion.ColumnarValue;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarFunctionArgs;
@@ -44,8 +45,8 @@ public final class AddOne implements ScalarFunction {
     private static final ArrowType INT32 = new ArrowType.Int(32, true);
 
     @Override public String name() { return "add_one"; }
-    @Override public List<ArrowType> argTypes() { return List.of(INT32); }
-    @Override public ArrowType returnType() { return INT32; }
+    @Override public List<Field> argFields() { return List.of(Field.nullable("x", INT32)); }
+    @Override public Field returnField() { return Field.nullable("y", INT32); }
     @Override public Volatility volatility() { return Volatility.IMMUTABLE; }
 
     @Override
@@ -72,6 +73,47 @@ Allocate any new vectors — including the result — from the supplied
 `BufferAllocator`. The input vectors are read-only views; do not close them.
 Ownership of the returned vector transfers to the framework on return.
 
+## Declaring argument and return fields
+
+Each argument and the return value are described as Arrow `Field`s. A `Field`
+carries a name, a `FieldType` (Arrow type plus nullability and metadata), and a
+list of child fields used by nested types.
+
+For primitive types the `Field.nullable(name, arrowType)` and
+`Field.notNullable(name, arrowType)` factories are the shortest form:
+
+```java
+Field x = Field.nullable("x", new ArrowType.Int(32, true));
+Field y = Field.notNullable("y", new ArrowType.Int(32, true));
+```
+
+Nested Arrow types — `List`, `Struct`, `Map`, `Union` — must declare their
+element / member / key / value fields as children, because that information
+does not live on the `ArrowType` itself. Use the
+`new Field(name, FieldType, children)` constructor:
+
+```java
+// List<Int32>
+ArrowType INT32 = new ArrowType.Int(32, true);
+Field listOfInt =
+    new Field(
+        "vals",
+        FieldType.nullable(new ArrowType.List()),
+        List.of(Field.nullable("item", INT32)));
+
+// Struct<a: Int32, b: Int32>
+Field structAB =
+    new Field(
+        "ab",
+        FieldType.nullable(new ArrowType.Struct()),
+        List.of(Field.nullable("a", INT32), Field.nullable("b", INT32)));
+```
+
+A UDF declared with `Field.nullable(...)` arguments is registered with an exact
+nullability-bearing signature; calls whose argument types do not match exactly
+are rejected. The declared `returnField`'s nullability is preserved end-to-end:
+a non-nullable return field stays non-nullable in the result schema.
+
 ## Returning a Scalar
 
 Functions that yield a single value (nullary constants like `pi()`, or any
@@ -84,8 +126,8 @@ public final class JavaPi implements ScalarFunction {
         new ArrowType.FloatingPoint(org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE);
 
     @Override public String name() { return "java_pi"; }
-    @Override public List<ArrowType> argTypes() { return List.of(); }
-    @Override public ArrowType returnType() { return FLOAT64; }
+    @Override public List<Field> argFields() { return List.of(); }
+    @Override public Field returnField() { return Field.nullable("p", FLOAT64); }
     @Override public Volatility volatility() { return Volatility.VOLATILE; }
 
     @Override
@@ -119,8 +161,7 @@ try (SessionContext ctx = new SessionContext()) {
 ```
 
 `ScalarUdf` mirrors DataFusion's `ScalarUDF` struct; `ScalarFunction` mirrors
-`ScalarUDFImpl`. The signature is exact: a call must match the declared
-`argTypes` exactly. Use `Volatility.IMMUTABLE` for pure functions, `STABLE` for
+`ScalarUDFImpl`. Use `Volatility.IMMUTABLE` for pure functions, `STABLE` for
 functions that are deterministic within a single query, and `VOLATILE` for
 non-deterministic functions.
 
@@ -129,7 +170,7 @@ non-deterministic functions.
 If the UDF throws, the exception class and message surface in the
 `RuntimeException` raised from `collect()`. If the returned `ColumnarValue` is
 `null`, an Array result's vector length does not equal `args.rowCount()`, or
-the result's Arrow type differs from the declared return type, the runtime
+the result's Arrow type differs from the declared return field, the runtime
 raises a `RuntimeException` with a descriptive message. A Scalar result whose
 vector is not length-1 is rejected at the `ColumnarValue.scalar` factory.
 

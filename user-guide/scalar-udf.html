@@ -413,12 +413,13 @@ single value broadcast to every row (<code class="docutils literal notranslate">
 <section id="implement">
 <h2>Implement<a class="headerlink" href="#implement" title="Link to this heading">#</a></h2>
 <p>Implement the <code class="docutils literal notranslate"><span class="pre">ScalarFunction</span></code> interface. The implementation declares its own
-SQL name, argument types, return type, and volatility, and supplies the
+SQL name, argument fields, return field, and volatility, and supplies the
 per-batch <code class="docutils literal notranslate"><span class="pre">evaluate</span></code> body:</p>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">java.util.List</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.memory.BufferAllocator</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.IntVector</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.ArrowType</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.Field</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ColumnarValue</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ScalarFunction</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.ScalarFunctionArgs</span><span class="p">;</span>
@@ -428,8 +429,8 @@ per-batch <code class="docutils literal notranslate"><span class="pre">evaluate<
 <span class="w">    </span><span class="kd">private</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kd">final</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="n">INT32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Int</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
 
 <span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;add_one&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ArrowType</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argTypes</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">INT32</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="nf">returnType</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">INT32</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Field</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argFields</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;x&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">INT32</span><span class="p">));</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Field</span><span class="w"> </span><span class="nf">returnField</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;y&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">INT32</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="nf">volatility</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Volatility</span><span class="p">.</span><span class="na">IMMUTABLE</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="nd">@Override</span>
@@ -455,6 +456,42 @@ underlying Arrow vector with <code class="docutils literal notranslate"><span cl
 <code class="docutils literal notranslate"><span class="pre">BufferAllocator</span></code>. The input vectors are read-only views; do not close them.
 Ownership of the returned vector transfers to the framework on return.</p>
 </section>
+<section id="declaring-argument-and-return-fields">
+<h2>Declaring argument and return fields<a class="headerlink" href="#declaring-argument-and-return-fields" title="Link to this heading">#</a></h2>
+<p>Each argument and the return value are described as Arrow <code class="docutils literal notranslate"><span class="pre">Field</span></code>s. A <code class="docutils literal notranslate"><span class="pre">Field</span></code>
+carries a name, a <code class="docutils literal notranslate"><span class="pre">FieldType</span></code> (Arrow type plus nullability and metadata), and a
+list of child fields used by nested types.</p>
+<p>For primitive types the <code class="docutils literal notranslate"><span class="pre">Field.nullable(name,</span> <span class="pre">arrowType)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">Field.notNullable(name,</span> <span class="pre">arrowType)</span></code> factories are the shortest form:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">Field</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;x&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Int</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">));</span>
+<span class="n">Field</span><span class="w"> </span><span class="n">y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Field</span><span class="p">.</span><span class="na">notNullable</span><span class="p">(</span><span class="s">&quot;y&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Int</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">));</span>
+</pre></div>
+</div>
+<p>Nested Arrow types — <code class="docutils literal notranslate"><span class="pre">List</span></code>, <code class="docutils literal notranslate"><span class="pre">Struct</span></code>, <code class="docutils literal notranslate"><span class="pre">Map</span></code>, <code class="docutils literal notranslate"><span class="pre">Union</span></code> — must declare their
+element / member / key / value fields as children, because that information
+does not live on the <code class="docutils literal notranslate"><span class="pre">ArrowType</span></code> itself. Use the
+<code class="docutils literal notranslate"><span class="pre">new</span> <span class="pre">Field(name,</span> <span class="pre">FieldType,</span> <span class="pre">children)</span></code> constructor:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="c1">// List&lt;Int32&gt;</span>
+<span class="n">ArrowType</span><span class="w"> </span><span class="n">INT32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Int</span><span class="p">(</span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">);</span>
+<span class="n">Field</span><span class="w"> </span><span class="n">listOfInt</span><span class="w"> </span><span class="o">=</span>
+<span class="w">    </span><span class="k">new</span><span class="w"> </span><span class="n">Field</span><span class="p">(</span>
+<span class="w">        </span><span class="s">&quot;vals&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">FieldType</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">List</span><span class="p">()),</span>
+<span class="w">        </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;item&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">INT32</span><span class="p">)));</span>
+
+<span class="c1">// Struct&lt;a: Int32, b: Int32&gt;</span>
+<span class="n">Field</span><span class="w"> </span><span class="n">structAB</span><span class="w"> </span><span class="o">=</span>
+<span class="w">    </span><span class="k">new</span><span class="w"> </span><span class="n">Field</span><span class="p">(</span>
+<span class="w">        </span><span class="s">&quot;ab&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">FieldType</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">Struct</span><span class="p">()),</span>
+<span class="w">        </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;a&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">INT32</span><span class="p">),</span><span class="w"> </span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;b&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">INT32</span><span class="p">)));</span>
+</pre></div>
+</div>
+<p>A UDF declared with <code class="docutils literal notranslate"><span class="pre">Field.nullable(...)</span></code> arguments is registered with an exact
+nullability-bearing signature; calls whose argument types do not match exactly
+are rejected. The declared <code class="docutils literal notranslate"><span class="pre">returnField</span></code>’s nullability is preserved end-to-end:
+a non-nullable return field stays non-nullable in the result schema.</p>
+</section>
 <section id="returning-a-scalar">
 <h2>Returning a Scalar<a class="headerlink" href="#returning-a-scalar" title="Link to this heading">#</a></h2>
 <p>Functions that yield a single value (nullary constants like <code class="docutils literal notranslate"><span class="pre">pi()</span></code>, or any
@@ -465,8 +502,8 @@ return <code class="docutils literal notranslate"><span class="pre">ColumnarValu
 <span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">ArrowType</span><span class="p">.</span><span class="na">FloatingPoint</span><span class="p">(</span><span class="n">org</span><span class="p">.</span><span class="na">apache</span><span class="p">.</span><span class="na">arrow</span><span class="p">.</span><span class="na">vector</span><span class="p">.</span><span class="na">types</span><span class="p">.</span><span class="na">FloatingPointPrecision</span><span class="p">.</span><span class="na">DOUBLE</span><span class="p">);</span>
 
 <span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="nf">name</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;java_pi&quot;</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">ArrowType</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argTypes</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">ArrowType</span><span class="w"> </span><span class="nf">returnType</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">FLOAT64</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">Field</span><span class="o">&gt;</span><span class="w"> </span><span class="nf">argFields</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">();</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Field</span><span class="w"> </span><span class="nf">returnField</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Field</span><span class="p">.</span><span class="na">nullable</span><span class="p">(</span><span class="s">&quot;p&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">FLOAT64</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="nd">@Override</span><span class="w"> </span><span class="kd">public</span><span class="w"> </span><span class="n">Volatility</span><span class="w"> </span><span class="nf">volatility</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">Volatility</span><span class="p">.</span><span class="na">VOLATILE</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="nd">@Override</span>
@@ -498,8 +535,7 @@ return <code class="docutils literal notranslate"><span class="pre">ColumnarValu
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">ScalarUdf</span></code> mirrors DataFusion’s <code class="docutils literal notranslate"><span class="pre">ScalarUDF</span></code> struct; <code class="docutils literal notranslate"><span class="pre">ScalarFunction</span></code> mirrors
-<code class="docutils literal notranslate"><span class="pre">ScalarUDFImpl</span></code>. The signature is exact: a call must match the declared
-<code class="docutils literal notranslate"><span class="pre">argTypes</span></code> exactly. Use <code class="docutils literal notranslate"><span class="pre">Volatility.IMMUTABLE</span></code> for pure functions, <code class="docutils literal notranslate"><span class="pre">STABLE</span></code> for
+<code class="docutils literal notranslate"><span class="pre">ScalarUDFImpl</span></code>. Use <code class="docutils literal notranslate"><span class="pre">Volatility.IMMUTABLE</span></code> for pure functions, <code class="docutils literal notranslate"><span class="pre">STABLE</span></code> for
 functions that are deterministic within a single query, and <code class="docutils literal notranslate"><span class="pre">VOLATILE</span></code> for
 non-deterministic functions.</p>
 </section>
@@ -508,7 +544,7 @@ non-deterministic functions.</p>
 <p>If the UDF throws, the exception class and message surface in the
 <code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> raised from <code class="docutils literal notranslate"><span class="pre">collect()</span></code>. If the returned <code class="docutils literal notranslate"><span class="pre">ColumnarValue</span></code> is
 <code class="docutils literal notranslate"><span class="pre">null</span></code>, an Array result’s vector length does not equal <code class="docutils literal notranslate"><span class="pre">args.rowCount()</span></code>, or
-the result’s Arrow type differs from the declared return type, the runtime
+the result’s Arrow type differs from the declared return field, the runtime
 raises a <code class="docutils literal notranslate"><span class="pre">RuntimeException</span></code> with a descriptive message. A Scalar result whose
 vector is not length-1 is rejected at the <code class="docutils literal notranslate"><span class="pre">ColumnarValue.scalar</span></code> factory.</p>
 </section>
@@ -576,6 +612,7 @@ UDF as nulls in the input vector.</p></li>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implement">Implement</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#declaring-argument-and-return-fields">Declaring argument and return fields</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#returning-a-scalar">Returning a Scalar</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#register">Register</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a></li>
