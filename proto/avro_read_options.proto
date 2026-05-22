@@ -15,23 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-fn main() {
-    const PROTOS: &[&str] = &[
-        "../proto/session_options.proto",
-        "../proto/file_compression_type.proto",
-        "../proto/arrow_read_options.proto",
-        "../proto/avro_read_options.proto",
-        "../proto/csv_read_options.proto",
-        "../proto/csv_write_options.proto",
-        "../proto/json_read_options.proto",
-        "../proto/json_write_options.proto",
-        "../proto/object_store_options.proto",
-        "../proto/parquet_read_options.proto",
-    ];
-    for p in PROTOS {
-        println!("cargo:rerun-if-changed={p}");
-    }
-    let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc not available");
-    std::env::set_var("PROTOC", protoc);
-    prost_build::compile_protos(PROTOS, &["../proto"]).expect("failed to compile protos");
+syntax = "proto3";
+
+package datafusion_java;
+
+option java_package = "org.apache.datafusion.protobuf";
+option java_multiple_files = true;
+
+// Options used to read Avro files. `file_extension` has a non-null Java
+// default and is always sent. The explicit Arrow schema, if present, is
+// transferred separately as Arrow IPC bytes through the JNI layer (mirroring
+// the parquet, csv, ndjson, and arrow paths) and is not encoded in this
+// message.
+//
+// Avro carries its own compression inside the file format (snappy, deflate,
+// bzip2, xz, zstandard) negotiated per object container, so unlike CSV/JSON
+// there is no `FileCompressionType` field here.
+message AvroReadOptionsProto {
+  string file_extension = 1;
 }
