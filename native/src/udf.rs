@@ -28,10 +28,9 @@ use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{
     ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
 };
-use jni::objects::{GlobalRef, JStaticMethodID, JThrowable};
+use jni::objects::{GlobalRef, JStaticMethodID};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jbyte, jlong, jvalue};
-use jni::JNIEnv;
 
 pub(crate) struct JavaScalarUdf {
     pub(crate) name: String,
@@ -230,7 +229,8 @@ impl ScalarUDFImpl for JavaScalarUdf {
                 DataFusionError::Execution(format!("exception_occurred failed: {}", e))
             })?;
             env.exception_clear().ok();
-            let message = jthrowable_to_string(&mut env, &throwable, &self.name);
+            let message =
+                crate::jni_util::jthrowable_to_string(&mut env, &throwable, "UDF", &self.name);
             return Err(DataFusionError::Execution(message));
         }
 
@@ -291,46 +291,4 @@ pub(crate) fn volatility_from_byte(byte: u8) -> datafusion::error::Result<Volati
             other
         ))),
     }
-}
-
-/// Best-effort: extract class name and getMessage() from a Java throwable.
-/// Anything that goes wrong collapses to a generic message so we don't
-/// double-throw inside an error path.
-fn jthrowable_to_string(env: &mut JNIEnv, throwable: &JThrowable, udf_name: &str) -> String {
-    let class_name_result = (|| -> jni::errors::Result<String> {
-        let class = env.call_method(throwable, "getClass", "()Ljava/lang/Class;", &[])?;
-        let class_obj = class.l()?;
-        let name = env.call_method(&class_obj, "getName", "()Ljava/lang/String;", &[])?;
-        let name_obj = name.l()?;
-        let name_str: String = env.get_string(&name_obj.into())?.into();
-        Ok(name_str)
-    })();
-    let class_name = match class_name_result {
-        Ok(s) => s,
-        Err(_) => {
-            // A reflective call itself threw — clear that secondary exception so the
-            // thread is in a clean state when we return to the JVM.
-            env.exception_clear().ok();
-            "<unknown exception class>".to_string()
-        }
-    };
-
-    let message_result = (|| -> jni::errors::Result<String> {
-        let msg = env.call_method(throwable, "getMessage", "()Ljava/lang/String;", &[])?;
-        let msg_obj = msg.l()?;
-        if msg_obj.is_null() {
-            return Ok("<no message>".to_string());
-        }
-        let s: String = env.get_string(&msg_obj.into())?.into();
-        Ok(s)
-    })();
-    let message = match message_result {
-        Ok(s) => s,
-        Err(_) => {
-            env.exception_clear().ok();
-            "<no message>".to_string()
-        }
-    };
-
-    format!("Java UDF '{}' threw {}: {}", udf_name, class_name, message)
 }

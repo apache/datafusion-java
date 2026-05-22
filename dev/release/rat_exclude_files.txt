@@ -1,0 +1,17 @@
+*.gitignore
+*.dockerignore
+.github/pull_request_template.md
+.github/ISSUE_TEMPLATE/bug_report.yml
+.github/ISSUE_TEMPLATE/feature_request.yml
+.gitmodules
+.mvn/wrapper/maven-wrapper.properties
+mvnw
+mvnw.cmd
+native/Cargo.lock
+dev/release/rat_exclude_files.txt
+docs/source/_static/**
+docs/source/conf.py
+rust-toolchain
+target/*
+**/target/*
+tpch-data/*
