@@ -40,6 +40,7 @@ public final class SessionContextBuilder {
   private Long memoryLimitBytes;
   private Double memoryLimitFraction;
   private String tempDirectory;
+  private CacheManagerOptions cacheManager;
   private final LinkedHashMap<String, String> options = new LinkedHashMap<>();
   private final List<ObjectStoreOptions> objectStores = new ArrayList<>();
 
@@ -172,6 +173,25 @@ public final class SessionContextBuilder {
   }
 
   /**
+   * Configure DataFusion's built-in {@code CacheManager} for the new context. Build the {@link
+   * CacheManagerOptions} via {@link CacheManagerOptions#builder()}; each cache slot is independent,
+   * so leaving a setter unset keeps the upstream default in place.
+   *
+   * <p>Calling this setter twice replaces the previous configuration — there is no incremental
+   * merge between calls. If you need a different cache configuration, build a new {@code
+   * CacheManagerOptions} from scratch.
+   *
+   * @throws IllegalArgumentException if {@code options} is {@code null}.
+   */
+  public SessionContextBuilder cacheManager(CacheManagerOptions options) {
+    if (options == null) {
+      throw new IllegalArgumentException("cacheManager options must be non-null");
+    }
+    this.cacheManager = options;
+    return this;
+  }
+
+  /**
    * Register an {@code object_store::ObjectStore} backend on the new context's {@code RuntimeEnv}.
    * Build {@link ObjectStoreOptions} via the per-backend factories ({@link ObjectStoreOptions#s3},
    * {@link ObjectStoreOptions#gcs}, {@link ObjectStoreOptions#http(String)}). The store is
@@ -228,6 +248,9 @@ public final class SessionContextBuilder {
     }
     if (tempDirectory != null) {
       b.setTempDirectory(tempDirectory);
+    }
+    if (cacheManager != null) {
+      b.setCacheManager(cacheManager.toProto());
     }
     for (Map.Entry<String, String> e : options.entrySet()) {
       b.addOptions(ConfigOption.newBuilder().setKey(e.getKey()).setValue(e.getValue()).build());

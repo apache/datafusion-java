@@ -17,6 +17,7 @@
 
 mod arrow;
 mod avro;
+mod cache_manager;
 mod csv;
 mod errors;
 mod jni_util;
@@ -128,6 +129,12 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
         }
         if let Some(dir) = opts.temp_directory {
             runtime_builder = runtime_builder.with_temp_file_path(PathBuf::from(dir));
+        }
+
+        if let Some(cm_opts) = opts.cache_manager.as_ref() {
+            if let Some(cm_config) = crate::cache_manager::build_config(cm_opts)? {
+                runtime_builder = runtime_builder.with_cache_manager(cm_config);
+            }
         }
 
         // datafusion.runtime.* keys live on RuntimeEnv (separate object from
