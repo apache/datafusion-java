@@ -22,7 +22,10 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# `rlib` alongside `cdylib` so `cargo test` has a Rust-level harness for
+# native-only invariants (e.g. error-classification routing through wrapped
+# DataFusionError chains). The `cdylib` is still the artifact the JVM loads.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 arrow = { version = "58", features = ["ffi"] }
