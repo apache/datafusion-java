@@ -156,7 +156,10 @@ cp "$PROJECT_HOME/native/target/$OTHER_DARWIN_TARGET/release/libdatafusion_jni.d
 
 echo "Installing JAR into local Maven repo"
 LOCAL_REPO=$(mktemp -d /tmp/datafusion-java-staging-repo-XXXXXX)
-(cd "$PROJECT_HOME" && ./mvnw "-Dmaven.repo.local=$LOCAL_REPO" -DskipTests install)
+(cd "$PROJECT_HOME" && ./mvnw \
+    "-Dmaven.repo.local=$LOCAL_REPO" \
+    "-Ddatafusion.native.profile=release" \
+    -DskipTests install)
 
 echo ""
 echo "===================================================================="
