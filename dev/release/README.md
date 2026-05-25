@@ -172,6 +172,7 @@ for the common platforms. This section covers building that JAR.
 - Java 17+
 - Rust toolchain via rustup
 - `gpg` configured with a key listed in the ASF KEYS file
+- `xmllint` on `PATH` (pre-installed on macOS; `libxml2-utils` on Debian/Ubuntu)
 
 ### Build the multi-platform JAR
 

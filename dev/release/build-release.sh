@@ -102,6 +102,9 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM EXIT
 
+echo "Cleaning leftover builder containers from any prior interrupted run"
+docker rm -f "$CONTAINER_AMD64" "$CONTAINER_ARM64" >/dev/null 2>&1 || true
+
 echo "Cleaning previous Java and native build output"
 (cd "$PROJECT_HOME" && ./mvnw -q clean)
 (cd "$PROJECT_HOME/native" && cargo clean)

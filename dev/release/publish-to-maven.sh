@@ -125,13 +125,15 @@ for file in $(find . -type f); do
     FILE_SHORT=$(echo "$file" | sed -e "s/\.\///")
     DEST_URL="$NEXUS_UPLOAD/org/apache/datafusion/$FILE_SHORT"
     echo "  Uploading $FILE_SHORT"
-    curl -u "$ASF_USERNAME:$ASF_PASSWORD" --upload-file "$FILE_SHORT" "$DEST_URL"
+    curl --fail-with-body \
+        -u "$ASF_USERNAME:$ASF_PASSWORD" \
+        --upload-file "$FILE_SHORT" "$DEST_URL"
 done
 
 echo "Closing nexus staging repository"
 REPO_REQUEST="<promoteRequest><data><stagedRepositoryId>$STAGED_REPO_ID</stagedRepositoryId><description>Apache DataFusion Java (commit $GIT_HASH)</description></data></promoteRequest>"
-curl -X POST -d "$REPO_REQUEST" -u "$ASF_USERNAME:$ASF_PASSWORD" \
-    -H "Content-Type:application/xml" -v \
+curl --fail-with-body -X POST -d "$REPO_REQUEST" -u "$ASF_USERNAME:$ASF_PASSWORD" \
+    -H "Content-Type:application/xml" \
     "$NEXUS_ROOT/profiles/$NEXUS_PROFILE/finish"
 echo "Closed Nexus staging repository: $STAGED_REPO_ID"
 

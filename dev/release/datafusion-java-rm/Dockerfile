@@ -41,9 +41,10 @@ RUN export LC_ALL=C \
         libbz2-dev \
         zlib1g-dev \
         default-jdk \
-        unzip
-
-RUN apt install -y gcc-10 g++-10 cpp-10
+        unzip \
+        gcc-10 \
+        g++-10 \
+        cpp-10
 ENV CC="gcc-10"
 ENV CXX="g++-10"
 
