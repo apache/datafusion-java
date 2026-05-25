@@ -159,6 +159,8 @@ under the License.
                         <exclude>.vscode/**</exclude>
                         <exclude>**/*.iml</exclude>
                         <exclude>**/.DS_Store</exclude>
+                        <!-- GitHub repo metadata (PR / issue templates) -->
+                        <exclude>.github/**</exclude>
                         <!-- Bundled Maven wrapper (Apache 2.0 third-party) -->
                         <exclude>mvnw</exclude>
                         <exclude>mvnw.cmd</exclude>
@@ -169,6 +171,8 @@ under the License.
                         <exclude>tpch-data/**</exclude>
                         <!-- Rust lockfile -->
                         <exclude>native/Cargo.lock</exclude>
+                        <!-- Source-tarball exclude list (data file consumed by check-rat-report.py) -->
+                        <exclude>dev/release/rat_exclude_files.txt</exclude>
                     </excludes>
                 </configuration>
             </plugin>
