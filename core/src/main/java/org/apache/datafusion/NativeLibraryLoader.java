@@ -21,36 +21,28 @@ package org.apache.datafusion;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.security.DigestInputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 /**
  * Loads the {@code datafusion_jni} native library on demand.
  *
- * <p>The loader first tries {@link System#loadLibrary(String)} so that
- * operators can override the bundled library by placing a build on
- * {@code java.library.path} (for example via
- * {@code -Djava.library.path=...} or {@code LD_LIBRARY_PATH}). If that
- * fails the loader extracts the platform-specific library from the JAR
- * resource tree and loads it via {@link System#load(String)}.
+ * <p>The loader first tries {@link System#loadLibrary(String)} so that operators can override the
+ * bundled library by placing a build on {@code java.library.path} (for example via {@code
+ * -Djava.library.path=...} or {@code LD_LIBRARY_PATH}). If that fails the loader extracts the
+ * platform-specific library from the JAR resource tree and loads it via {@link
+ * System#load(String)}.
  *
- * <p>The bundled libraries live at the conventional path
- * {@code org/apache/datafusion/&lt;os&gt;/&lt;arch&gt;/&lt;libfile&gt;}.
- * Extracted files are written under
- * {@code $TMPDIR/datafusion-java/&lt;sha256&gt;/} so that concurrent JVMs
- * sharing a temp directory converge on the same file rather than each
- * extracting their own copy.
+ * <p>The bundled libraries live at the conventional path {@code
+ * org/apache/datafusion/&lt;os&gt;/&lt;arch&gt;/&lt;libfile&gt;}. Each JVM extracts into its own
+ * private temporary directory created with {@link Files#createTempDirectory(String,
+ * java.nio.file.attribute.FileAttribute[])}, which is mode 0700 on POSIX and user-private under the
+ * default Windows {@code TMP}. Keeping the directory private prevents another user on the host from
+ * planting a same-named library for the JVM to pick up.
  */
 public final class NativeLibraryLoader {
 
-  private static final String TMP_DIR_NAME = "datafusion-java";
+  private static final String TMP_DIR_PREFIX = "datafusion-java-";
 
   private static volatile boolean loaded;
 
@@ -83,8 +75,11 @@ public final class NativeLibraryLoader {
     try (InputStream check = NativeLibraryLoader.class.getResourceAsStream(resource)) {
       if (check == null) {
         throw new UnsatisfiedLinkError(
-            "No bundled datafusion_jni library for " + platform
-                + " (expected classpath:" + resource + ")."
+            "No bundled datafusion_jni library for "
+                + platform
+                + " (expected classpath:"
+                + resource
+                + ")."
                 + " Build the native crate and add it to java.library.path,"
                 + " or depend on a JAR built for this platform.");
       }
@@ -93,71 +88,22 @@ public final class NativeLibraryLoader {
     }
 
     try {
-      Path extracted = extractToTempDir(resource, platform.libFileName());
+      Path extracted = extractToPrivateTempDir(resource, platform.libFileName());
       System.load(extracted.toAbsolutePath().toString());
     } catch (IOException e) {
       throw linkError("Failed to extract " + resource, e);
     }
   }
 
-  private static Path extractToTempDir(String resource, String fileName) throws IOException {
-    Path tmpRoot = Files.createDirectories(
-        Paths.get(System.getProperty("java.io.tmpdir"), TMP_DIR_NAME));
-    Path staging = Files.createTempFile(tmpRoot, fileName + ".", ".part");
-
-    String hash;
-    try (InputStream raw = NativeLibraryLoader.class.getResourceAsStream(resource);
-         DigestInputStream in = new DigestInputStream(raw, sha256());
-         OutputStream out = Files.newOutputStream(staging)) {
-      in.transferTo(out);
-      hash = toHex(in.getMessageDigest().digest());
-    } catch (IOException e) {
-      Files.deleteIfExists(staging);
-      throw e;
-    }
-
-    Path versionedDir = Files.createDirectories(tmpRoot.resolve(hash));
-    Path target = versionedDir.resolve(fileName);
-
-    if (Files.exists(target) && Files.size(target) == Files.size(staging)) {
-      Files.deleteIfExists(staging);
-      return target;
-    }
-
-    try {
-      Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
-    } catch (FileAlreadyExistsException e) {
-      // Another JVM extracted the same content while we were writing.
-      // Their copy is identical (same SHA-256), so discard ours.
-      Files.deleteIfExists(staging);
-    } catch (IOException e) {
-      // Atomic move not supported on this filesystem. Fall back to a
-      // replacement move; the hash directory guarantees content equality.
-      try {
-        Files.move(staging, target, StandardCopyOption.REPLACE_EXISTING);
-      } catch (IOException retry) {
-        Files.deleteIfExists(staging);
-        throw retry;
-      }
+  private static Path extractToPrivateTempDir(String resource, String fileName) throws IOException {
+    Path tmpDir = Files.createTempDirectory(TMP_DIR_PREFIX);
+    tmpDir.toFile().deleteOnExit();
+    Path target = tmpDir.resolve(fileName);
+    target.toFile().deleteOnExit();
+    try (InputStream in = NativeLibraryLoader.class.getResourceAsStream(resource)) {
+      Files.copy(in, target);
     }
     return target;
-  }
-
-  private static MessageDigest sha256() {
-    try {
-      return MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 not available", e);
-    }
-  }
-
-  private static String toHex(byte[] bytes) {
-    StringBuilder sb = new StringBuilder(bytes.length * 2);
-    for (byte b : bytes) {
-      sb.append(Character.forDigit((b >> 4) & 0xf, 16));
-      sb.append(Character.forDigit(b & 0xf, 16));
-    }
-    return sb.toString();
   }
 
   private static UnsatisfiedLinkError linkError(String message, Throwable cause) {

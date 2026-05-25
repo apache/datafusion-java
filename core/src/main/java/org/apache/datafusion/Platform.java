@@ -22,17 +22,17 @@ package org.apache.datafusion;
 import java.util.Locale;
 
 /**
- * Identifies a target OS/arch pair and the path at which the bundled
- * native library is published inside the JAR.
+ * Identifies a target OS/arch pair and the path at which the bundled native library is published
+ * inside the JAR.
  *
- * <p>Resource layout follows the convention from the
- * {@code datafusion-java} packaging design:
+ * <p>Resource layout follows the convention from the {@code datafusion-java} packaging design:
  *
  * <pre>
  *   org/apache/datafusion/linux/amd64/libdatafusion_jni.so
  *   org/apache/datafusion/linux/aarch64/libdatafusion_jni.so
  *   org/apache/datafusion/darwin/x86_64/libdatafusion_jni.dylib
  *   org/apache/datafusion/darwin/aarch64/libdatafusion_jni.dylib
+ *   org/apache/datafusion/windows/amd64/datafusion_jni.dll
  * </pre>
  *
  * <p>Package-private; consumed only by {@link NativeLibraryLoader}.
@@ -90,15 +90,14 @@ final class Platform {
     if (n.startsWith("windows")) {
       return Os.WINDOWS;
     }
-    throw new UnsupportedOperationException(
-        "Unsupported OS for datafusion_jni: " + osName);
+    throw new UnsupportedOperationException("Unsupported OS for datafusion_jni: " + osName);
   }
 
   /**
    * Returns the architecture segment used in the resource path for {@code os}.
    *
-   * <p>Linux uses {@code amd64} (Java's preferred name for x86_64), while
-   * macOS uses {@code x86_64}; both use {@code aarch64} for ARM64.
+   * <p>Linux and Windows use {@code amd64} (Java's preferred name for x86_64), while macOS uses
+   * {@code x86_64}; all use {@code aarch64} for ARM64.
    */
   static String detectArch(Os os, String osArch) {
     if (osArch == null) {
@@ -108,7 +107,7 @@ final class Platform {
     boolean isX64 = n.equals("amd64") || n.equals("x86_64") || n.equals("x64");
     boolean isArm64 = n.equals("aarch64") || n.equals("arm64");
     if (isX64) {
-      return os == Os.LINUX ? "amd64" : "x86_64";
+      return os == Os.DARWIN ? "x86_64" : "amd64";
     }
     if (isArm64) {
       return "aarch64";
@@ -122,8 +121,8 @@ final class Platform {
   }
 
   /**
-   * Absolute classpath resource path (with leading slash) of the bundled
-   * native library for this platform.
+   * Absolute classpath resource path (with leading slash) of the bundled native library for this
+   * platform.
    */
   String resourcePath() {
     return "/" + RESOURCE_PREFIX + "/" + os.dirName + "/" + arch + "/" + libFileName();

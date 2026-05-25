@@ -47,14 +47,12 @@ class PlatformTest {
 
   @Test
   void rejectsUnknownOs() {
-    assertThrows(UnsupportedOperationException.class,
-        () -> Platform.detectOs("Solaris"));
+    assertThrows(UnsupportedOperationException.class, () -> Platform.detectOs("Solaris"));
   }
 
   @Test
   void rejectsNullOs() {
-    assertThrows(UnsupportedOperationException.class,
-        () -> Platform.detectOs(null));
+    assertThrows(UnsupportedOperationException.class, () -> Platform.detectOs(null));
   }
 
   @Test
@@ -71,6 +69,13 @@ class PlatformTest {
   }
 
   @Test
+  void usesAmd64OnWindowsForX86_64Aliases() {
+    assertEquals("amd64", Platform.detectArch(Platform.Os.WINDOWS, "amd64"));
+    assertEquals("amd64", Platform.detectArch(Platform.Os.WINDOWS, "x86_64"));
+    assertEquals("amd64", Platform.detectArch(Platform.Os.WINDOWS, "x64"));
+  }
+
+  @Test
   void usesAarch64ForArm64Aliases() {
     assertEquals("aarch64", Platform.detectArch(Platform.Os.LINUX, "aarch64"));
     assertEquals("aarch64", Platform.detectArch(Platform.Os.LINUX, "arm64"));
@@ -80,7 +85,8 @@ class PlatformTest {
 
   @Test
   void rejectsUnknownArch() {
-    assertThrows(UnsupportedOperationException.class,
+    assertThrows(
+        UnsupportedOperationException.class,
         () -> Platform.detectArch(Platform.Os.LINUX, "ppc64le"));
   }
 
@@ -107,5 +113,8 @@ class PlatformTest {
     assertEquals(
         "/org/apache/datafusion/darwin/aarch64/libdatafusion_jni.dylib",
         Platform.of("Mac OS X", "aarch64").resourcePath());
+    assertEquals(
+        "/org/apache/datafusion/windows/amd64/datafusion_jni.dll",
+        Platform.of("Windows 11", "amd64").resourcePath());
   }
 }

@@ -191,6 +191,7 @@ under the License.
               org/apache/datafusion/linux/aarch64/libdatafusion_jni.so
               org/apache/datafusion/darwin/x86_64/libdatafusion_jni.dylib
               org/apache/datafusion/darwin/aarch64/libdatafusion_jni.dylib
+              org/apache/datafusion/windows/amd64/datafusion_jni.dll
         -->
         <profile>
             <id>native-linux-amd64</id>
@@ -246,6 +247,17 @@ under the License.
                 <datafusion.lib.os>darwin</datafusion.lib.os>
                 <datafusion.lib.arch>aarch64</datafusion.lib.arch>
                 <datafusion.lib.filename>libdatafusion_jni.dylib</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-windows-amd64</id>
+            <activation>
+                <os><family>windows</family><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>windows</datafusion.lib.os>
+                <datafusion.lib.arch>amd64</datafusion.lib.arch>
+                <datafusion.lib.filename>datafusion_jni.dll</datafusion.lib.filename>
             </properties>
         </profile>
     </profiles>
