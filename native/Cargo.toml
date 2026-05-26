@@ -22,7 +22,10 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# `rlib` alongside `cdylib` so `cargo test` has a Rust-level harness for
+# native-only invariants (e.g. error-classification routing through wrapped
+# DataFusionError chains). The `cdylib` is still the artifact the JVM loads.
+crate-type = ["cdylib", "rlib"]
 
 [features]
 # Object-store backends are on by default (per PR #73) so `make test` exercises
@@ -53,6 +56,17 @@ substrait = ["dep:datafusion-substrait"]
 # protoc from source via cmake) so the substrait dependency stack does not
 # require a system `protoc`. Useful for hermetic builds; requires cmake.
 protoc = ["datafusion-substrait?/protoc"]
+# Pulls in `tokio-metrics` so `SessionContext.runtimeStats()` returns real
+# numbers from the underlying Tokio runtime. Off by default because
+# `tokio-metrics` only compiles when `--cfg tokio_unstable` is set, and we
+# don't want to force that flag onto every build. Enable explicitly:
+#
+#     RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+#
+# The JNI handler returns a clear "feature not enabled" error from the JVM if
+# invoked in a build that compiled the feature off, so the Java surface is
+# unchanged either way.
+runtime-metrics = ["dep:tokio-metrics"]
 
 [dependencies]
 arrow = { version = "58", features = ["ffi"] }
@@ -67,6 +81,10 @@ jni = "0.21"
 object_store = { version = "0.13", default-features = false }
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+# Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
+# behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
+# requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.
+tokio-metrics = { version = "0.5", optional = true }
 url = "2"
 
 [build-dependencies]

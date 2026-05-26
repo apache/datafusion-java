@@ -334,6 +334,351 @@ public final class DataFrame implements AutoCloseable {
     return new DataFrame(unnestColumns(nativeHandle, columns, options.preserveNulls()));
   }
 
+  // -- Set operations ------------------------------------------------------
+  //
+  // The Java method names mirror DataFusion's Rust API verbatim. SQL semantics:
+  //
+  //   union               = UNION ALL  (positional, keeps duplicates)
+  //   unionDistinct       = UNION      (positional, deduplicated)
+  //   unionByName         = UNION ALL  by column name; missing columns become NULL
+  //   unionByNameDistinct = UNION      by column name; missing columns become NULL
+  //   intersect           = INTERSECT ALL (keeps duplicates)
+  //   intersectDistinct   = INTERSECT     (deduplicated)
+  //   except              = EXCEPT ALL    (keeps duplicates)
+  //   exceptDistinct      = EXCEPT        (deduplicated)
+  //
+  // Note: the *_distinct variants deduplicate, while the unsuffixed methods keep
+  // duplicates. This is the inverse of Spark's convention, where `intersect`
+  // deduplicates and `intersectAll` keeps duplicates -- consult the Javadoc on
+  // each method to confirm semantics before porting Spark code.
+  //
+  // None of these methods consume the receiver or {@code other}; both DataFrames
+  // remain usable after the call. The native side clones the LogicalPlan on
+  // each side, which is cheap (LogicalPlan is Arc-backed in DataFusion).
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column position, keeping all duplicates (SQL
+   * {@code UNION ALL}). The two schemas must match positionally. Both this DataFrame and {@code
+   * other} remain usable after the call and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame union(DataFrame other) {
+    return new DataFrame(unionRows(nativeHandle, otherHandle("union", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column position, removing duplicates (SQL
+   * {@code UNION DISTINCT} -- equivalent to plain {@code UNION} in standard SQL). Both DataFrames
+   * remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame unionDistinct(DataFrame other) {
+    return new DataFrame(unionDistinctRows(nativeHandle, otherHandle("unionDistinct", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column name, keeping all duplicates. Columns
+   * present in only one side are filled with NULL on the other. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if column types disagree on a shared name.
+   */
+  public DataFrame unionByName(DataFrame other) {
+    return new DataFrame(unionByNameRows(nativeHandle, otherHandle("unionByName", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column name, removing duplicates. Columns
+   * present in only one side are filled with NULL on the other. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if column types disagree on a shared name.
+   */
+  public DataFrame unionByNameDistinct(DataFrame other) {
+    return new DataFrame(
+        unionByNameDistinctRows(nativeHandle, otherHandle("unionByNameDistinct", other)));
+  }
+
+  /**
+   * Rows present in both this DataFrame and {@code other}, keeping duplicates from the receiver
+   * (SQL {@code INTERSECT ALL}). Both schemas must match positionally. Both DataFrames remain
+   * usable.
+   *
+   * <p><strong>Implementation note:</strong> DataFusion implements {@code INTERSECT ALL} as a
+   * left-semi join on equality, not as standard SQL bag intersection. A left row is kept iff any
+   * matching row exists in {@code other}. With {@code left = (1, 2, 2, 3)} and {@code right = (2,
+   * 3)}, the result is {@code (2, 2, 3)} -- both copies of {@code 2} survive because each finds a
+   * match in {@code right}. PostgreSQL / Spark {@code INTERSECT ALL} would also yield {@code (2, 2,
+   * 3)} here, but the two engines diverge when {@code other} has fewer copies than {@code this} of
+   * a row that appears in both.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame intersect(DataFrame other) {
+    return new DataFrame(intersectRows(nativeHandle, otherHandle("intersect", other)));
+  }
+
+  /**
+   * Rows present in both this DataFrame and {@code other}, deduplicated (SQL {@code INTERSECT}).
+   * Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame intersectDistinct(DataFrame other) {
+    return new DataFrame(
+        intersectDistinctRows(nativeHandle, otherHandle("intersectDistinct", other)));
+  }
+
+  /**
+   * Rows present in this DataFrame but not in {@code other}, keeping duplicates from the receiver
+   * (SQL {@code EXCEPT ALL}). Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * <p><strong>Implementation note:</strong> DataFusion implements {@code EXCEPT ALL} as a
+   * left-anti join on equality, not as standard SQL bag difference. A left row is kept iff
+   * <em>no</em> matching row exists in {@code other} -- the multiplicity of matches is irrelevant.
+   * With {@code left = (1, 1, 2, 2, 3)} and {@code right = (1, 3)}, the result is {@code (2, 2)}:
+   * both copies of {@code 2} survive (no match in {@code right}); both copies of {@code 1} and the
+   * {@code 3} drop. PostgreSQL / Spark {@code EXCEPT ALL} would yield the same answer here, but the
+   * two engines diverge when {@code right} contains fewer copies than {@code left} of a row that
+   * appears in both.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame except(DataFrame other) {
+    return new DataFrame(exceptRows(nativeHandle, otherHandle("except", other)));
+  }
+
+  /**
+   * Rows present in this DataFrame but not in {@code other}, deduplicated (SQL {@code EXCEPT}).
+   * Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame exceptDistinct(DataFrame other) {
+    return new DataFrame(exceptDistinctRows(nativeHandle, otherHandle("exceptDistinct", other)));
+  }
+
+  /**
+   * Validate the receiver and the other DataFrame and return {@code other.nativeHandle}. Common
+   * preamble for the eight set-operation methods so the validation logic stays in one place.
+   */
+  private long otherHandle(String op, DataFrame other) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (other == null) {
+      throw new IllegalArgumentException(op + " other must be non-null");
+    }
+    if (other.nativeHandle == 0) {
+      throw new IllegalStateException(op + " other DataFrame is closed or already collected");
+    }
+    return other.nativeHandle;
+  }
+
+  /**
+   * Order the rows by the supplied sort keys. Each {@link SortExpr} names a column and a direction
+   * ({@link SortExpr#asc(String)} / {@link SortExpr#desc(String)}); call {@link
+   * SortExpr#nullsFirst(boolean)} to override null placement.
+   *
+   * <p>An empty {@code exprs} array is a no-op (matches DataFusion's {@code sort(vec![])}). The
+   * receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code exprs} or any element is {@code null}.
+   * @throws RuntimeException if a sort column does not exist in this DataFrame's schema.
+   */
+  public DataFrame sort(SortExpr... exprs) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (exprs == null) {
+      throw new IllegalArgumentException("sort exprs must be non-null");
+    }
+    String[] columns = new String[exprs.length];
+    boolean[] ascending = new boolean[exprs.length];
+    boolean[] nullsFirst = new boolean[exprs.length];
+    for (int i = 0; i < exprs.length; i++) {
+      SortExpr e = exprs[i];
+      if (e == null) {
+        throw new IllegalArgumentException("sort exprs[" + i + "] must be non-null");
+      }
+      columns[i] = e.column();
+      ascending[i] = e.ascending();
+      nullsFirst[i] = e.nullsFirst();
+    }
+    return new DataFrame(sortRows(nativeHandle, columns, ascending, nullsFirst));
+  }
+
+  /**
+   * Repartition this DataFrame using a round-robin scheme across {@code numPartitions} output
+   * partitions. The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}.
+   * @throws RuntimeException if the underlying repartition plan rejects the request.
+   */
+  public DataFrame repartitionRoundRobin(int numPartitions) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    return new DataFrame(repartitionRoundRobinRows(nativeHandle, numPartitions));
+  }
+
+  /**
+   * Repartition this DataFrame by hashing the named columns into {@code numPartitions} output
+   * partitions. v1 supports column-name keys only; expression keys are deferred until the Java
+   * binding gains an {@code Expr} builder. The receiver remains usable and must still be closed
+   * independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}, {@code columns} is {@code null}
+   *     or empty, or any element of {@code columns} is {@code null}.
+   * @throws RuntimeException if a partition column does not exist in this DataFrame's schema.
+   */
+  public DataFrame repartitionHash(int numPartitions, String... columns) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    if (columns == null) {
+      throw new IllegalArgumentException("repartitionHash columns must be non-null");
+    }
+    if (columns.length == 0) {
+      throw new IllegalArgumentException("repartitionHash requires at least one column");
+    }
+    for (int i = 0; i < columns.length; i++) {
+      if (columns[i] == null) {
+        throw new IllegalArgumentException("repartitionHash columns[" + i + "] must be non-null");
+      }
+    }
+    return new DataFrame(repartitionHashRows(nativeHandle, numPartitions, columns));
+  }
+
+  /**
+   * Equi-join this DataFrame with {@code right} on the named columns, using the given {@link
+   * JoinType}. The receiver and {@code right} both remain usable and must still be closed
+   * independently.
+   *
+   * <p>Equivalent to SQL {@code left <type> JOIN right ON l.leftCols[0] = r.rightCols[0] AND ...}.
+   * {@code leftCols} and {@code rightCols} must have the same length.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning fails (column collision in the combined schema,
+   *     unknown column names, etc.).
+   */
+  public DataFrame join(DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, null));
+  }
+
+  /**
+   * Equi-join this DataFrame with {@code right}, restricting the result with a residual SQL filter
+   * parsed against the <em>combined</em> schema (left columns followed by right columns; columns
+   * may be qualified with the relation alias when ambiguous). The receiver and {@code right} both
+   * remain usable and must still be closed independently.
+   *
+   * <p>For outer joins, the filter is applied only to matched rows; unmatched rows are passed
+   * through with nulls on the unmatched side, matching DataFusion's semantics.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning or filter parsing fails.
+   */
+  public DataFrame join(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols, String filter) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    if (filter == null) {
+      throw new IllegalArgumentException("join filter must be non-null");
+    }
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, filter));
+  }
+
+  /**
+   * Join this DataFrame with {@code right} using arbitrary SQL predicates parsed against the
+   * <em>combined</em> schema. Each predicate is parsed independently and the join evaluates their
+   * conjunction. Predicates may reference columns from either side and may be qualified with the
+   * relation alias when ambiguous (e.g. {@code "left.x = right.x"}). The receiver and {@code right}
+   * both remain usable and must still be closed independently.
+   *
+   * <p>DataFusion's optimiser identifies and rewrites equality predicates into hash-join keys
+   * automatically, so {@code joinOn(right, INNER, "l.id = r.id")} plans equivalently to {@link
+   * #join(DataFrame, JoinType, String[], String[])} with a single key. Use {@code joinOn} when the
+   * predicate is not a simple equality, e.g. inequality joins or range conditions.
+   *
+   * @throws IllegalArgumentException if {@code right} or {@code type} is {@code null}, or {@code
+   *     predicates} is {@code null} or empty, or any predicate is {@code null}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if predicate parsing or join planning fails.
+   */
+  public DataFrame joinOn(DataFrame right, JoinType type, String... predicates) {
+    if (right == null) {
+      throw new IllegalArgumentException("joinOn right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("joinOn type must be non-null");
+    }
+    if (predicates == null || predicates.length == 0) {
+      throw new IllegalArgumentException("joinOn predicates must be non-null and non-empty");
+    }
+    for (String p : predicates) {
+      if (p == null) {
+        throw new IllegalArgumentException("joinOn predicates must not contain null");
+      }
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+    return new DataFrame(
+        joinOnDataFrame(nativeHandle, right.nativeHandle, type.code(), predicates));
+  }
+
+  private void checkJoinArgs(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    if (right == null) {
+      throw new IllegalArgumentException("join right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("join type must be non-null");
+    }
+    if (leftCols == null) {
+      throw new IllegalArgumentException("join leftCols must be non-null");
+    }
+    if (rightCols == null) {
+      throw new IllegalArgumentException("join rightCols must be non-null");
+    }
+    if (leftCols.length != rightCols.length) {
+      throw new IllegalArgumentException(
+          "join leftCols and rightCols must have the same length, got "
+              + leftCols.length
+              + " and "
+              + rightCols.length);
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+  }
+
   /**
    * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
    * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
@@ -471,6 +816,40 @@ public final class DataFrame implements AutoCloseable {
   private static native long withColumnExpr(long handle, String name, String expr);
 
   private static native long unnestColumns(long handle, String[] columns, boolean preserveNulls);
+
+  private static native long unionRows(long handle, long otherHandle);
+
+  private static native long unionDistinctRows(long handle, long otherHandle);
+
+  private static native long unionByNameRows(long handle, long otherHandle);
+
+  private static native long unionByNameDistinctRows(long handle, long otherHandle);
+
+  private static native long intersectRows(long handle, long otherHandle);
+
+  private static native long intersectDistinctRows(long handle, long otherHandle);
+
+  private static native long exceptRows(long handle, long otherHandle);
+
+  private static native long exceptDistinctRows(long handle, long otherHandle);
+
+  private static native long sortRows(
+      long handle, String[] columns, boolean[] ascending, boolean[] nullsFirst);
+
+  private static native long repartitionRoundRobinRows(long handle, int numPartitions);
+
+  private static native long repartitionHashRows(long handle, int numPartitions, String[] columns);
+
+  private static native long joinDataFrame(
+      long leftHandle,
+      long rightHandle,
+      byte joinType,
+      String[] leftCols,
+      String[] rightCols,
+      String filter);
+
+  private static native long joinOnDataFrame(
+      long leftHandle, long rightHandle, byte joinType, String[] predicates);
 
   private static native void writeParquetWithOptions(
       long handle,

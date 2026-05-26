@@ -21,12 +21,13 @@ use std::any::Any;
 use std::fmt;
 
 use datafusion::arrow::array::{make_array, Array, ArrayRef, StructArray};
-use datafusion::arrow::datatypes::{DataType, Field, Fields};
+use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields};
 use datafusion::arrow::ffi::{from_ffi, to_ffi, FFI_ArrowArray, FFI_ArrowSchema};
 use datafusion::common::ScalarValue;
 use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{
-    ColumnarValue, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature, Volatility,
+    ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, TypeSignature,
+    Volatility,
 };
 use jni::objects::{GlobalRef, JStaticMethodID};
 use jni::signature::{Primitive, ReturnType};
@@ -35,7 +36,10 @@ use jni::sys::{jbyte, jlong, jvalue};
 pub(crate) struct JavaScalarUdf {
     pub(crate) name: String,
     pub(crate) signature: Signature,
-    pub(crate) return_type: DataType,
+    /// The full return Field as the Java caller declared it. Carries the data type plus
+    /// nullability and any metadata; reused as both `return_type()` and the result of
+    /// `return_field_from_args()` so callers see the user's declaration verbatim.
+    pub(crate) return_field: FieldRef,
     /// Global ref to the user's `org.apache.datafusion.ScalarFunction` instance.
     pub(crate) udf_global_ref: GlobalRef,
     /// Global ref to the `org.apache.datafusion.internal.JniBridge` class.
@@ -55,7 +59,7 @@ impl fmt::Debug for JavaScalarUdf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaScalarUdf")
             .field("name", &self.name)
-            .field("return_type", &self.return_type)
+            .field("return_field", &self.return_field)
             .finish()
     }
 }
@@ -89,7 +93,17 @@ impl ScalarUDFImpl for JavaScalarUdf {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
-        Ok(self.return_type.clone())
+        Ok(self.return_field.data_type().clone())
+    }
+
+    fn return_field_from_args(
+        &self,
+        _args: ReturnFieldArgs,
+    ) -> datafusion::error::Result<FieldRef> {
+        // The default impl wraps return_type() in a fresh Field that's always nullable and
+        // carries no metadata. We hold the user's declared Field verbatim, so return it -- this
+        // preserves the declared nullability and any metadata they attached.
+        Ok(self.return_field.clone())
     }
 
     fn invoke_with_args(
@@ -249,12 +263,13 @@ impl ScalarUDFImpl for JavaScalarUdf {
         let result_data = unsafe { from_ffi(result_array_ffi, &result_schema_ffi) }
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
-        if result_data.data_type() != &self.return_type {
+        // 9. Validate type.
+        if result_data.data_type() != self.return_field.data_type() {
             return Err(DataFusionError::Execution(format!(
                 "Java UDF '{}' returned vector of type {:?}; declared return type was {:?}",
                 self.name,
                 result_data.data_type(),
-                self.return_type
+                self.return_field.data_type()
             )));
         }
 

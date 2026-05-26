@@ -32,9 +32,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
-import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 /**
@@ -135,6 +133,73 @@ public final class SessionContext implements AutoCloseable {
     }
     long dfHandle = createDataFrameFromSubstrait(nativeHandle, planBytes);
     return new DataFrame(dfHandle);
+  }
+
+  /**
+   * Snapshot the session's memory pool: bytes currently held and the peak observed since this
+   * session was created. Thread-safe; can be polled while queries run.
+   *
+   * <p>For multi-tenant attribution, place each tenant in its own {@link SessionContext}. Within a
+   * single session, the snapshot is the sum across all in-flight queries -- there is no
+   * per-DataFrame breakdown today.
+   *
+   * <p>The session's {@code MemoryPool} is wrapped transparently with a tracking adapter at
+   * construction time; the wrapper layers on top of whatever pool {@link
+   * SessionContextBuilder#memoryLimit(long, double)} produced (or DataFusion's default unbounded
+   * pool) and does not change pool semantics (limits, eviction, spilling).
+   *
+   * <p><b>What this counts:</b> bytes reserved against the {@code MemoryPool} -- operator state for
+   * sorts, hash joins, aggregates, repartition buffers, and anything else that uses DataFusion's
+   * {@code MemoryReservation} machinery during execution.
+   *
+   * <p><b>What this does <i>not</i> count:</b> memory held outside the pool, including record-batch
+   * buffers materialised by {@link DataFrame#cache()} (stored in an in-memory {@code MemTable} as
+   * plain {@code Vec<RecordBatch>} with no reservation), record-batch buffers that have crossed the
+   * FFI boundary into Arrow's Java allocator, and JVM-side allocations. Operator-level reservations
+   * are released as the plan unwinds, so a query that runs to completion typically returns {@code
+   * currentBytes} to ~0 even if the result set is large.
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the native side has not registered a tracker for this handle
+   *     (should not happen in practice -- tracker registration is done by the constructor).
+   */
+  public MemoryUsage memoryUsage() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long[] values = memoryUsageNative(nativeHandle);
+    return new MemoryUsage(values[0], values[1]);
+  }
+
+  /**
+   * Snapshot operational counters from the underlying Tokio runtime: worker count, busy time, queue
+   * depth, etc. Thread-safe; can be polled while queries run.
+   *
+   * <p>The runtime is process-wide rather than per-session because the JNI library drives a single
+   * shared multi-threaded Tokio runtime. The {@link SessionContext} handle is checked only to
+   * ensure the caller still has a live session; the values returned are not session-specific.
+   *
+   * <p>Requires the {@code runtime-metrics} Cargo feature on the native crate (off by default).
+   * Rebuild with:
+   *
+   * <pre>{@code
+   * RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+   * }</pre>
+   *
+   * <p>If invoked against a native binary built without the feature, this method throws {@link
+   * RuntimeException} with a message pointing at the rebuild command.
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the native crate was built without the {@code runtime-metrics}
+   *     feature.
+   */
+  public RuntimeStats runtimeStats() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    long[] s = runtimeStatsNative(nativeHandle);
+    return new RuntimeStats(
+        (int) s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10]);
   }
 
   /**
@@ -467,7 +532,7 @@ public final class SessionContext implements AutoCloseable {
    * via the UDF's name or referenced in DataFusion plans deserialised with {@link #fromProto}.
    *
    * <p>The UDF is registered with an exact signature: the runtime will reject calls whose argument
-   * types do not match the declared {@link ScalarFunction#argTypes()} exactly.
+   * types do not match the declared {@link ScalarFunction#argFields()} exactly.
    *
    * @throws RuntimeException if registration fails (e.g., name already registered with an
    *     incompatible signature, schema serialisation failure).
@@ -479,14 +544,10 @@ public final class SessionContext implements AutoCloseable {
     java.util.Objects.requireNonNull(udf, "udf");
     ScalarFunction impl = udf.impl();
     String name = udf.name();
-    ArrowType returnType = udf.returnType();
-    List<ArrowType> argTypes = udf.argTypes();
     Volatility volatility = udf.volatility();
-    List<Field> fields = new ArrayList<>(argTypes.size() + 1);
-    fields.add(new Field("return", FieldType.nullable(returnType), null));
-    for (int i = 0; i < argTypes.size(); i++) {
-      fields.add(new Field("arg" + i, FieldType.nullable(argTypes.get(i)), null));
-    }
+    List<Field> fields = new ArrayList<>(udf.argFields().size() + 1);
+    fields.add(udf.returnField());
+    fields.addAll(udf.argFields());
     Schema signatureSchema = new Schema(fields);
     byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
     registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
@@ -561,6 +622,10 @@ public final class SessionContext implements AutoCloseable {
   private static native byte[] tableSchemaIpc(long handle, String tableName);
 
   private static native String getOptionNative(long handle, String key);
+
+  private static native long[] memoryUsageNative(long handle);
+
+  private static native long[] runtimeStatsNative(long handle);
 
   private static native void registerParquetWithOptions(
       long handle, String name, String path, byte[] optionsBytes, byte[] schemaIpcBytes);

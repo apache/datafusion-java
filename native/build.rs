@@ -18,6 +18,7 @@
 fn main() {
     const PROTOS: &[&str] = &[
         "../proto/session_options.proto",
+        "../proto/cache_manager_options.proto",
         "../proto/file_compression_type.proto",
         "../proto/arrow_read_options.proto",
         "../proto/avro_read_options.proto",

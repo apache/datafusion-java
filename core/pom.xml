@@ -26,13 +26,19 @@ under the License.
     <parent>
         <groupId>org.apache.datafusion</groupId>
         <artifactId>datafusion-java-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.2.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>datafusion-java</artifactId>
     <packaging>jar</packaging>
 
     <name>Apache DataFusion Java</name>
+
+    <properties>
+        <!-- Which cargo build profile (debug/release) the bundled native
+             library is copied from. Override with -Ddatafusion.native.profile=release. -->
+        <datafusion.native.profile>debug</datafusion.native.profile>
+    </properties>
 
     <dependencies>
         <dependency>
@@ -82,8 +88,33 @@ under the License.
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Djava.library.path=${maven.multiModuleProjectDirectory}/native/target/debug --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-native-lib</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <property name="datafusion.native.lib.source"
+                                          value="${maven.multiModuleProjectDirectory}/native/target/${datafusion.native.profile}/${datafusion.lib.filename}"/>
+                                <fail message="Native library not found at ${datafusion.native.lib.source}. Run 'cd native &amp;&amp; cargo build' (or 'make') before building the JAR.">
+                                    <condition><not><available file="${datafusion.native.lib.source}"/></not></condition>
+                                </fail>
+                                <mkdir dir="${project.build.outputDirectory}/org/apache/datafusion/${datafusion.lib.os}/${datafusion.lib.arch}"/>
+                                <copy file="${datafusion.native.lib.source}"
+                                      tofile="${project.build.outputDirectory}/org/apache/datafusion/${datafusion.lib.os}/${datafusion.lib.arch}/${datafusion.lib.filename}"
+                                      preservelastmodified="true"
+                                      verbose="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>com.googlecode.maven-download-plugin</groupId>
@@ -154,4 +185,85 @@ under the License.
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            One of these profiles activates per host so the antrun copy
+            knows the OS/arch directory and library filename to use.
+            Resource layout follows the bundling convention:
+
+              org/apache/datafusion/linux/amd64/libdatafusion_jni.so
+              org/apache/datafusion/linux/aarch64/libdatafusion_jni.so
+              org/apache/datafusion/darwin/x86_64/libdatafusion_jni.dylib
+              org/apache/datafusion/darwin/aarch64/libdatafusion_jni.dylib
+              org/apache/datafusion/windows/amd64/datafusion_jni.dll
+        -->
+        <profile>
+            <id>native-linux-amd64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>linux</datafusion.lib.os>
+                <datafusion.lib.arch>amd64</datafusion.lib.arch>
+                <datafusion.lib.filename>libdatafusion_jni.so</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-aarch64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>linux</datafusion.lib.os>
+                <datafusion.lib.arch>aarch64</datafusion.lib.arch>
+                <datafusion.lib.filename>libdatafusion_jni.so</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-x86_64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>darwin</datafusion.lib.os>
+                <datafusion.lib.arch>x86_64</datafusion.lib.arch>
+                <datafusion.lib.filename>libdatafusion_jni.dylib</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <!-- Some JVMs report os.arch=amd64 even on macOS x86_64. -->
+            <id>native-mac-amd64</id>
+            <activation>
+                <os><family>mac</family><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>darwin</datafusion.lib.os>
+                <datafusion.lib.arch>x86_64</datafusion.lib.arch>
+                <datafusion.lib.filename>libdatafusion_jni.dylib</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-aarch64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>darwin</datafusion.lib.os>
+                <datafusion.lib.arch>aarch64</datafusion.lib.arch>
+                <datafusion.lib.filename>libdatafusion_jni.dylib</datafusion.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-windows-amd64</id>
+            <activation>
+                <os><family>windows</family><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.lib.os>windows</datafusion.lib.os>
+                <datafusion.lib.arch>amd64</datafusion.lib.arch>
+                <datafusion.lib.filename>datafusion_jni.dll</datafusion.lib.filename>
+            </properties>
+        </profile>
+    </profiles>
 </project>

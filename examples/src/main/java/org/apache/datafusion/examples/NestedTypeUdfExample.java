@@ -23,11 +23,14 @@ import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.datafusion.ColumnarValue;
 import org.apache.datafusion.DataFrame;
 import org.apache.datafusion.ScalarFunction;
@@ -36,26 +39,39 @@ import org.apache.datafusion.ScalarUdf;
 import org.apache.datafusion.SessionContext;
 import org.apache.datafusion.Volatility;
 
-/** Demonstrates registering a Java scalar UDF and invoking it from SQL. */
-public final class AddOneExample {
+/**
+ * Demonstrates a scalar UDF over a nested Arrow type.
+ *
+ * <p>The function takes a {@code List<Int32>} and returns the sum of its elements as Int64. The
+ * argument is declared with a {@link Field} carrying a child element field, which is how nested
+ * Arrow types — List, Struct, Map, Union — express their inner type information.
+ */
+public final class NestedTypeUdfExample {
 
-  /** Adds 1 to each value of an Int32 column. */
-  public static final class AddOne implements ScalarFunction {
+  /** Sums the Int32 elements of a List<Int32> column. Null lists yield null; null elements skip. */
+  public static final class ListSum implements ScalarFunction {
     private static final ArrowType INT32 = new ArrowType.Int(32, true);
+    private static final ArrowType INT64 = new ArrowType.Int(64, true);
 
     @Override
     public String name() {
-      return "add_one";
+      return "java_list_sum";
     }
 
     @Override
     public List<Field> argFields() {
-      return List.of(Field.nullable("x", INT32));
+      // List<Int32> needs the element type as a child Field; ArrowType.List alone does not carry
+      // it.
+      return List.of(
+          new Field(
+              "vals",
+              FieldType.nullable(new ArrowType.List()),
+              List.of(Field.nullable("item", INT32))));
     }
 
     @Override
     public Field returnField() {
-      return Field.nullable("y", INT32);
+      return Field.nullable("s", INT64);
     }
 
     @Override
@@ -65,16 +81,25 @@ public final class AddOneExample {
 
     @Override
     public ColumnarValue evaluate(BufferAllocator allocator, ScalarFunctionArgs args) {
-      IntVector in = (IntVector) args.args().get(0).vector();
-      IntVector out = new IntVector("add_one_out", allocator);
+      ListVector in = (ListVector) args.args().get(0).vector();
+      IntVector elems = (IntVector) in.getDataVector();
+      BigIntVector out = new BigIntVector("list_sum_out", allocator);
       int n = in.getValueCount();
       out.allocateNew(n);
       for (int i = 0; i < n; i++) {
         if (in.isNull(i)) {
           out.setNull(i);
-        } else {
-          out.set(i, in.get(i) + 1);
+          continue;
         }
+        long sum = 0L;
+        int start = in.getElementStartIndex(i);
+        int end = in.getElementEndIndex(i);
+        for (int j = start; j < end; j++) {
+          if (!elems.isNull(j)) {
+            sum += elems.get(j);
+          }
+        }
+        out.set(i, sum);
       }
       out.setValueCount(n);
       return ColumnarValue.array(out);
@@ -84,18 +109,22 @@ public final class AddOneExample {
   public static void main(String[] args) throws Exception {
     try (SessionContext ctx = new SessionContext();
         BufferAllocator allocator = new RootAllocator()) {
-      ctx.registerUdf(new ScalarUdf(new AddOne()));
+      ctx.registerUdf(new ScalarUdf(new ListSum()));
 
       try (DataFrame df =
               ctx.sql(
-                  "SELECT add_one(x) AS y FROM (VALUES (CAST(1 AS INT)),(CAST(2 AS INT)),(CAST(3 AS"
-                      + " INT))) AS t(x)");
+                  "SELECT java_list_sum(vals) AS s"
+                      + " FROM (VALUES"
+                      + "   (make_array(CAST(1 AS INT), CAST(2 AS INT), CAST(3 AS INT))),"
+                      + "   (make_array(CAST(10 AS INT), CAST(20 AS INT))),"
+                      + "   (make_array(CAST(7 AS INT)))"
+                      + " ) AS t(vals)");
           ArrowReader reader = df.collect(allocator)) {
         while (reader.loadNextBatch()) {
           VectorSchemaRoot root = reader.getVectorSchemaRoot();
-          IntVector y = (IntVector) root.getVector("y");
-          for (int i = 0; i < y.getValueCount(); i++) {
-            System.out.println("y = " + y.get(i));
+          BigIntVector s = (BigIntVector) root.getVector("s");
+          for (int i = 0; i < s.getValueCount(); i++) {
+            System.out.println("sum = " + s.get(i));
           }
         }
       }
