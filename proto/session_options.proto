@@ -19,6 +19,7 @@ syntax = "proto3";
 
 package datafusion_java;
 
+import "cache_manager_options.proto";
 import "object_store_options.proto";
 
 option java_package = "org.apache.datafusion.protobuf";
@@ -57,10 +58,11 @@ message SessionOptions {
   // later one wins (matching upstream's `RuntimeEnv::register_object_store`
   // semantics).
   repeated ObjectStoreRegistration object_stores = 8;
+  // Configuration for DataFusion's built-in CacheManager. Unset = leave
+  // the upstream default in place (matches existing callers).
+  optional CacheManagerOptionsProto cache_manager = 9;
   // Disk-manager configuration (disable spill, size cap). Unset fields
-  // leave the upstream `RuntimeEnvBuilder` default in place. Slot 9 is
-  // reserved for the pending CacheManagerOptions field; merge order with
-  // that PR determines whether disk_manager stays at 10 or compacts to 9.
+  // leave the upstream `RuntimeEnvBuilder` default in place.
   optional DiskManagerOptions disk_manager = 10;
 }
 

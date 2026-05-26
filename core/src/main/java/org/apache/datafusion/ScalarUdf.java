@@ -22,7 +22,7 @@ package org.apache.datafusion;
 import java.util.List;
 import java.util.Objects;
 
-import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 
 /**
  * A scalar UDF registration handle: pairs a {@link ScalarFunction} implementation with the metadata
@@ -35,8 +35,8 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 public final class ScalarUdf {
   private final ScalarFunction impl;
   private final String name;
-  private final List<ArrowType> argTypes;
-  private final ArrowType returnType;
+  private final List<Field> argFields;
+  private final Field returnField;
   private final Volatility volatility;
 
   /**
@@ -48,8 +48,8 @@ public final class ScalarUdf {
   public ScalarUdf(ScalarFunction impl) {
     this.impl = Objects.requireNonNull(impl, "impl");
     this.name = Objects.requireNonNull(impl.name(), "impl.name()");
-    this.argTypes = Objects.requireNonNull(impl.argTypes(), "impl.argTypes()");
-    this.returnType = Objects.requireNonNull(impl.returnType(), "impl.returnType()");
+    this.argFields = Objects.requireNonNull(impl.argFields(), "impl.argFields()");
+    this.returnField = Objects.requireNonNull(impl.returnField(), "impl.returnField()");
     this.volatility = Objects.requireNonNull(impl.volatility(), "impl.volatility()");
   }
 
@@ -68,14 +68,14 @@ public final class ScalarUdf {
     return name;
   }
 
-  /** Declared argument types; cached from {@link ScalarFunction#argTypes()}. */
-  public List<ArrowType> argTypes() {
-    return argTypes;
+  /** Declared argument fields; cached from {@link ScalarFunction#argFields()}. */
+  public List<Field> argFields() {
+    return argFields;
   }
 
-  /** Declared return type; cached from {@link ScalarFunction#returnType()}. */
-  public ArrowType returnType() {
-    return returnType;
+  /** Declared return field; cached from {@link ScalarFunction#returnField()}. */
+  public Field returnField() {
+    return returnField;
   }
 
   /** Volatility classification; cached from {@link ScalarFunction#volatility()}. */

@@ -335,6 +335,202 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Order the rows by the supplied sort keys. Each {@link SortExpr} names a column and a direction
+   * ({@link SortExpr#asc(String)} / {@link SortExpr#desc(String)}); call {@link
+   * SortExpr#nullsFirst(boolean)} to override null placement.
+   *
+   * <p>An empty {@code exprs} array is a no-op (matches DataFusion's {@code sort(vec![])}). The
+   * receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code exprs} or any element is {@code null}.
+   * @throws RuntimeException if a sort column does not exist in this DataFrame's schema.
+   */
+  public DataFrame sort(SortExpr... exprs) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (exprs == null) {
+      throw new IllegalArgumentException("sort exprs must be non-null");
+    }
+    String[] columns = new String[exprs.length];
+    boolean[] ascending = new boolean[exprs.length];
+    boolean[] nullsFirst = new boolean[exprs.length];
+    for (int i = 0; i < exprs.length; i++) {
+      SortExpr e = exprs[i];
+      if (e == null) {
+        throw new IllegalArgumentException("sort exprs[" + i + "] must be non-null");
+      }
+      columns[i] = e.column();
+      ascending[i] = e.ascending();
+      nullsFirst[i] = e.nullsFirst();
+    }
+    return new DataFrame(sortRows(nativeHandle, columns, ascending, nullsFirst));
+  }
+
+  /**
+   * Repartition this DataFrame using a round-robin scheme across {@code numPartitions} output
+   * partitions. The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}.
+   * @throws RuntimeException if the underlying repartition plan rejects the request.
+   */
+  public DataFrame repartitionRoundRobin(int numPartitions) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    return new DataFrame(repartitionRoundRobinRows(nativeHandle, numPartitions));
+  }
+
+  /**
+   * Repartition this DataFrame by hashing the named columns into {@code numPartitions} output
+   * partitions. v1 supports column-name keys only; expression keys are deferred until the Java
+   * binding gains an {@code Expr} builder. The receiver remains usable and must still be closed
+   * independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}, {@code columns} is {@code null}
+   *     or empty, or any element of {@code columns} is {@code null}.
+   * @throws RuntimeException if a partition column does not exist in this DataFrame's schema.
+   */
+  public DataFrame repartitionHash(int numPartitions, String... columns) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    if (columns == null) {
+      throw new IllegalArgumentException("repartitionHash columns must be non-null");
+    }
+    if (columns.length == 0) {
+      throw new IllegalArgumentException("repartitionHash requires at least one column");
+    }
+    for (int i = 0; i < columns.length; i++) {
+      if (columns[i] == null) {
+        throw new IllegalArgumentException("repartitionHash columns[" + i + "] must be non-null");
+      }
+    }
+    return new DataFrame(repartitionHashRows(nativeHandle, numPartitions, columns));
+  }
+
+  /**
+   * Equi-join this DataFrame with {@code right} on the named columns, using the given {@link
+   * JoinType}. The receiver and {@code right} both remain usable and must still be closed
+   * independently.
+   *
+   * <p>Equivalent to SQL {@code left <type> JOIN right ON l.leftCols[0] = r.rightCols[0] AND ...}.
+   * {@code leftCols} and {@code rightCols} must have the same length.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning fails (column collision in the combined schema,
+   *     unknown column names, etc.).
+   */
+  public DataFrame join(DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, null));
+  }
+
+  /**
+   * Equi-join this DataFrame with {@code right}, restricting the result with a residual SQL filter
+   * parsed against the <em>combined</em> schema (left columns followed by right columns; columns
+   * may be qualified with the relation alias when ambiguous). The receiver and {@code right} both
+   * remain usable and must still be closed independently.
+   *
+   * <p>For outer joins, the filter is applied only to matched rows; unmatched rows are passed
+   * through with nulls on the unmatched side, matching DataFusion's semantics.
+   *
+   * @throws IllegalArgumentException if any argument is {@code null} or {@code leftCols.length !=
+   *     rightCols.length}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if join planning or filter parsing fails.
+   */
+  public DataFrame join(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols, String filter) {
+    checkJoinArgs(right, type, leftCols, rightCols);
+    if (filter == null) {
+      throw new IllegalArgumentException("join filter must be non-null");
+    }
+    return new DataFrame(
+        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, filter));
+  }
+
+  /**
+   * Join this DataFrame with {@code right} using arbitrary SQL predicates parsed against the
+   * <em>combined</em> schema. Each predicate is parsed independently and the join evaluates their
+   * conjunction. Predicates may reference columns from either side and may be qualified with the
+   * relation alias when ambiguous (e.g. {@code "left.x = right.x"}). The receiver and {@code right}
+   * both remain usable and must still be closed independently.
+   *
+   * <p>DataFusion's optimiser identifies and rewrites equality predicates into hash-join keys
+   * automatically, so {@code joinOn(right, INNER, "l.id = r.id")} plans equivalently to {@link
+   * #join(DataFrame, JoinType, String[], String[])} with a single key. Use {@code joinOn} when the
+   * predicate is not a simple equality, e.g. inequality joins or range conditions.
+   *
+   * @throws IllegalArgumentException if {@code right} or {@code type} is {@code null}, or {@code
+   *     predicates} is {@code null} or empty, or any predicate is {@code null}.
+   * @throws IllegalStateException if either DataFrame is closed or already collected.
+   * @throws RuntimeException if predicate parsing or join planning fails.
+   */
+  public DataFrame joinOn(DataFrame right, JoinType type, String... predicates) {
+    if (right == null) {
+      throw new IllegalArgumentException("joinOn right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("joinOn type must be non-null");
+    }
+    if (predicates == null || predicates.length == 0) {
+      throw new IllegalArgumentException("joinOn predicates must be non-null and non-empty");
+    }
+    for (String p : predicates) {
+      if (p == null) {
+        throw new IllegalArgumentException("joinOn predicates must not contain null");
+      }
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+    return new DataFrame(
+        joinOnDataFrame(nativeHandle, right.nativeHandle, type.code(), predicates));
+  }
+
+  private void checkJoinArgs(
+      DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
+    if (right == null) {
+      throw new IllegalArgumentException("join right must be non-null");
+    }
+    if (type == null) {
+      throw new IllegalArgumentException("join type must be non-null");
+    }
+    if (leftCols == null) {
+      throw new IllegalArgumentException("join leftCols must be non-null");
+    }
+    if (rightCols == null) {
+      throw new IllegalArgumentException("join rightCols must be non-null");
+    }
+    if (leftCols.length != rightCols.length) {
+      throw new IllegalArgumentException(
+          "join leftCols and rightCols must have the same length, got "
+              + leftCols.length
+              + " and "
+              + rightCols.length);
+    }
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (right.nativeHandle == 0) {
+      throw new IllegalStateException("right DataFrame is closed or already collected");
+    }
+  }
+
+  /**
    * Materialize this DataFrame as Parquet at {@code path}. The path is treated as a directory
    * unless overridden via {@link ParquetWriteOptions#singleFileOutput(boolean)}. The receiver
    * remains usable and must still be closed independently.
@@ -471,6 +667,24 @@ public final class DataFrame implements AutoCloseable {
   private static native long withColumnExpr(long handle, String name, String expr);
 
   private static native long unnestColumns(long handle, String[] columns, boolean preserveNulls);
+
+  private static native long sortRows(
+      long handle, String[] columns, boolean[] ascending, boolean[] nullsFirst);
+
+  private static native long repartitionRoundRobinRows(long handle, int numPartitions);
+
+  private static native long repartitionHashRows(long handle, int numPartitions, String[] columns);
+
+  private static native long joinDataFrame(
+      long leftHandle,
+      long rightHandle,
+      byte joinType,
+      String[] leftCols,
+      String[] rightCols,
+      String filter);
+
+  private static native long joinOnDataFrame(
+      long leftHandle, long rightHandle, byte joinType, String[] predicates);
 
   private static native void writeParquetWithOptions(
       long handle,

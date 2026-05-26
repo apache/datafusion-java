@@ -158,3 +158,53 @@ svn ls https://dist.apache.org/repos/dist/release/datafusion | grep datafusion-j
 svn delete -m "delete old DataFusion Java release" \
   https://dist.apache.org/repos/dist/release/datafusion/datafusion-java-0.1.0
 ```
+
+## Binary Release: Multi-Platform JAR
+
+Source tarballs are the official Apache release artifact, but consumers
+also expect a published JAR on Maven Central that bundles native libs
+for the common platforms. This section covers building that JAR.
+
+### Prerequisites (release manager machine)
+
+- macOS host (Apple Silicon or Intel)
+- Docker Desktop running with BuildKit enabled
+- Java 17+
+- Rust toolchain via rustup
+- `gpg` configured with a key listed in the ASF KEYS file
+- `xmllint` on `PATH` (pre-installed on macOS; `libxml2-utils` on Debian/Ubuntu)
+
+### Build the multi-platform JAR
+
+`build-release.sh` clones the repo into two Linux Docker containers
+(one for `linux/amd64`, one for `linux/arm64`), builds the native
+`.so` libraries inside each, then builds the two macOS `.dylib`
+libraries directly on the host. All four libraries are placed in the
+JAR's resource tree at
+`org/apache/datafusion/<os>/<arch>/lib<datafusion_jni>.<ext>`, and the
+JAR is installed into a temporary local Maven repository.
+
+```shell
+./dev/release/build-release.sh
+```
+
+The script prints the local Maven repo path at the end. Inspect the JAR
+to verify all four native libraries are bundled:
+
+```shell
+unzip -l "$JAR" | grep org/apache/datafusion/
+```
+
+### Publish to Apache Nexus staging
+
+Once the local Maven repo from `build-release.sh` looks correct, sign
+and upload to Apache Nexus staging using `publish-to-maven.sh`:
+
+```shell
+./dev/release/publish-to-maven.sh -u <asf-username> -r <local-maven-repo-path>
+```
+
+The script prompts for the ASF password and GPG passphrase, creates a
+staging repository on `repository.apache.org`, signs every artifact,
+uploads it, and closes the staging repository. Verify in the Nexus UI
+that the staged artifacts look correct before promoting to release.

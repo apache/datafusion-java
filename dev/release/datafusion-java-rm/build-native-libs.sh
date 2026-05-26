@@ -1,3 +1,5 @@
+#!/bin/bash
+#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,33 +16,30 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+#
 
-.PHONY: all native native-runtime-metrics jvm test clean tpch-data
+# Build the datafusion_jni release native lib inside a Linux container.
+# The container's --platform determines the target arch; we just build.
 
-all: native jvm
+set -euo pipefail
 
-native:
-	cd native && cargo build
+REPO=${1:-}
+BRANCH=${2:-}
 
-# Build the native crate with the `runtime-metrics` Cargo feature enabled.
-# Requires `--cfg tokio_unstable` because tokio-metrics gates its API there.
-# Default `make native` does not pull this in; callers who need
-# SessionContext.runtimeStats() pick this target explicitly.
-native-runtime-metrics:
-	cd native && RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+if [ -z "$REPO" ] || [ -z "$BRANCH" ]; then
+    echo "Usage: $0 <git-repo-url> <branch-or-tag>" >&2
+    exit 1
+fi
 
-jvm:
-	./mvnw package -DskipTests
+echo "Building datafusion_jni for $(uname -m) from ${REPO}/${BRANCH}"
 
-test: native
-	./mvnw test
+rm -rf datafusion-java
+git clone "$REPO" datafusion-java
+cd datafusion-java
+git checkout "$BRANCH"
 
-clean:
-	cd native && cargo clean
-	./mvnw clean
+cd native
+cargo build --release
 
-tpch-data:
-	@command -v tpchgen-cli >/dev/null || \
-		(echo "Install: cargo install tpchgen-cli" && exit 1)
-	mkdir -p tpch-data/sf1
-	tpchgen-cli -s 1 -f parquet -o tpch-data/sf1
+echo "Built $(pwd)/target/release/libdatafusion_jni.so"
+ls -l target/release/libdatafusion_jni.so

@@ -17,12 +17,15 @@
 
 mod arrow;
 mod avro;
+mod cache_manager;
 mod csv;
 mod errors;
 mod jni_util;
 mod json;
+mod memory;
 mod object_store;
 mod proto;
+mod runtime_metrics;
 mod schema;
 mod table_provider;
 mod udf;
@@ -41,7 +44,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::arrow::record_batch::{RecordBatchIterator, RecordBatchReader};
-use datafusion::common::UnnestOptions;
+use datafusion::common::{JoinType, UnnestOptions};
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
@@ -49,11 +52,12 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
-use datafusion::logical_expr::{ScalarUDF, Signature};
+use datafusion::logical_expr::Expr;
+use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
-use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
-use jni::sys::{jboolean, jbyteArray, jint, jlong};
+use jni::objects::{JBooleanArray, JByteArray, JClass, JObject, JObjectArray, JString};
+use jni::sys::{jboolean, jbyte, jbyteArray, jint, jlong};
 use jni::JNIEnv;
 use jni::JavaVM;
 use prost::Message;
@@ -81,7 +85,36 @@ pub(crate) fn jvm() -> &'static JavaVM {
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
-    RT.get_or_init(|| Runtime::new().expect("failed to create Tokio runtime"))
+    RT.get_or_init(|| {
+        let rt = Runtime::new().expect("failed to create Tokio runtime");
+        // Eagerly install the runtime-metrics accumulator (no-op when the
+        // `runtime-metrics` Cargo feature is off). Initialising here -- not
+        // lazily on the first `runtimeStats()` call -- means the
+        // RuntimeMonitor's sampling baseline coincides with runtime start, so
+        // poll/park/busy totals reflect activity from the first query onward
+        // rather than from the first observation.
+        crate::runtime_metrics::init(rt.handle());
+        rt
+    })
+}
+
+/// Wrap the (already-built) `RuntimeEnvBuilder`'s memory pool with a
+/// `TrackingMemoryPool` so `Java_..._memoryUsage` can report current/peak
+/// bytes for this session. Registers the tracker in the process-wide map
+/// keyed by the JNI handle. Idempotent: if the builder didn't set a pool,
+/// fills in DataFusion's default first so the wrap-and-register has the
+/// same behavior either way.
+fn install_memory_tracker(
+    builder: &mut RuntimeEnvBuilder,
+) -> std::sync::Arc<crate::memory::TrackingMemoryPool> {
+    use datafusion::execution::memory_pool::UnboundedMemoryPool;
+    let inner: std::sync::Arc<dyn datafusion::execution::memory_pool::MemoryPool> = builder
+        .memory_pool
+        .take()
+        .unwrap_or_else(|| std::sync::Arc::new(UnboundedMemoryPool::default()));
+    let tracker = std::sync::Arc::new(crate::memory::TrackingMemoryPool::new(inner));
+    builder.memory_pool = Some(tracker.clone());
+    tracker
 }
 
 #[no_mangle]
@@ -90,8 +123,13 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
     _class: JClass<'local>,
 ) -> jlong {
     try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
-        let ctx = SessionContext::new();
-        Ok(Box::into_raw(Box::new(ctx)) as jlong)
+        let mut runtime_builder = RuntimeEnvBuilder::new();
+        let tracker = install_memory_tracker(&mut runtime_builder);
+        let runtime_env = runtime_builder.build()?;
+        let ctx = SessionContext::new_with_config_rt(SessionConfig::new(), Arc::new(runtime_env));
+        let handle = Box::into_raw(Box::new(ctx)) as jlong;
+        crate::memory::register(handle, tracker);
+        Ok(handle)
     })
 }
 
@@ -146,6 +184,12 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
             }
         }
 
+        if let Some(cm_opts) = opts.cache_manager.as_ref() {
+            if let Some(cm_config) = crate::cache_manager::build_config(cm_opts)? {
+                runtime_builder = runtime_builder.with_cache_manager(cm_config);
+            }
+        }
+
         // datafusion.runtime.* keys live on RuntimeEnv (separate object from
         // SessionConfig) and round-tripping them through getOption/setOption
         // has subtle correctness pitfalls (lazy default-tempdir creation,
@@ -174,6 +218,13 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
             config.options_mut().set(&opt.key, &opt.value)?;
         }
 
+        // Wrap the configured pool (default `UnboundedMemoryPool` or whatever
+        // `with_memory_limit` produced) with a tracker so `memoryUsage()` can
+        // report current/peak bytes for this session. The tracker is
+        // transparent to query execution -- it only intercepts grow/shrink to
+        // update two atomics.
+        let tracker = install_memory_tracker(&mut runtime_builder);
+
         let runtime_env = runtime_builder.build()?;
         let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
 
@@ -183,7 +234,9 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
         // via try_unwrap_or_throw.
         crate::object_store::apply_registrations(&ctx, &opts.object_stores)?;
 
-        Ok(Box::into_raw(Box::new(ctx)) as jlong)
+        let handle = Box::into_raw(Box::new(ctx)) as jlong;
+        crate::memory::register(handle, tracker);
+        Ok(handle)
     })
 }
 
@@ -613,6 +666,220 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local
     })
 }
 
+/// Map a Java {@code JoinType.code()} byte back to upstream's enum.
+fn join_type_from_byte(byte: u8) -> JniResult<JoinType> {
+    match byte {
+        0 => Ok(JoinType::Inner),
+        1 => Ok(JoinType::Left),
+        2 => Ok(JoinType::Right),
+        3 => Ok(JoinType::Full),
+        4 => Ok(JoinType::LeftSemi),
+        5 => Ok(JoinType::RightSemi),
+        6 => Ok(JoinType::LeftAnti),
+        7 => Ok(JoinType::RightAnti),
+        8 => Ok(JoinType::LeftMark),
+        9 => Ok(JoinType::RightMark),
+        other => Err(format!("unknown join type byte: {other}").into()),
+    }
+}
+
+/// Build a combined DFSchema for SQL parsing of a join filter or `joinOn` predicate.
+/// Mirrors how upstream's `LogicalPlanBuilder::join_detailed` normalises the parsed Expr
+/// against `&[&[left_schema, right_schema]]`: tolerate unrelated duplicate-named columns
+/// rather than rejecting them via `DFSchema::join`'s `check_names`. `DFSchema::merge`
+/// skips duplicates (left side wins for unqualified collisions), which is fine for the
+/// SQL-to-Expr step -- the subsequent join planner runs the real ambiguity check.
+fn combine_schemas(
+    left: &datafusion::common::DFSchema,
+    right: &datafusion::common::DFSchema,
+) -> datafusion::common::DFSchema {
+    let mut combined = left.clone();
+    combined.merge(right);
+    combined
+}
+
+/// Drain a Java {@code String[]} into an owned {@code Vec<String>}.
+fn collect_jstring_array(env: &mut JNIEnv, arr: &JObjectArray) -> JniResult<Vec<String>> {
+    let len = env.get_array_length(arr)?;
+    let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        let elem = env.get_object_array_element(arr, i)?;
+        let jstr: JString = elem.into();
+        owned.push(env.get_string(&jstr)?.into());
+    }
+    Ok(owned)
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_joinDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    left_handle: jlong,
+    right_handle: jlong,
+    join_type: jbyte,
+    left_cols: JObjectArray<'local>,
+    right_cols: JObjectArray<'local>,
+    filter: JString<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if left_handle == 0 {
+            return Err("left DataFrame handle is null".into());
+        }
+        if right_handle == 0 {
+            return Err("right DataFrame handle is null".into());
+        }
+        let left = unsafe { &*(left_handle as *const DataFrame) }.clone();
+        let right = unsafe { &*(right_handle as *const DataFrame) }.clone();
+        let join_type = join_type_from_byte(join_type as u8)?;
+
+        let left_owned: Vec<String> = collect_jstring_array(env, &left_cols)?;
+        let right_owned: Vec<String> = collect_jstring_array(env, &right_cols)?;
+        let left_refs: Vec<&str> = left_owned.iter().map(String::as_str).collect();
+        let right_refs: Vec<&str> = right_owned.iter().map(String::as_str).collect();
+
+        // The optional residual filter spans both sides and must be parsed against the
+        // combined schema. parse_sql_expr only sees one DataFrame's schema, so reach into
+        // the SessionState via into_parts() on a clone. Use DFSchema::merge rather than
+        // DFSchema::join so the parser tolerates unrelated duplicate unqualified columns
+        // shared by both sides (e.g. both inputs carrying a `created_at` field) -- merge
+        // skips the duplicates while join's check_names rejects them. Upstream's join
+        // path normalises the parsed Expr against both schemas as a precedence list, so
+        // ambiguous references genuinely used in the filter are still surfaced after
+        // parsing.
+        let filter_expr: Option<Expr> = if filter.is_null() {
+            None
+        } else {
+            let filter_sql: String = env.get_string(&filter)?.into();
+            let combined = combine_schemas(left.schema(), right.schema());
+            let (state, _plan) = left.clone().into_parts();
+            Some(state.create_logical_expr(&filter_sql, &combined)?)
+        };
+
+        let new_df = left.join(right, join_type, &left_refs, &right_refs, filter_expr)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_joinOnDataFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    left_handle: jlong,
+    right_handle: jlong,
+    join_type: jbyte,
+    predicates: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if left_handle == 0 {
+            return Err("left DataFrame handle is null".into());
+        }
+        if right_handle == 0 {
+            return Err("right DataFrame handle is null".into());
+        }
+        let left = unsafe { &*(left_handle as *const DataFrame) }.clone();
+        let right = unsafe { &*(right_handle as *const DataFrame) }.clone();
+        let join_type = join_type_from_byte(join_type as u8)?;
+
+        let predicates_owned: Vec<String> = collect_jstring_array(env, &predicates)?;
+        // See joinDataFrame for the rationale behind combine_schemas vs DFSchema::join.
+        let combined = combine_schemas(left.schema(), right.schema());
+        let (state, _plan) = left.clone().into_parts();
+        let exprs: Vec<Expr> = predicates_owned
+            .iter()
+            .map(|sql| state.create_logical_expr(sql, &combined))
+            .collect::<datafusion::error::Result<Vec<_>>>()?;
+
+        let new_df = left.join_on(right, join_type, exprs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_sortRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    columns: JObjectArray<'local>,
+    ascending: JBooleanArray<'local>,
+    nulls_first: JBooleanArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)? as usize;
+        let mut names: Vec<String> = Vec::with_capacity(len);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i as i32)?;
+            let jstr: JString = elem.into();
+            names.push(env.get_string(&jstr)?.into());
+        }
+
+        // Decode the two parallel boolean arrays via primitive-array region copies.
+        let mut asc_buf = vec![0u8; len];
+        env.get_boolean_array_region(&ascending, 0, &mut asc_buf)?;
+        let mut nf_buf = vec![0u8; len];
+        env.get_boolean_array_region(&nulls_first, 0, &mut nf_buf)?;
+
+        let sort_exprs: Vec<SortExpr> = names
+            .into_iter()
+            .zip(asc_buf.into_iter().zip(nf_buf))
+            .map(|(name, (asc, nf))| SortExpr::new(col(&name), asc != 0, nf != 0))
+            .collect();
+
+        let new_df = df.sort(sort_exprs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionRoundRobinRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.repartition(Partitioning::RoundRobinBatch(num_partitions as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionHashRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+    columns: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let exprs = owned.iter().map(|s| col(s.as_str())).collect();
+
+        let new_df = df.repartition(Partitioning::Hash(exprs, num_partitions as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
     mut env: JNIEnv<'local>,
@@ -724,12 +991,69 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_closeSessionCon
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
         if handle != 0 {
+            // Drop our side-table entry first so the tracker Arc's last
+            // strong reference is the SessionContext->RuntimeEnv chain, then
+            // drop the SessionContext itself.
+            crate::memory::unregister(handle);
             unsafe {
                 drop(Box::from_raw(handle as *mut SessionContext));
             }
         }
         Ok(())
     })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_memoryUsageNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jni::sys::jlongArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jni::sys::jlongArray> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            // Look up the tracker by JNI handle. Should always succeed because
+            // the ctor inserts before publishing the handle to Java.
+            let tracker = crate::memory::lookup(handle)
+                .ok_or("memory tracker not registered for this SessionContext")?;
+            // `snapshot()` returns a consistent (current, peak) pair where
+            // peak is always >= current even if a concurrent record_grow is
+            // in-flight. Callers see no transient `current > peak`.
+            let (current, peak) = tracker.snapshot();
+            let values: [jlong; 2] = [current as jlong, peak as jlong];
+            let arr = env.new_long_array(values.len() as jni::sys::jsize)?;
+            env.set_long_array_region(&arr, 0, &values)?;
+            Ok(arr.into_raw())
+        },
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_runtimeStatsNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jni::sys::jlongArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jni::sys::jlongArray> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            // Runtime stats are process-global -- the JNI library drives one
+            // shared multi-threaded runtime -- but we still gate on the
+            // SessionContext handle so callers can't ask after close().
+            let stats = crate::runtime_metrics::runtime_stats()?;
+            let arr = env.new_long_array(stats.len() as jni::sys::jsize)?;
+            env.set_long_array_region(&arr, 0, &stats)?;
+            Ok(arr.into_raw())
+        },
+    )
 }
 
 fn with_parquet_options<R>(
@@ -837,7 +1161,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         if fields.is_empty() {
             return Err("signature schema must have at least a return-type field".into());
         }
-        let return_type = fields[0].data_type().clone();
+        let return_field = fields[0].clone();
         let arg_types: Vec<datafusion::arrow::datatypes::DataType> = fields
             .iter()
             .skip(1)
@@ -860,7 +1184,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         let java_udf = crate::udf::JavaScalarUdf {
             name: name.clone(),
             signature,
-            return_type,
+            return_field,
             udf_global_ref,
             bridge_class,
             invoke_method,
