@@ -334,6 +334,155 @@ public final class DataFrame implements AutoCloseable {
     return new DataFrame(unnestColumns(nativeHandle, columns, options.preserveNulls()));
   }
 
+  // -- Set operations ------------------------------------------------------
+  //
+  // The Java method names mirror DataFusion's Rust API verbatim. SQL semantics:
+  //
+  //   union               = UNION ALL  (positional, keeps duplicates)
+  //   unionDistinct       = UNION      (positional, deduplicated)
+  //   unionByName         = UNION ALL  by column name; missing columns become NULL
+  //   unionByNameDistinct = UNION      by column name; missing columns become NULL
+  //   intersect           = INTERSECT ALL (keeps duplicates)
+  //   intersectDistinct   = INTERSECT     (deduplicated)
+  //   except              = EXCEPT ALL    (keeps duplicates)
+  //   exceptDistinct      = EXCEPT        (deduplicated)
+  //
+  // Note: the *_distinct variants deduplicate, while the unsuffixed methods keep
+  // duplicates. This is the inverse of Spark's convention, where `intersect`
+  // deduplicates and `intersectAll` keeps duplicates -- consult the Javadoc on
+  // each method to confirm semantics before porting Spark code.
+  //
+  // None of these methods consume the receiver or {@code other}; both DataFrames
+  // remain usable after the call. The native side clones the LogicalPlan on
+  // each side, which is cheap (LogicalPlan is Arc-backed in DataFusion).
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column position, keeping all duplicates (SQL
+   * {@code UNION ALL}). The two schemas must match positionally. Both this DataFrame and {@code
+   * other} remain usable after the call and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame union(DataFrame other) {
+    return new DataFrame(unionRows(nativeHandle, otherHandle("union", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column position, removing duplicates (SQL
+   * {@code UNION DISTINCT} -- equivalent to plain {@code UNION} in standard SQL). Both DataFrames
+   * remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame unionDistinct(DataFrame other) {
+    return new DataFrame(unionDistinctRows(nativeHandle, otherHandle("unionDistinct", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column name, keeping all duplicates. Columns
+   * present in only one side are filled with NULL on the other. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if column types disagree on a shared name.
+   */
+  public DataFrame unionByName(DataFrame other) {
+    return new DataFrame(unionByNameRows(nativeHandle, otherHandle("unionByName", other)));
+  }
+
+  /**
+   * Concatenate this DataFrame with {@code other} by column name, removing duplicates. Columns
+   * present in only one side are filled with NULL on the other. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if column types disagree on a shared name.
+   */
+  public DataFrame unionByNameDistinct(DataFrame other) {
+    return new DataFrame(
+        unionByNameDistinctRows(nativeHandle, otherHandle("unionByNameDistinct", other)));
+  }
+
+  /**
+   * Rows present in both this DataFrame and {@code other}, keeping duplicates from the receiver
+   * (SQL {@code INTERSECT ALL}). Both schemas must match positionally. Both DataFrames remain
+   * usable.
+   *
+   * <p><strong>Implementation note:</strong> DataFusion implements {@code INTERSECT ALL} as a
+   * left-semi join on equality, not as standard SQL bag intersection. A left row is kept iff any
+   * matching row exists in {@code other}. With {@code left = (1, 2, 2, 3)} and {@code right = (2,
+   * 3)}, the result is {@code (2, 2, 3)} -- both copies of {@code 2} survive because each finds a
+   * match in {@code right}. PostgreSQL / Spark {@code INTERSECT ALL} would also yield {@code (2, 2,
+   * 3)} here, but the two engines diverge when {@code other} has fewer copies than {@code this} of
+   * a row that appears in both.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame intersect(DataFrame other) {
+    return new DataFrame(intersectRows(nativeHandle, otherHandle("intersect", other)));
+  }
+
+  /**
+   * Rows present in both this DataFrame and {@code other}, deduplicated (SQL {@code INTERSECT}).
+   * Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame intersectDistinct(DataFrame other) {
+    return new DataFrame(
+        intersectDistinctRows(nativeHandle, otherHandle("intersectDistinct", other)));
+  }
+
+  /**
+   * Rows present in this DataFrame but not in {@code other}, keeping duplicates from the receiver
+   * (SQL {@code EXCEPT ALL}). Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * <p><strong>Implementation note:</strong> DataFusion implements {@code EXCEPT ALL} as a
+   * left-anti join on equality, not as standard SQL bag difference. A left row is kept iff
+   * <em>no</em> matching row exists in {@code other} -- the multiplicity of matches is irrelevant.
+   * With {@code left = (1, 1, 2, 2, 3)} and {@code right = (1, 3)}, the result is {@code (2, 2)}:
+   * both copies of {@code 2} survive (no match in {@code right}); both copies of {@code 1} and the
+   * {@code 3} drop. PostgreSQL / Spark {@code EXCEPT ALL} would yield the same answer here, but the
+   * two engines diverge when {@code right} contains fewer copies than {@code left} of a row that
+   * appears in both.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame except(DataFrame other) {
+    return new DataFrame(exceptRows(nativeHandle, otherHandle("except", other)));
+  }
+
+  /**
+   * Rows present in this DataFrame but not in {@code other}, deduplicated (SQL {@code EXCEPT}).
+   * Both schemas must match positionally. Both DataFrames remain usable.
+   *
+   * @throws IllegalArgumentException if {@code other} is {@code null}.
+   * @throws RuntimeException if the schemas are incompatible.
+   */
+  public DataFrame exceptDistinct(DataFrame other) {
+    return new DataFrame(exceptDistinctRows(nativeHandle, otherHandle("exceptDistinct", other)));
+  }
+
+  /**
+   * Validate the receiver and the other DataFrame and return {@code other.nativeHandle}. Common
+   * preamble for the eight set-operation methods so the validation logic stays in one place.
+   */
+  private long otherHandle(String op, DataFrame other) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (other == null) {
+      throw new IllegalArgumentException(op + " other must be non-null");
+    }
+    if (other.nativeHandle == 0) {
+      throw new IllegalStateException(op + " other DataFrame is closed or already collected");
+    }
+    return other.nativeHandle;
+  }
+
   /**
    * Order the rows by the supplied sort keys. Each {@link SortExpr} names a column and a direction
    * ({@link SortExpr#asc(String)} / {@link SortExpr#desc(String)}); call {@link
@@ -667,6 +816,22 @@ public final class DataFrame implements AutoCloseable {
   private static native long withColumnExpr(long handle, String name, String expr);
 
   private static native long unnestColumns(long handle, String[] columns, boolean preserveNulls);
+
+  private static native long unionRows(long handle, long otherHandle);
+
+  private static native long unionDistinctRows(long handle, long otherHandle);
+
+  private static native long unionByNameRows(long handle, long otherHandle);
+
+  private static native long unionByNameDistinctRows(long handle, long otherHandle);
+
+  private static native long intersectRows(long handle, long otherHandle);
+
+  private static native long intersectDistinctRows(long handle, long otherHandle);
+
+  private static native long exceptRows(long handle, long otherHandle);
+
+  private static native long exceptDistinctRows(long handle, long otherHandle);
 
   private static native long sortRows(
       long handle, String[] columns, boolean[] ascending, boolean[] nullsFirst);
