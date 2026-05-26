@@ -19,7 +19,9 @@
 
 package org.apache.datafusion;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.datafusion.protobuf.ConfigOption;
@@ -38,7 +40,9 @@ public final class SessionContextBuilder {
   private Long memoryLimitBytes;
   private Double memoryLimitFraction;
   private String tempDirectory;
+  private CacheManagerOptions cacheManager;
   private final LinkedHashMap<String, String> options = new LinkedHashMap<>();
+  private final List<ObjectStoreOptions> objectStores = new ArrayList<>();
 
   SessionContextBuilder() {}
 
@@ -169,6 +173,50 @@ public final class SessionContextBuilder {
   }
 
   /**
+   * Configure DataFusion's built-in {@code CacheManager} for the new context. Build the {@link
+   * CacheManagerOptions} via {@link CacheManagerOptions#builder()}; each cache slot is independent,
+   * so leaving a setter unset keeps the upstream default in place.
+   *
+   * <p>Calling this setter twice replaces the previous configuration — there is no incremental
+   * merge between calls. If you need a different cache configuration, build a new {@code
+   * CacheManagerOptions} from scratch.
+   *
+   * @throws IllegalArgumentException if {@code options} is {@code null}.
+   */
+  public SessionContextBuilder cacheManager(CacheManagerOptions options) {
+    if (options == null) {
+      throw new IllegalArgumentException("cacheManager options must be non-null");
+    }
+    this.cacheManager = options;
+    return this;
+  }
+
+  /**
+   * Register an {@code object_store::ObjectStore} backend on the new context's {@code RuntimeEnv}.
+   * Build {@link ObjectStoreOptions} via the per-backend factories ({@link ObjectStoreOptions#s3},
+   * {@link ObjectStoreOptions#gcs}, {@link ObjectStoreOptions#http(String)}). The store is
+   * reachable inside the resulting {@link SessionContext} by URL — e.g. once an S3 store is
+   * registered for {@code my-bucket}, {@code ctx.registerParquet("orders",
+   * "s3://my-bucket/orders/")} will resolve through it.
+   *
+   * <p>Multiple registrations are applied in the order added; if two registrations resolve to the
+   * same URL, the later one wins (matching upstream {@code RuntimeEnv::register_object_store}).
+   *
+   * <p>If the underlying {@code object_store} cloud-backend Cargo feature is not built into the
+   * native library, {@link #build} surfaces a clear error rather than silently dropping the
+   * registration. The default {@code make} build enables all three backends (S3 / GCS / HTTP).
+   *
+   * @throws IllegalArgumentException if {@code options} is {@code null}.
+   */
+  public SessionContextBuilder registerObjectStore(ObjectStoreOptions options) {
+    if (options == null) {
+      throw new IllegalArgumentException("registerObjectStore options must be non-null");
+    }
+    this.objectStores.add(options);
+    return this;
+  }
+
+  /**
    * Construct a {@link SessionContext} with the configured options.
    *
    * @throws RuntimeException if the native side fails to construct the context.
@@ -201,8 +249,14 @@ public final class SessionContextBuilder {
     if (tempDirectory != null) {
       b.setTempDirectory(tempDirectory);
     }
+    if (cacheManager != null) {
+      b.setCacheManager(cacheManager.toProto());
+    }
     for (Map.Entry<String, String> e : options.entrySet()) {
       b.addOptions(ConfigOption.newBuilder().setKey(e.getKey()).setValue(e.getValue()).build());
+    }
+    for (ObjectStoreOptions os : objectStores) {
+      b.addObjectStores(os.toRegistration());
     }
     return b.build().toByteArray();
   }

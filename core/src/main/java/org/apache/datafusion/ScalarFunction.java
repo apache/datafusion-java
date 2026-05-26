@@ -22,7 +22,7 @@ package org.apache.datafusion;
 import java.util.List;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
 
 /**
  * A Java-implemented scalar SQL function. Implementations declare their own name, signature, and
@@ -40,15 +40,24 @@ public interface ScalarFunction {
   String name();
 
   /**
-   * Declared argument types, in positional order. The function is registered with an exact
+   * Declared argument fields, in positional order. The function is registered with an exact
    * signature; calls whose argument types do not match exactly are rejected.
+   *
+   * <p>Each entry is an Arrow {@link Field} -- a name plus a {@code FieldType} plus an optional
+   * list of child fields. Use {@link Field#nullable(String,
+   * org.apache.arrow.vector.types.pojo.ArrowType)} for primitive types (e.g. {@code
+   * Field.nullable("arg0", new ArrowType.Int(32, true))}). Nested types like {@code List}, {@code
+   * Struct}, and {@code Map} require the children list to carry element / member / key / value type
+   * information; constructing a {@code Field} via {@code new Field(name, FieldType, children)} is
+   * the canonical Arrow way to do that.
    */
-  List<ArrowType> argTypes();
+  List<Field> argFields();
 
   /**
-   * Declared return type. The returned {@link ColumnarValue}'s vector must have this exact type.
+   * Declared return field. The returned {@link ColumnarValue}'s vector must have this exact type,
+   * including any nested children. Same construction rules as {@link #argFields()}.
    */
-  ArrowType returnType();
+  Field returnField();
 
   /**
    * Volatility classification. Use {@link Volatility#IMMUTABLE} for pure functions, {@link

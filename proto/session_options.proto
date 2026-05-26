@@ -19,6 +19,9 @@ syntax = "proto3";
 
 package datafusion_java;
 
+import "cache_manager_options.proto";
+import "object_store_options.proto";
+
 option java_package = "org.apache.datafusion.protobuf";
 option java_multiple_files = true;
 
@@ -50,6 +53,14 @@ message SessionOptions {
   optional MemoryLimit memory_limit = 5;
   optional string temp_directory = 6;
   repeated ConfigOption options = 7;
+  // Object store registrations to apply to the new context's RuntimeEnv.
+  // Applied in order; if two registrations resolve to the same URL, the
+  // later one wins (matching upstream's `RuntimeEnv::register_object_store`
+  // semantics).
+  repeated ObjectStoreRegistration object_stores = 8;
+  // Configuration for DataFusion's built-in CacheManager. Unset = leave
+  // the upstream default in place (matches existing callers).
+  optional CacheManagerOptionsProto cache_manager = 9;
 }
 
 message ConfigOption {

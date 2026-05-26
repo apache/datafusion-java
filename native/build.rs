@@ -18,6 +18,7 @@
 fn main() {
     const PROTOS: &[&str] = &[
         "../proto/session_options.proto",
+        "../proto/cache_manager_options.proto",
         "../proto/file_compression_type.proto",
         "../proto/arrow_read_options.proto",
         "../proto/avro_read_options.proto",
@@ -25,6 +26,7 @@ fn main() {
         "../proto/csv_write_options.proto",
         "../proto/json_read_options.proto",
         "../proto/json_write_options.proto",
+        "../proto/object_store_options.proto",
         "../proto/parquet_read_options.proto",
     ];
     for p in PROTOS {
