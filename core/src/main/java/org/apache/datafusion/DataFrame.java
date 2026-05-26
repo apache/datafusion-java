@@ -22,6 +22,7 @@ package org.apache.datafusion;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.arrow.c.ArrowArrayStream;
 import org.apache.arrow.c.Data;
@@ -47,7 +48,23 @@ public final class DataFrame implements AutoCloseable {
     NativeLibraryLoader.loadLibrary();
   }
 
+  /**
+   * Process-wide source of stable ids for the executed-plan registry. The native side keys the
+   * registry on this id rather than {@link #nativeHandle} because the {@code Box<DataFrame>} the
+   * handle points at is freed during {@link #collect} / {@link #executeStream}, and a later
+   * `ctx.sql(...)` could reuse the same allocation address (an ABA hazard).
+   */
+  private static final AtomicLong NEXT_PLAN_ID = new AtomicLong(1L);
+
   private long nativeHandle;
+
+  /**
+   * Stable id used to key the native executed-plan registry. Set at construction; survives {@link
+   * #collect} / {@link #executeStream} (which zero {@link #nativeHandle}) so {@link
+   * #executedPlan()} can still address the planted {@code Arc<dyn ExecutionPlan>}. The native
+   * registry entry is dropped by {@link #close()}.
+   */
+  private final long planId = NEXT_PLAN_ID.getAndIncrement();
 
   DataFrame(long nativeHandle) {
     if (nativeHandle == 0) {
@@ -75,7 +92,7 @@ public final class DataFrame implements AutoCloseable {
     long handle = nativeHandle;
     nativeHandle = 0;
     try {
-      collectDataFrame(handle, stream.memoryAddress());
+      collectDataFrame(handle, planId, stream.memoryAddress());
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -105,7 +122,7 @@ public final class DataFrame implements AutoCloseable {
     long handle = nativeHandle;
     nativeHandle = 0;
     try {
-      executeStreamDataFrame(handle, stream.memoryAddress());
+      executeStreamDataFrame(handle, planId, stream.memoryAddress());
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -773,19 +790,50 @@ public final class DataFrame implements AutoCloseable {
     writeJsonWithOptions(nativeHandle, path, options.toBytes());
   }
 
-  @Override
-  public void close() {
-    if (nativeHandle != 0) {
-      closeDataFrame(nativeHandle);
-      nativeHandle = 0;
+  /**
+   * Snapshot the executed physical plan and per-operator metrics. Must be called <em>after</em>
+   * {@link #collect} or {@link #executeStream} has run; the resulting tree carries the metric
+   * counters DataFusion populated during execution. Idempotent across repeated calls.
+   *
+   * @throws IllegalStateException if the caller has not yet executed this DataFrame via {@link
+   *     #collect} / {@link #executeStream}, or the DataFrame has been closed.
+   */
+  public ExecutedPlan executedPlan() {
+    if (closed) {
+      throw new IllegalStateException("DataFrame is closed");
     }
+    return ExecutedPlan.fromBytes(executedPlanNative(planId));
   }
 
-  private static native void collectDataFrame(long handle, long ffiStreamAddr);
+  @Override
+  public void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    // The native side always wants the planId so it can drop the executed-plan
+    // registry entry whether or not the Box<DataFrame> is still around;
+    // closeDataFrame treats handle == 0 as "box already taken by collect()".
+    long handle = nativeHandle;
+    nativeHandle = 0;
+    closeDataFrame(handle, planId);
+  }
 
-  private static native void executeStreamDataFrame(long handle, long ffiStreamAddr);
+  /**
+   * Tracks whether {@link #close()} has run, so a double-close is a no-op (matching the
+   * pre-existing {@code nativeHandle != 0} guard) and we don't drop the executed-plan registry
+   * entry twice. {@link #nativeHandle} alone can't carry this signal anymore because {@link
+   * #collect} / {@link #executeStream} also zero it.
+   */
+  private boolean closed;
 
-  private static native void closeDataFrame(long handle);
+  private static native void collectDataFrame(long handle, long planId, long ffiStreamAddr);
+
+  private static native void executeStreamDataFrame(long handle, long planId, long ffiStreamAddr);
+
+  private static native void closeDataFrame(long handle, long planId);
+
+  private static native byte[] executedPlanNative(long planId);
 
   private static native long countRows(long handle);
 

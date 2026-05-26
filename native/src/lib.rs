@@ -20,6 +20,7 @@ mod avro;
 mod cache_manager;
 mod csv;
 mod errors;
+mod executed_plan;
 mod jni_util;
 mod json;
 mod memory;
@@ -54,6 +55,8 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
+use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
 use jni::objects::{JBooleanArray, JByteArray, JClass, JObject, JObjectArray, JString};
@@ -259,11 +262,29 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrame
     })
 }
 
+/// Wrap `plan` in a [`CoalescePartitionsExec`] when it has multiple output
+/// partitions, mirroring the wrapping that
+/// [`datafusion::physical_plan::execute_stream`] / [`collect`] do internally
+/// before executing. We apply the wrap *before* registration so the Arc the
+/// caller observes via `executedPlan()` is the same one that actually ran --
+/// otherwise multi-partition queries would see a tree missing the coalesce
+/// root and any metrics that node accumulated.
+///
+/// [`collect`]: datafusion::physical_plan::collect
+fn wrap_for_execution(plan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
+    if plan.output_partitioning().partition_count() >= 2 {
+        Arc::new(CoalescePartitionsExec::new(plan))
+    } else {
+        plan
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
+    plan_id: jlong,
     ffi_stream_addr: jlong,
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
@@ -273,11 +294,24 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
         if ffi_stream_addr == 0 {
             return Err("ffi stream address is null".into());
         }
+        // SAFETY: Java side passes the original handle integer (it doesn't
+        // zero its local copy until close() now). Take ownership of the box
+        // so we can move the DataFrame into the planning step; the wrapper
+        // is gone after this call but the planted Arc<dyn ExecutionPlan>
+        // lives on in the executed_plan registry, keyed by the stable
+        // plan_id (NOT the handle pointer, which may be re-used by the
+        // allocator after this Box is freed).
         let df = unsafe { *Box::from_raw(handle as *mut DataFrame) };
 
         let ffi: FFI_ArrowArrayStream = runtime().block_on(async {
-            let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
-            let batches = df.collect().await?;
+            let task_ctx = Arc::new(df.task_ctx());
+            let plan = wrap_for_execution(df.create_physical_plan().await?);
+            let schema = plan.schema();
+            crate::executed_plan::register(plan_id, Arc::clone(&plan));
+            // Pass the already-wrapped plan to upstream collect; the
+            // partition_count is now 1 so its internal wrap-check is a
+            // no-op, and the executed Arc is exactly the one we registered.
+            let batches = datafusion::physical_plan::collect(plan, task_ctx).await?;
             let iter = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
             Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(iter)))
         })?;
@@ -338,6 +372,7 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_executeStreamDataFra
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
+    plan_id: jlong,
     ffi_stream_addr: jlong,
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
@@ -347,11 +382,21 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_executeStreamDataFra
         if ffi_stream_addr == 0 {
             return Err("ffi stream address is null".into());
         }
+        // See collectDataFrame: plant the physical plan in the
+        // executed_plan registry (keyed by plan_id, not handle) before
+        // draining so a follow-up executedPlan() call can read populated
+        // metrics.
         let df = unsafe { *Box::from_raw(handle as *mut DataFrame) };
 
         let ffi: FFI_ArrowArrayStream = runtime().block_on(async {
-            let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
-            let stream = df.execute_stream().await?;
+            let task_ctx = Arc::new(df.task_ctx());
+            let plan = wrap_for_execution(df.create_physical_plan().await?);
+            let schema = plan.schema();
+            crate::executed_plan::register(plan_id, Arc::clone(&plan));
+            // partition_count is 1 after wrap_for_execution, so upstream's
+            // execute_stream takes the single-partition fast path against
+            // exactly the Arc we just registered.
+            let stream = datafusion::physical_plan::execute_stream(plan, task_ctx)?;
             let reader = StreamingReader { schema, stream };
             Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(reader)))
         })?;
@@ -982,20 +1027,74 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOpti
     })
 }
 
+/// Free the resources owned by a DataFrame's JNI handle.
+///
+/// `handle == 0` indicates the upstream `Box<DataFrame>` was already taken
+/// by `collectDataFrame` / `executeStreamDataFrame`; in that case we only
+/// need to drop the planted `Arc<dyn ExecutionPlan>` registry entry.
+/// Otherwise the box is still ours and we reclaim it here.
+///
+/// `plan_id` keys the registry entry to drop. The Java side passes the
+/// same monotonic id used at `collect` / `executeStream` time; we never
+/// use the handle pointer for registry keys, because the box at that
+/// address is freed during execute and the allocator may have reused the
+/// address for an unrelated DataFrame by the time close() runs.
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_closeDataFrame<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     handle: jlong,
+    plan_id: jlong,
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        crate::executed_plan::unregister(plan_id);
         if handle != 0 {
+            // The Box<DataFrame> is still ours; reclaim and drop it.
             unsafe {
                 drop(Box::from_raw(handle as *mut DataFrame));
             }
         }
         Ok(())
     })
+}
+
+/// Look up the planted physical plan for `plan_id` and return it as
+/// proto-encoded bytes (`ExecutedPlanNodeProto`). Throws
+/// `IllegalStateException` directly (not the typed `DataFusionException`
+/// hierarchy) if no plan is planted, i.e. the caller hasn't run `collect`
+/// / `executeStream` yet -- this is a lifecycle precondition violation,
+/// not a DataFusion runtime error.
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_executedPlanNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    plan_id: jlong,
+) -> jbyteArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jbyteArray> {
+            let plan = match crate::executed_plan::lookup(plan_id) {
+                Some(p) => p,
+                None => {
+                    let _ = env.throw_new(
+                        "java/lang/IllegalStateException",
+                        "executedPlan() requires the DataFrame to have been collected; \
+                         call collect() or executeStream() first",
+                    );
+                    // Returning Ok with the default null pointer; the JNI
+                    // env now carries a pending IllegalStateException, so
+                    // try_unwrap_or_throw's exception_check skips its own
+                    // throw and the Java caller sees the precondition
+                    // exception we just queued.
+                    return Ok(std::ptr::null_mut());
+                }
+            };
+            let bytes = crate::executed_plan::serialise(&plan)?;
+            let arr = env.byte_array_from_slice(&bytes)?;
+            Ok(arr.into_raw())
+        },
+    )
 }
 
 #[no_mangle]
