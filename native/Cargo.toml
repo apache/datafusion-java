@@ -80,11 +80,14 @@ jni = "0.21"
 # so we share the same `dyn ObjectStore` vtable and don't double-link.
 object_store = { version = "0.13", default-features = false }
 prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 # Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
 # behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
 # requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.
 tokio-metrics = { version = "0.5", optional = true }
+# Already pulled in transitively by datafusion-physical-plan; declared here so
+# `streaming_table` can use `ReceiverStream` directly.
+tokio-stream = "0.1"
 url = "2"
 
 [build-dependencies]

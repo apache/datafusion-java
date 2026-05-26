@@ -1316,6 +1316,7 @@ dependencies = [
  "protoc-bin-vendored",
  "tokio",
  "tokio-metrics",
+ "tokio-stream",
  "url",
 ]
 
