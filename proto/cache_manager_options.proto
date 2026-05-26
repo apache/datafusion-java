@@ -1,0 +1,61 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax = "proto3";
+
+package datafusion_java;
+
+option java_package = "org.apache.datafusion.protobuf";
+option java_multiple_files = true;
+
+// Configuration for DataFusion's built-in CacheManager (see
+// `datafusion::execution::cache::cache_manager::CacheManagerConfig`).
+// Each of the three caches is independent; unset fields leave the
+// upstream default in place. When a typed setter is used, the JNI
+// layer installs the corresponding `Default*Cache` implementation.
+//
+// The Java public class is `CacheManagerOptions`; the proto message
+// gets a `Proto` suffix to avoid a name clash on the Java side, the
+// same convention used for `ParquetReadOptionsProto` etc.
+message CacheManagerOptionsProto {
+  // file_metadata_cache: when set, install `DefaultFilesMetadataCache`
+  // configured with this byte cap and raise `metadata_cache_limit` to
+  // match. Unset = leave the upstream default in place. Zero is a
+  // legal value upstream and means "construct the cache but with a
+  // 0-byte budget" (effectively disabled but observable in stats).
+  optional uint64 file_metadata_cache_max_bytes = 1;
+
+  // list_files_cache: when set, install `DefaultListFilesCache`. The
+  // inner message's own fields preserve unset-ness so the caller can
+  // enable the cache with all-defaults by sending an empty
+  // ListFilesCacheOptionsProto.
+  optional ListFilesCacheOptionsProto list_files_cache = 2;
+
+  // file_statistics_cache: when true, install
+  // `DefaultFileStatisticsCache`. When false or unset, leave the slot
+  // `None` (disabled). No bytewise cap because upstream's
+  // `DefaultFileStatisticsCache` doesn't expose one.
+  optional bool file_statistics_cache_enabled = 3;
+}
+
+message ListFilesCacheOptionsProto {
+  // Memory cap. Unset = upstream default
+  // (`DEFAULT_LIST_FILES_CACHE_MEMORY_LIMIT`, currently 1 MiB).
+  optional uint64 max_bytes = 1;
+  // TTL in milliseconds. Unset = upstream's `None` (infinite TTL).
+  optional uint64 ttl_millis = 2;
+}

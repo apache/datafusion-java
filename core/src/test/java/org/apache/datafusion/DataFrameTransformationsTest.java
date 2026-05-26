@@ -144,6 +144,9 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, () -> df.intersectDistinct(other));
       assertThrows(IllegalStateException.class, () -> df.except(other));
       assertThrows(IllegalStateException.class, () -> df.exceptDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.sort(SortExpr.asc("x")));
+      assertThrows(IllegalStateException.class, () -> df.repartitionRoundRobin(1));
+      assertThrows(IllegalStateException.class, () -> df.repartitionHash(1, "x"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -176,6 +179,9 @@ class DataFrameTransformationsTest {
       assertThrows(IllegalStateException.class, () -> df.intersectDistinct(other));
       assertThrows(IllegalStateException.class, () -> df.except(other));
       assertThrows(IllegalStateException.class, () -> df.exceptDistinct(other));
+      assertThrows(IllegalStateException.class, () -> df.sort(SortExpr.asc("x")));
+      assertThrows(IllegalStateException.class, () -> df.repartitionRoundRobin(1));
+      assertThrows(IllegalStateException.class, () -> df.repartitionHash(1, "x"));
       assertThrows(IllegalStateException.class, df::count);
       assertThrows(IllegalStateException.class, df::show);
       assertThrows(IllegalStateException.class, () -> df.show(5));
@@ -666,6 +672,221 @@ class DataFrameTransformationsTest {
         DataFrame left = ctx.sql("SELECT 1 AS x, 2 AS y");
         DataFrame right = ctx.sql("SELECT 1 AS x")) {
       assertThrows(RuntimeException.class, () -> left.union(right));
+    }
+  }
+
+  // -- sort -----------------------------------------------------------------
+
+  @Test
+  void sortAscOrdersAscending() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (3), (1), (2)) AS t(x)");
+        DataFrame sorted = df.sort(SortExpr.asc("x"));
+        ArrowReader reader = sorted.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      BigIntVector x = (BigIntVector) root.getVector("x");
+      assertEquals(3, x.getValueCount());
+      assertEquals(1L, x.get(0));
+      assertEquals(2L, x.get(1));
+      assertEquals(3L, x.get(2));
+    }
+  }
+
+  @Test
+  void sortDescOrdersDescending() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (3), (1), (2)) AS t(x)");
+        DataFrame sorted = df.sort(SortExpr.desc("x"));
+        ArrowReader reader = sorted.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      BigIntVector x = (BigIntVector) root.getVector("x");
+      assertEquals(3, x.getValueCount());
+      assertEquals(3L, x.get(0));
+      assertEquals(2L, x.get(1));
+      assertEquals(1L, x.get(2));
+    }
+  }
+
+  @Test
+  void sortMultipleKeysMixedDirection() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT * FROM (VALUES (1, 1), (1, 2), (2, 1)) AS t(x, y)");
+        DataFrame sorted = df.sort(SortExpr.asc("x"), SortExpr.desc("y"));
+        ArrowReader reader = sorted.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      BigIntVector x = (BigIntVector) root.getVector("x");
+      BigIntVector y = (BigIntVector) root.getVector("y");
+      // (1,2), (1,1), (2,1) -- x asc, y desc within each x group.
+      assertEquals(1L, x.get(0));
+      assertEquals(2L, y.get(0));
+      assertEquals(1L, x.get(1));
+      assertEquals(1L, y.get(1));
+      assertEquals(2L, x.get(2));
+      assertEquals(1L, y.get(2));
+    }
+  }
+
+  @Test
+  void sortNullsFirstPlacesNullsFirst() throws Exception {
+    String sql =
+        "SELECT * FROM (VALUES (CAST(1 AS BIGINT)), (CAST(NULL AS BIGINT)),"
+            + " (CAST(2 AS BIGINT))) AS t(x)";
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql(sql);
+        DataFrame sorted = df.sort(SortExpr.asc("x").nullsFirst(true));
+        ArrowReader reader = sorted.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      BigIntVector x = (BigIntVector) root.getVector("x");
+      assertEquals(3, x.getValueCount());
+      assertTrue(x.isNull(0), "expected NULL first");
+      assertEquals(1L, x.get(1));
+      assertEquals(2L, x.get(2));
+    }
+  }
+
+  @Test
+  void sortNullsLastPlacesNullsLast() throws Exception {
+    String sql =
+        "SELECT * FROM (VALUES (CAST(1 AS BIGINT)), (CAST(NULL AS BIGINT)),"
+            + " (CAST(2 AS BIGINT))) AS t(x)";
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql(sql);
+        DataFrame sorted = df.sort(SortExpr.asc("x").nullsFirst(false));
+        ArrowReader reader = sorted.collect(allocator)) {
+      assertTrue(reader.loadNextBatch());
+      VectorSchemaRoot root = reader.getVectorSchemaRoot();
+      BigIntVector x = (BigIntVector) root.getVector("x");
+      assertEquals(3, x.getValueCount());
+      assertEquals(1L, x.get(0));
+      assertEquals(2L, x.get(1));
+      assertTrue(x.isNull(2), "expected NULL last");
+    }
+  }
+
+  @Test
+  void sortIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (3), (1), (2)) AS t(x)")) {
+      try (DataFrame sorted = source.sort(SortExpr.asc("x"))) {
+        assertEquals(3L, sorted.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void sortRejectsNullArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.sort((SortExpr[]) null));
+      assertThrows(IllegalArgumentException.class, () -> df.sort(new SortExpr[] {null}));
+    }
+  }
+
+  @Test
+  void sortUnknownColumnThrows() {
+    // Sort plan-builds lazily; DataFusion may not validate column names until the plan is
+    // actually executed. Drive a count() to force planning + optimization.
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(
+          RuntimeException.class,
+          () -> {
+            try (DataFrame sorted = df.sort(SortExpr.asc("not_a_column"))) {
+              sorted.count();
+            }
+          });
+    }
+  }
+
+  // -- repartitionRoundRobin -------------------------------------------------
+
+  @Test
+  void repartitionRoundRobinPreservesRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame repartitioned = source.repartitionRoundRobin(3)) {
+      assertEquals(5L, repartitioned.count());
+    }
+  }
+
+  @Test
+  void repartitionRoundRobinIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
+      try (DataFrame rp = source.repartitionRoundRobin(2)) {
+        assertEquals(3L, rp.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void repartitionRoundRobinRejectsNonPositive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionRoundRobin(0));
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionRoundRobin(-1));
+    }
+  }
+
+  // -- repartitionHash -------------------------------------------------------
+
+  @Test
+  void repartitionHashPreservesRows() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3), (4), (5)) AS t(x)");
+        DataFrame repartitioned = source.repartitionHash(3, "x")) {
+      assertEquals(5L, repartitioned.count());
+    }
+  }
+
+  @Test
+  void repartitionHashIsNonDestructive() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame source = ctx.sql("SELECT * FROM (VALUES (1), (2), (3)) AS t(x)")) {
+      try (DataFrame rp = source.repartitionHash(2, "x")) {
+        assertEquals(3L, rp.count());
+      }
+      assertEquals(3L, source.count());
+    }
+  }
+
+  @Test
+  void repartitionHashRejectsBadArgs() {
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionHash(0, "x"));
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionHash(-1, "x"));
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionHash(2, (String[]) null));
+      assertThrows(IllegalArgumentException.class, () -> df.repartitionHash(2));
+      assertThrows(
+          IllegalArgumentException.class, () -> df.repartitionHash(2, new String[] {null}));
+    }
+  }
+
+  @Test
+  void repartitionHashUnknownColumnThrows() {
+    // Repartition plan-builds lazily; DataFusion may not validate column names until the plan
+    // is actually executed. Drive a count() to force planning + optimization.
+    try (SessionContext ctx = new SessionContext();
+        DataFrame df = ctx.sql("SELECT 1 AS x")) {
+      assertThrows(
+          RuntimeException.class,
+          () -> {
+            try (DataFrame rp = df.repartitionHash(2, "not_a_column")) {
+              rp.count();
+            }
+          });
     }
   }
 }

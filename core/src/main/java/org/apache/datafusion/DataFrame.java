@@ -484,6 +484,87 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Order the rows by the supplied sort keys. Each {@link SortExpr} names a column and a direction
+   * ({@link SortExpr#asc(String)} / {@link SortExpr#desc(String)}); call {@link
+   * SortExpr#nullsFirst(boolean)} to override null placement.
+   *
+   * <p>An empty {@code exprs} array is a no-op (matches DataFusion's {@code sort(vec![])}). The
+   * receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code exprs} or any element is {@code null}.
+   * @throws RuntimeException if a sort column does not exist in this DataFrame's schema.
+   */
+  public DataFrame sort(SortExpr... exprs) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (exprs == null) {
+      throw new IllegalArgumentException("sort exprs must be non-null");
+    }
+    String[] columns = new String[exprs.length];
+    boolean[] ascending = new boolean[exprs.length];
+    boolean[] nullsFirst = new boolean[exprs.length];
+    for (int i = 0; i < exprs.length; i++) {
+      SortExpr e = exprs[i];
+      if (e == null) {
+        throw new IllegalArgumentException("sort exprs[" + i + "] must be non-null");
+      }
+      columns[i] = e.column();
+      ascending[i] = e.ascending();
+      nullsFirst[i] = e.nullsFirst();
+    }
+    return new DataFrame(sortRows(nativeHandle, columns, ascending, nullsFirst));
+  }
+
+  /**
+   * Repartition this DataFrame using a round-robin scheme across {@code numPartitions} output
+   * partitions. The receiver remains usable and must still be closed independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}.
+   * @throws RuntimeException if the underlying repartition plan rejects the request.
+   */
+  public DataFrame repartitionRoundRobin(int numPartitions) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    return new DataFrame(repartitionRoundRobinRows(nativeHandle, numPartitions));
+  }
+
+  /**
+   * Repartition this DataFrame by hashing the named columns into {@code numPartitions} output
+   * partitions. v1 supports column-name keys only; expression keys are deferred until the Java
+   * binding gains an {@code Expr} builder. The receiver remains usable and must still be closed
+   * independently.
+   *
+   * @throws IllegalArgumentException if {@code numPartitions <= 0}, {@code columns} is {@code null}
+   *     or empty, or any element of {@code columns} is {@code null}.
+   * @throws RuntimeException if a partition column does not exist in this DataFrame's schema.
+   */
+  public DataFrame repartitionHash(int numPartitions, String... columns) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (numPartitions <= 0) {
+      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+    }
+    if (columns == null) {
+      throw new IllegalArgumentException("repartitionHash columns must be non-null");
+    }
+    if (columns.length == 0) {
+      throw new IllegalArgumentException("repartitionHash requires at least one column");
+    }
+    for (int i = 0; i < columns.length; i++) {
+      if (columns[i] == null) {
+        throw new IllegalArgumentException("repartitionHash columns[" + i + "] must be non-null");
+      }
+    }
+    return new DataFrame(repartitionHashRows(nativeHandle, numPartitions, columns));
+  }
+
+  /**
    * Equi-join this DataFrame with {@code right} on the named columns, using the given {@link
    * JoinType}. The receiver and {@code right} both remain usable and must still be closed
    * independently.
@@ -751,6 +832,13 @@ public final class DataFrame implements AutoCloseable {
   private static native long exceptRows(long handle, long otherHandle);
 
   private static native long exceptDistinctRows(long handle, long otherHandle);
+
+  private static native long sortRows(
+      long handle, String[] columns, boolean[] ascending, boolean[] nullsFirst);
+
+  private static native long repartitionRoundRobinRows(long handle, int numPartitions);
+
+  private static native long repartitionHashRows(long handle, int numPartitions, String[] columns);
 
   private static native long joinDataFrame(
       long leftHandle,

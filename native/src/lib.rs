@@ -17,12 +17,15 @@
 
 mod arrow;
 mod avro;
+mod cache_manager;
 mod csv;
 mod errors;
 mod jni_util;
 mod json;
+mod memory;
 mod object_store;
 mod proto;
+mod runtime_metrics;
 mod schema;
 mod table_provider;
 mod udf;
@@ -49,10 +52,10 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::Expr;
-use datafusion::logical_expr::{ScalarUDF, Signature};
+use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
 use futures::StreamExt;
-use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
+use jni::objects::{JBooleanArray, JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jbyte, jbyteArray, jint, jlong};
 use jni::JNIEnv;
 use jni::JavaVM;
@@ -81,7 +84,36 @@ pub(crate) fn jvm() -> &'static JavaVM {
 
 pub(crate) fn runtime() -> &'static Runtime {
     static RT: OnceLock<Runtime> = OnceLock::new();
-    RT.get_or_init(|| Runtime::new().expect("failed to create Tokio runtime"))
+    RT.get_or_init(|| {
+        let rt = Runtime::new().expect("failed to create Tokio runtime");
+        // Eagerly install the runtime-metrics accumulator (no-op when the
+        // `runtime-metrics` Cargo feature is off). Initialising here -- not
+        // lazily on the first `runtimeStats()` call -- means the
+        // RuntimeMonitor's sampling baseline coincides with runtime start, so
+        // poll/park/busy totals reflect activity from the first query onward
+        // rather than from the first observation.
+        crate::runtime_metrics::init(rt.handle());
+        rt
+    })
+}
+
+/// Wrap the (already-built) `RuntimeEnvBuilder`'s memory pool with a
+/// `TrackingMemoryPool` so `Java_..._memoryUsage` can report current/peak
+/// bytes for this session. Registers the tracker in the process-wide map
+/// keyed by the JNI handle. Idempotent: if the builder didn't set a pool,
+/// fills in DataFusion's default first so the wrap-and-register has the
+/// same behavior either way.
+fn install_memory_tracker(
+    builder: &mut RuntimeEnvBuilder,
+) -> std::sync::Arc<crate::memory::TrackingMemoryPool> {
+    use datafusion::execution::memory_pool::UnboundedMemoryPool;
+    let inner: std::sync::Arc<dyn datafusion::execution::memory_pool::MemoryPool> = builder
+        .memory_pool
+        .take()
+        .unwrap_or_else(|| std::sync::Arc::new(UnboundedMemoryPool::default()));
+    let tracker = std::sync::Arc::new(crate::memory::TrackingMemoryPool::new(inner));
+    builder.memory_pool = Some(tracker.clone());
+    tracker
 }
 
 #[no_mangle]
@@ -90,8 +122,13 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
     _class: JClass<'local>,
 ) -> jlong {
     try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
-        let ctx = SessionContext::new();
-        Ok(Box::into_raw(Box::new(ctx)) as jlong)
+        let mut runtime_builder = RuntimeEnvBuilder::new();
+        let tracker = install_memory_tracker(&mut runtime_builder);
+        let runtime_env = runtime_builder.build()?;
+        let ctx = SessionContext::new_with_config_rt(SessionConfig::new(), Arc::new(runtime_env));
+        let handle = Box::into_raw(Box::new(ctx)) as jlong;
+        crate::memory::register(handle, tracker);
+        Ok(handle)
     })
 }
 
@@ -130,6 +167,12 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
             runtime_builder = runtime_builder.with_temp_file_path(PathBuf::from(dir));
         }
 
+        if let Some(cm_opts) = opts.cache_manager.as_ref() {
+            if let Some(cm_config) = crate::cache_manager::build_config(cm_opts)? {
+                runtime_builder = runtime_builder.with_cache_manager(cm_config);
+            }
+        }
+
         // datafusion.runtime.* keys live on RuntimeEnv (separate object from
         // SessionConfig) and round-tripping them through getOption/setOption
         // has subtle correctness pitfalls (lazy default-tempdir creation,
@@ -158,6 +201,13 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
             config.options_mut().set(&opt.key, &opt.value)?;
         }
 
+        // Wrap the configured pool (default `UnboundedMemoryPool` or whatever
+        // `with_memory_limit` produced) with a tracker so `memoryUsage()` can
+        // report current/peak bytes for this session. The tracker is
+        // transparent to query execution -- it only intercepts grow/shrink to
+        // update two atomics.
+        let tracker = install_memory_tracker(&mut runtime_builder);
+
         let runtime_env = runtime_builder.build()?;
         let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
 
@@ -167,7 +217,9 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
         // via try_unwrap_or_throw.
         crate::object_store::apply_registrations(&ctx, &opts.object_stores)?;
 
-        Ok(Box::into_raw(Box::new(ctx)) as jlong)
+        let handle = Box::into_raw(Box::new(ctx)) as jlong;
+        crate::memory::register(handle, tracker);
+        Ok(handle)
     })
 }
 
@@ -786,6 +838,91 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_joinOnDataFrame<'loc
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_sortRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    columns: JObjectArray<'local>,
+    ascending: JBooleanArray<'local>,
+    nulls_first: JBooleanArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)? as usize;
+        let mut names: Vec<String> = Vec::with_capacity(len);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i as i32)?;
+            let jstr: JString = elem.into();
+            names.push(env.get_string(&jstr)?.into());
+        }
+
+        // Decode the two parallel boolean arrays via primitive-array region copies.
+        let mut asc_buf = vec![0u8; len];
+        env.get_boolean_array_region(&ascending, 0, &mut asc_buf)?;
+        let mut nf_buf = vec![0u8; len];
+        env.get_boolean_array_region(&nulls_first, 0, &mut nf_buf)?;
+
+        let sort_exprs: Vec<SortExpr> = names
+            .into_iter()
+            .zip(asc_buf.into_iter().zip(nf_buf))
+            .map(|(name, (asc, nf))| SortExpr::new(col(&name), asc != 0, nf != 0))
+            .collect();
+
+        let new_df = df.sort(sort_exprs)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionRoundRobinRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let new_df = df.repartition(Partitioning::RoundRobinBatch(num_partitions as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_repartitionHashRows<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    num_partitions: jint,
+    columns: JObjectArray<'local>,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+
+        let len = env.get_array_length(&columns)?;
+        let mut owned: Vec<String> = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let elem = env.get_object_array_element(&columns, i)?;
+            let jstr: JString = elem.into();
+            owned.push(env.get_string(&jstr)?.into());
+        }
+        let exprs = owned.iter().map(|s| col(s.as_str())).collect();
+
+        let new_df = df.repartition(Partitioning::Hash(exprs, num_partitions as usize))?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOptions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -896,12 +1033,69 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_closeSessionCon
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
         if handle != 0 {
+            // Drop our side-table entry first so the tracker Arc's last
+            // strong reference is the SessionContext->RuntimeEnv chain, then
+            // drop the SessionContext itself.
+            crate::memory::unregister(handle);
             unsafe {
                 drop(Box::from_raw(handle as *mut SessionContext));
             }
         }
         Ok(())
     })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_memoryUsageNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jni::sys::jlongArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jni::sys::jlongArray> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            // Look up the tracker by JNI handle. Should always succeed because
+            // the ctor inserts before publishing the handle to Java.
+            let tracker = crate::memory::lookup(handle)
+                .ok_or("memory tracker not registered for this SessionContext")?;
+            // `snapshot()` returns a consistent (current, peak) pair where
+            // peak is always >= current even if a concurrent record_grow is
+            // in-flight. Callers see no transient `current > peak`.
+            let (current, peak) = tracker.snapshot();
+            let values: [jlong; 2] = [current as jlong, peak as jlong];
+            let arr = env.new_long_array(values.len() as jni::sys::jsize)?;
+            env.set_long_array_region(&arr, 0, &values)?;
+            Ok(arr.into_raw())
+        },
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_runtimeStatsNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jni::sys::jlongArray {
+    try_unwrap_or_throw(
+        &mut env,
+        std::ptr::null_mut(),
+        |env| -> JniResult<jni::sys::jlongArray> {
+            if handle == 0 {
+                return Err("SessionContext handle is null".into());
+            }
+            // Runtime stats are process-global -- the JNI library drives one
+            // shared multi-threaded runtime -- but we still gate on the
+            // SessionContext handle so callers can't ask after close().
+            let stats = crate::runtime_metrics::runtime_stats()?;
+            let arr = env.new_long_array(stats.len() as jni::sys::jsize)?;
+            env.set_long_array_region(&arr, 0, &stats)?;
+            Ok(arr.into_raw())
+        },
+    )
 }
 
 fn with_parquet_options<R>(
@@ -1009,7 +1203,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         if fields.is_empty() {
             return Err("signature schema must have at least a return-type field".into());
         }
-        let return_type = fields[0].data_type().clone();
+        let return_field = fields[0].clone();
         let arg_types: Vec<datafusion::arrow::datatypes::DataType> = fields
             .iter()
             .skip(1)
@@ -1032,7 +1226,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
         let java_udf = crate::udf::JavaScalarUdf {
             name: name.clone(),
             signature,
-            return_type,
+            return_field,
             udf_global_ref,
             bridge_class,
             invoke_method,
