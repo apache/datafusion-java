@@ -19,28 +19,38 @@ under the License.
 
 # Code style
 
-## Java
-
-Run the Spotless formatter before committing. CI fails the build if
-formatting drifts:
+To apply Java + Rust formatters in one go:
 
 ```sh
-./mvnw spotless:apply
+make format
+```
+
+CI verifies formatting, lint, and license headers on every PR via the
+**Lint** and **RAT License Check** workflows.
+
+## Java
+
+Spotless is configured in the parent `pom.xml`. The CI `fmt-check` job
+runs:
+
+```sh
+./mvnw spotless:check
 ```
 
 ## Rust
 
-Run inside `native/`:
+The CI `clippy` job runs (from `native/`):
 
 ```sh
-cargo fmt
+cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-`-D warnings` turns clippy warnings into build failures, matching CI.
+`-D warnings` escalates every clippy warning to a build failure.
 
 ## License headers
 
-New source files need the Apache 2.0 license header. Apache RAT enforces
-this during `verify` — `./mvnw verify` will fail if a tracked file is
-missing the header.
+Every tracked source file needs the Apache 2.0 license header. The
+**RAT License Check** workflow runs `./mvnw -N apache-rat:check` on every
+PR (including docs-only changes). Exclusions live in
+`dev/release/rat_exclude_files.txt`.

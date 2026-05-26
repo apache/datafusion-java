@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-.PHONY: all native native-runtime-metrics jvm test clean tpch-data
+.PHONY: all native native-runtime-metrics jvm test format clean tpch-data
 
 all: native jvm
 
@@ -34,6 +34,12 @@ jvm:
 
 test: native
 	./mvnw test
+
+# Apply Java + Rust formatters in place. CI verifies the equivalent
+# `:check` form inline in .github/workflows/lint.yml.
+format:
+	./mvnw -q spotless:apply
+	cd native && cargo fmt --all
 
 clean:
 	cd native && cargo clean
