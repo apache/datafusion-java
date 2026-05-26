@@ -61,6 +61,23 @@ message SessionOptions {
   // Configuration for DataFusion's built-in CacheManager. Unset = leave
   // the upstream default in place (matches existing callers).
   optional CacheManagerOptionsProto cache_manager = 9;
+  // Disk-manager configuration (disable spill, size cap). Unset fields
+  // leave the upstream `RuntimeEnvBuilder` default in place.
+  optional DiskManagerOptions disk_manager = 10;
+}
+
+// Disk-manager configuration. The two fields are independent on the wire;
+// mutual-exclusion of `disabled` against the legacy
+// `SessionOptions.temp_directory` field (slot 6) is enforced at the Java
+// builder level.
+message DiskManagerOptions {
+  // Disable spill entirely (`DiskManagerMode::Disabled`).
+  optional bool disabled = 1;
+  // Cap on bytes used by spill files. Mirrors upstream
+  // `RuntimeEnvBuilder::with_max_temp_directory_size` 1:1. Zero is a
+  // legal value upstream (means "no spill allowed"); the Java setter
+  // mirrors that contract.
+  optional uint64 max_temp_directory_size = 2;
 }
 
 message ConfigOption {
