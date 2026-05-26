@@ -98,9 +98,9 @@ public final class SessionContextBuilder {
   }
 
   /**
-   * Disable on-disk spill entirely. Queries that need spill fail with a {@link RuntimeException}
-   * carrying DataFusion's "resources exhausted" message rather than going to disk; useful for
-   * memory-only execution profiles or environments without writable disk.
+   * Disable on-disk spill entirely. Queries that need spill fail with a {@link
+   * ResourcesExhaustedException} rather than going to disk; useful for memory-only execution
+   * profiles or environments without writable disk.
    *
    * <p>Mutually exclusive with {@link #tempDirectory(String)} — the combination throws at {@link
    * #build()} time. {@link #maxTempDirectorySize(long)} is allowed alongside this setter but is a
@@ -114,8 +114,8 @@ public final class SessionContextBuilder {
   /**
    * Cap the cumulative bytes used by spill files under {@link #tempDirectory(String)}. Mirrors
    * upstream {@code RuntimeEnvBuilder::with_max_temp_directory_size} 1:1. Once exceeded, queries
-   * that need more spill space fail with a {@link RuntimeException} carrying DataFusion's
-   * "resources exhausted" message. Combinable with {@link #disableSpill()} but a no-op there.
+   * that need more spill space fail with a {@link ResourcesExhaustedException}. Combinable with
+   * {@link #disableSpill()} but a no-op there.
    *
    * <p>{@code 0} is accepted — upstream documents zero as legal and equivalent to "no spill
    * allowed". Negative values are rejected.

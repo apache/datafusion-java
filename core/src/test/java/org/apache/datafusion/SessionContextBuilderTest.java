@@ -437,4 +437,29 @@ class SessionContextBuilderTest {
     assertEquals("/tmp/df", parsed.getTempDirectory());
     assertFalse(parsed.hasDiskManager());
   }
+
+  @Test
+  void disableSpillUnderMemoryPressureThrowsResourcesExhausted() throws java.io.IOException {
+    // Pin the Javadoc claim on disableSpill() / maxTempDirectorySize that
+    // out-of-memory queries surface as ResourcesExhaustedException -- not
+    // the parent DataFusionException, not a generic RuntimeException. A 1 MiB
+    // pool plus a 200k-row sort plus no spill forces the OOM path
+    // deterministically.
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx =
+            SessionContext.builder().memoryLimit(1L << 20, 1.0).disableSpill().build()) {
+      DataFusionException e =
+          assertThrows(
+              DataFusionException.class,
+              () -> {
+                try (DataFrame df =
+                    ctx.sql("SELECT i FROM generate_series(1, 200000) AS t(i) ORDER BY i DESC")) {
+                  df.collect(allocator).close();
+                }
+              });
+      assertTrue(
+          e instanceof ResourcesExhaustedException,
+          "expected ResourcesExhaustedException, got " + e.getClass().getName());
+    }
+  }
 }
