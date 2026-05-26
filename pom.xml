@@ -44,6 +44,7 @@ under the License.
         <protobuf.version>3.25.5</protobuf.version>
         <arrow.version>19.0.0</arrow.version>
         <avro.version>1.12.0</avro.version>
+        <substrait.java.version>0.81.0</substrait.java.version>
     </properties>
 
     <dependencyManagement>
@@ -82,6 +83,11 @@ under the License.
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.substrait</groupId>
+                <artifactId>core</artifactId>
+                <version>${substrait.java.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
