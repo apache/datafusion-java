@@ -43,6 +43,7 @@ public final class SessionContextBuilder {
   private String tempDirectory;
   private boolean spillDisabled;
   private Long maxTempDirectorySize;
+  private ExceptionVerbosity exceptionVerbosity;
   private CacheManagerOptions cacheManager;
   private final LinkedHashMap<String, String> options = new LinkedHashMap<>();
   private final List<ObjectStoreOptions> objectStores = new ArrayList<>();
@@ -209,6 +210,24 @@ public final class SessionContextBuilder {
   }
 
   /**
+   * Configure how detailed the representation of a Java throwable is when a JVM upcall (UDF, {@link
+   * TableProvider}) throws and the failure has to cross back into native code.
+   *
+   * <p>The setting is locked at session-construction time and applies uniformly to every UDF and
+   * table provider registered against the session. See {@link ExceptionVerbosity} for the three
+   * values; default (unset) is {@link ExceptionVerbosity#FULL}.
+   *
+   * @throws IllegalArgumentException if {@code verbosity} is {@code null}.
+   */
+  public SessionContextBuilder exceptionVerbosity(ExceptionVerbosity verbosity) {
+    if (verbosity == null) {
+      throw new IllegalArgumentException("exceptionVerbosity must be non-null");
+    }
+    this.exceptionVerbosity = verbosity;
+    return this;
+  }
+
+  /**
    * Configure DataFusion's built-in {@code CacheManager} for the new context. Build the {@link
    * CacheManagerOptions} via {@link CacheManagerOptions#builder()}; each cache slot is independent,
    * so leaving a setter unset keeps the upstream default in place.
@@ -264,7 +283,7 @@ public final class SessionContextBuilder {
       throw new IllegalStateException(
           "disableSpill() is mutually exclusive with tempDirectory(...)");
     }
-    return new SessionContext(toBytes());
+    return new SessionContext(toBytes(), exceptionVerbosityOrDefault());
   }
 
   byte[] toBytes() {
@@ -306,6 +325,9 @@ public final class SessionContextBuilder {
     if (cacheManager != null) {
       b.setCacheManager(cacheManager.toProto());
     }
+    // exceptionVerbosity flows via SessionContext's snapshot field, not the
+    // SessionOptions proto -- it's only consumed at registerUdf /
+    // registerTable JNI calls, where it rides on its own arg.
     for (Map.Entry<String, String> e : options.entrySet()) {
       b.addOptions(ConfigOption.newBuilder().setKey(e.getKey()).setValue(e.getValue()).build());
     }
@@ -313,5 +335,10 @@ public final class SessionContextBuilder {
       b.addObjectStores(os.toRegistration());
     }
     return b.build().toByteArray();
+  }
+
+  /** Visible for {@link SessionContext} so it can fall back to the FULL byte when unset. */
+  ExceptionVerbosity exceptionVerbosityOrDefault() {
+    return exceptionVerbosity != null ? exceptionVerbosity : ExceptionVerbosity.FULL;
   }
 }

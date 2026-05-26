@@ -49,19 +49,27 @@ public final class SessionContext implements AutoCloseable {
   }
 
   private long nativeHandle;
+  // Snapshot of the builder's exceptionVerbosity, passed through to UDF /
+  // TableProvider registrations. Locked at construction time; not mutable.
+  // Default FULL keeps stack traces flowing for callers that don't touch the
+  // setter. Stored as a byte to keep the JNI signature ABI-stable across any
+  // future ExceptionVerbosity additions.
+  private final byte exceptionVerbosity;
 
   public SessionContext() {
     this.nativeHandle = createSessionContext();
     if (this.nativeHandle == 0) {
       throw new RuntimeException("Failed to create native SessionContext");
     }
+    this.exceptionVerbosity = ExceptionVerbosity.FULL.toByte();
   }
 
-  SessionContext(byte[] optionsBytes) {
+  SessionContext(byte[] optionsBytes, ExceptionVerbosity exceptionVerbosity) {
     this.nativeHandle = createSessionContextWithOptions(optionsBytes);
     if (this.nativeHandle == 0) {
       throw new RuntimeException("Failed to create native SessionContext");
     }
+    this.exceptionVerbosity = exceptionVerbosity.toByte();
   }
 
   /** Start configuring a {@link SessionContext}. */
@@ -550,7 +558,8 @@ public final class SessionContext implements AutoCloseable {
     fields.addAll(udf.argFields());
     Schema signatureSchema = new Schema(fields);
     byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
-    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
+    registerScalarUdf(
+        nativeHandle, name, signatureBytes, volatility.code(), impl, exceptionVerbosity);
   }
 
   /**
@@ -585,7 +594,7 @@ public final class SessionContext implements AutoCloseable {
       throw new IllegalStateException("TableProvider.schema returned null");
     }
     byte[] schemaIpc = serializeSchemaIpc(schema);
-    registerTableNative(nativeHandle, name, schemaIpc, provider);
+    registerTableNative(nativeHandle, name, schemaIpc, provider, exceptionVerbosity);
   }
 
   private static byte[] serializeSchemaIpc(Schema schema) {
@@ -660,8 +669,17 @@ public final class SessionContext implements AutoCloseable {
   private static native void closeSessionContext(long handle);
 
   private static native void registerScalarUdf(
-      long handle, String name, byte[] signatureSchemaBytes, byte volatility, ScalarFunction impl);
+      long handle,
+      String name,
+      byte[] signatureSchemaBytes,
+      byte volatility,
+      ScalarFunction impl,
+      byte exceptionVerbosity);
 
   private static native void registerTableNative(
-      long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
+      long handle,
+      String name,
+      byte[] schemaIpcBytes,
+      TableProvider provider,
+      byte exceptionVerbosity);
 }

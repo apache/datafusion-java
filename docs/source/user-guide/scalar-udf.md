@@ -167,12 +167,26 @@ non-deterministic functions.
 
 ## Errors
 
-If the UDF throws, the exception class and message surface in the
-`RuntimeException` raised from `collect()`. If the returned `ColumnarValue` is
-`null`, an Array result's vector length does not equal `args.rowCount()`, or
-the result's Arrow type differs from the declared return field, the runtime
-raises a `RuntimeException` with a descriptive message. A Scalar result whose
-vector is not length-1 is rejected at the `ColumnarValue.scalar` factory.
+If the UDF throws, the exception class, message, and Java stack trace surface
+in the `RuntimeException` raised from `collect()`. The default verbosity is
+`FULL` (class + message + stack trace, in `Throwable.printStackTrace` format);
+configure it on the session if a less-verbose representation is preferred:
+
+```java
+SessionContext.builder()
+    .exceptionVerbosity(ExceptionVerbosity.MESSAGE)  // class + message only
+    .build();
+```
+
+`ExceptionVerbosity.NONE` surfaces only the exception class. The verbosity is
+locked at session-construction time and applies to every UDF and table
+provider registered against the session.
+
+If the returned `ColumnarValue` is `null`, an Array result's vector length
+does not equal `args.rowCount()`, or the result's Arrow type differs from the
+declared return field, the runtime raises a `RuntimeException` with a
+descriptive message. A Scalar result whose vector is not length-1 is rejected
+at the `ColumnarValue.scalar` factory.
 
 ## Threading
 

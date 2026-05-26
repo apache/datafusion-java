@@ -1204,6 +1204,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
     signature_schema_bytes: JByteArray<'local>,
     volatility: jni::sys::jbyte,
     udf: JObject<'local>,
+    exception_verbosity: jni::sys::jbyte,
 ) {
     try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
         if handle == 0 {
@@ -1240,6 +1241,8 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
             "(Lorg/apache/datafusion/ScalarFunction;JJJJ[BJJI)B",
         )?;
 
+        let verbosity = crate::jni_util::ExceptionVerbosity::from_byte(exception_verbosity)?;
+
         let java_udf = crate::udf::JavaScalarUdf {
             name: name.clone(),
             signature,
@@ -1247,6 +1250,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerScalarU
             udf_global_ref,
             bridge_class,
             invoke_method,
+            verbosity,
         };
         ctx.register_udf(ScalarUDF::new_from_impl(java_udf));
         Ok(())
@@ -1261,6 +1265,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNa
     name: JString<'local>,
     schema_ipc_bytes: JByteArray<'local>,
     provider: JObject<'local>,
+    exception_verbosity: jni::sys::jbyte,
 ) {
     try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
         if handle == 0 {
@@ -1283,12 +1288,15 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNa
             "(Lorg/apache/datafusion/TableProvider;J)V",
         )?;
 
+        let verbosity = crate::jni_util::ExceptionVerbosity::from_byte(exception_verbosity)?;
+
         let java_tp = crate::table_provider::JavaTableProvider {
             name: name.clone(),
             schema,
             source_global_ref,
             bridge_class,
             invoke_method,
+            verbosity,
         };
         let _ = ctx.register_table(name.as_str(), Arc::new(java_tp))?;
         Ok(())
