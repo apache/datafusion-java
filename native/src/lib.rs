@@ -649,6 +649,65 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_unnestColumns<'local
     })
 }
 
+// -- Set operations -------------------------------------------------------
+//
+// Each handler clones both DataFrames -- DataFusion's set-op methods consume
+// `self` and the argument by value, but `DataFrame: Clone` is cheap (the
+// underlying LogicalPlan is Arc-backed), so cloning lets us keep both Java
+// receivers usable. The Java side already validates that both handles are
+// non-null before reaching here.
+macro_rules! set_op_handler {
+    ($fn_name:ident, $df_method:ident) => {
+        #[no_mangle]
+        pub extern "system" fn $fn_name<'local>(
+            mut env: JNIEnv<'local>,
+            _class: JClass<'local>,
+            handle: jlong,
+            other_handle: jlong,
+        ) -> jlong {
+            try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jlong> {
+                if handle == 0 {
+                    return Err("DataFrame handle is null".into());
+                }
+                if other_handle == 0 {
+                    return Err("other DataFrame handle is null".into());
+                }
+                let df = unsafe { &*(handle as *const DataFrame) }.clone();
+                let other = unsafe { &*(other_handle as *const DataFrame) }.clone();
+                let new_df = df.$df_method(other)?;
+                Ok(Box::into_raw(Box::new(new_df)) as jlong)
+            })
+        }
+    };
+}
+
+set_op_handler!(Java_org_apache_datafusion_DataFrame_unionRows, union);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_unionDistinctRows,
+    union_distinct
+);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_unionByNameRows,
+    union_by_name
+);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_unionByNameDistinctRows,
+    union_by_name_distinct
+);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_intersectRows,
+    intersect
+);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_intersectDistinctRows,
+    intersect_distinct
+);
+set_op_handler!(Java_org_apache_datafusion_DataFrame_exceptRows, except);
+set_op_handler!(
+    Java_org_apache_datafusion_DataFrame_exceptDistinctRows,
+    except_distinct
+);
+
 /// Map a Java {@code JoinType.code()} byte back to upstream's enum.
 fn join_type_from_byte(byte: u8) -> JniResult<JoinType> {
     match byte {
