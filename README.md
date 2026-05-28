@@ -6,8 +6,34 @@ return to the JVM as [Apache Arrow] batches via the Arrow C Data Interface.
 [Apache DataFusion]: https://datafusion.apache.org/
 [Apache Arrow]: https://arrow.apache.org/
 
-> Early development: no releases yet, API will change. Bug reports and
-> contributions welcome.
+> Early development: the API will change between releases. Bug reports
+> and contributions welcome.
+
+## Install
+
+Released to [Maven Central](https://central.sonatype.com/artifact/org.apache.datafusion/datafusion-java).
+The JAR bundles the native library for Linux, macOS, and Windows on
+x86_64 / aarch64.
+
+Maven:
+
+```xml
+<dependency>
+    <groupId>org.apache.datafusion</groupId>
+    <artifactId>datafusion-java</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+Gradle:
+
+```kotlin
+implementation("org.apache.datafusion:datafusion-java:0.1.0")
+```
+
+Arrow needs `--add-opens=java.base/java.nio=ALL-UNNAMED` on the JVM
+command line. See the [installation guide](docs/source/user-guide/installation.md)
+for details and for building from source.
 
 ## Quickstart
 

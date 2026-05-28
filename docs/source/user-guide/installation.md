@@ -19,17 +19,47 @@ under the License.
 
 # Installation
 
-Apache DataFusion Java has not yet published a release. Until the first
-release, the only way to use the library is to build from source.
+Apache DataFusion Java is published to
+[Maven Central](https://central.sonatype.com/artifact/org.apache.datafusion/datafusion-java).
+The JAR bundles the native library for Linux (x86_64, aarch64), macOS
+(x86_64, aarch64), and Windows (x86_64), so no separate native install is
+required on those platforms.
 
 ## Requirements
 
-- **JDK 17 or newer.** Set `JAVA_HOME` to point at it.
-- **Rust toolchain (stable).** Install via [rustup].
+- **JDK 17 or newer.**
+- Arrow needs access to `java.nio` internals. Add this to the JVM
+  arguments of whatever runs your code:
 
-[rustup]: https://rustup.rs/
+  ```
+  --add-opens=java.base/java.nio=ALL-UNNAMED
+  ```
+
+## Maven
+
+```xml
+<dependency>
+    <groupId>org.apache.datafusion</groupId>
+    <artifactId>datafusion-java</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+## Gradle
+
+```kotlin
+dependencies {
+    implementation("org.apache.datafusion:datafusion-java:0.1.0")
+}
+```
+
+Arrow (`arrow-vector`, `arrow-c-data`, `arrow-memory-netty`) is pulled in
+transitively — you do not need to declare it yourself.
 
 ## Build from source
+
+If you are on a platform without a bundled native library, or want to run
+against unreleased changes, build from source:
 
 ```sh
 git clone https://github.com/apache/datafusion-java.git
@@ -40,6 +70,9 @@ make test
 `make test` compiles the native Rust crate, then runs the JUnit tests
 against it. The native library must be built before the JVM tests can
 run.
+
+Building from source requires a stable Rust toolchain (install via
+[rustup](https://rustup.rs/)) in addition to the JDK.
 
 The first build in a fresh checkout reaches out to
 `raw.githubusercontent.com` to fetch the DataFusion `.proto` files used to

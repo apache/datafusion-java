@@ -42,5 +42,5 @@ table-provider
 api-reference
 ```
 
-> Early development: no releases yet, API will change. Bug reports and
-> contributions welcome.
+> Early development: the API will change between releases. Bug reports
+> and contributions welcome.
