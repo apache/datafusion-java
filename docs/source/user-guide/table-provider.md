@@ -98,8 +98,10 @@ try (SessionContext ctx = new SessionContext();
 
 Exceptions thrown from `scan()` or from the returned reader surface in the
 `RuntimeException` raised by `collect()`. The error message includes the Java
-exception class and `getMessage()`, in the same format used for scalar UDF
-errors.
+exception class, `getMessage()`, and (at the default `FULL` verbosity) the
+Java stack trace. See [scalar-udf.md → Errors](scalar-udf.md#errors) for the
+session-wide verbosity setter — it applies uniformly to UDFs and table
+providers.
 
 ## Threading
 

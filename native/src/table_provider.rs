@@ -47,7 +47,7 @@ use jni::objects::{GlobalRef, JStaticMethodID};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jlong, jvalue};
 
-use crate::jni_util::jthrowable_to_string;
+use crate::jni_util::{jthrowable_to_string, ExceptionVerbosity};
 
 pub(crate) struct JavaTableProvider {
     pub(crate) name: String,
@@ -55,6 +55,9 @@ pub(crate) struct JavaTableProvider {
     pub(crate) source_global_ref: Arc<GlobalRef>,
     pub(crate) bridge_class: Arc<GlobalRef>,
     pub(crate) invoke_method: JStaticMethodID,
+    /// Verbosity applied when `TableProvider.scan` throws. Locked at
+    /// registration time; same flow as `JavaScalarUdf.verbosity`.
+    pub(crate) verbosity: ExceptionVerbosity,
 }
 
 // SAFETY: see the matching unsafe impls on JavaScalarUdf. The GlobalRefs keep
@@ -111,6 +114,7 @@ impl TableProvider for JavaTableProvider {
             source_global_ref: Arc::clone(&self.source_global_ref),
             bridge_class: Arc::clone(&self.bridge_class),
             invoke_method: self.invoke_method,
+            verbosity: self.verbosity,
             plan_properties,
         }))
     }
@@ -124,6 +128,7 @@ pub(crate) struct JavaScanExec {
     source_global_ref: Arc<GlobalRef>,
     bridge_class: Arc<GlobalRef>,
     invoke_method: JStaticMethodID,
+    verbosity: ExceptionVerbosity,
     plan_properties: Arc<PlanProperties>,
 }
 
@@ -226,6 +231,7 @@ impl ExecutionPlan for JavaScanExec {
                 &throwable,
                 "TableProvider",
                 &self.name,
+                self.verbosity,
             )));
         }
 

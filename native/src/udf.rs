@@ -46,6 +46,10 @@ pub(crate) struct JavaScalarUdf {
     pub(crate) bridge_class: GlobalRef,
     /// Method ID for `JniBridge.invokeScalarUdf`.
     pub(crate) invoke_method: JStaticMethodID,
+    /// Verbosity to apply when this UDF's `evaluate` throws. Snapshotted from
+    /// the registering `SessionContext` -- locked at registration time, like
+    /// the rest of this struct.
+    pub(crate) verbosity: crate::jni_util::ExceptionVerbosity,
 }
 
 // SAFETY: JStaticMethodID is a JNI handle that's safe to share because the
@@ -243,8 +247,13 @@ impl ScalarUDFImpl for JavaScalarUdf {
                 DataFusionError::Execution(format!("exception_occurred failed: {}", e))
             })?;
             env.exception_clear().ok();
-            let message =
-                crate::jni_util::jthrowable_to_string(&mut env, &throwable, "UDF", &self.name);
+            let message = crate::jni_util::jthrowable_to_string(
+                &mut env,
+                &throwable,
+                "UDF",
+                &self.name,
+                self.verbosity,
+            );
             return Err(DataFusionError::Execution(message));
         }
 
