@@ -27,6 +27,7 @@ mod object_store;
 mod proto;
 mod runtime_metrics;
 mod schema;
+mod streaming_table;
 mod table_provider;
 mod udf;
 
@@ -1291,6 +1292,148 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNa
             invoke_method,
         };
         let _ = ctx.register_table(name.as_str(), Arc::new(java_tp))?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerStreamingTableNative<
+    'local,
+>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+    schema_ipc_bytes: JByteArray<'local>,
+    capacity: jint,
+) -> jlong {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        if capacity <= 0 {
+            return Err(format!("capacity must be positive, was {}", capacity).into());
+        }
+        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext.
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+
+        let schema = crate::schema::decode_optional_schema(env, schema_ipc_bytes)?
+            .ok_or("schema bytes were null")?;
+        let schema = Arc::new(schema);
+
+        let (table, sink) =
+            crate::streaming_table::make_streaming_table(schema, capacity as usize)?;
+        let _ = ctx.register_table(name.as_str(), table)?;
+
+        // Hand the sink off to Java as an opaque pointer to an Arc clone of
+        // the handle. We Box+leak the Arc so Java can release exactly one
+        // strong ref via dropHandleNative when TableSink.close() runs --
+        // any in-flight writeBatchNative call holds its own Arc clone, so
+        // a concurrent close() cannot turn into a use-after-free.
+        let sink_arc: std::sync::Arc<crate::streaming_table::TableSinkHandle> =
+            std::sync::Arc::new(sink);
+        let sink_box = Box::new(sink_arc);
+        Ok(Box::into_raw(sink_box) as jlong)
+    })
+}
+
+/// Clone the producer-side `Arc<TableSinkHandle>` referenced by `handle`.
+///
+/// SAFETY: caller asserts `handle` is the live pointer returned by
+/// `registerStreamingTableNative` and not yet freed by `dropHandleNative`.
+/// The Java side enforces this by zeroing its `nativeHandle` field inside
+/// `close()` / `fail()` *before* calling `dropHandleNative`, so any thread
+/// that observed a non-zero handle on entry to `write()` /
+/// `closeSinkNative` / `failSinkNative` is racing with at most one
+/// concurrent `dropHandleNative`.
+///
+/// Cloning the Arc here gives every native call its own strong reference
+/// for the duration of the Rust work (which can park on
+/// `Sender::blocking_send`); the eventual `dropHandleNative` only releases
+/// the Java-side strong ref. The inner `TableSinkHandle` is freed when the
+/// last clone drops, never mid-call.
+unsafe fn clone_sink_arc(handle: jlong) -> std::sync::Arc<crate::streaming_table::TableSinkHandle> {
+    let arc_ref = &*(handle as *const std::sync::Arc<crate::streaming_table::TableSinkHandle>);
+    std::sync::Arc::clone(arc_ref)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_TableSink_writeBatchNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    array_addr: jlong,
+    schema_addr: jlong,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("TableSink handle is null".into());
+        }
+        // SAFETY: see `clone_sink_arc`. The Arc clone keeps the inner
+        // TableSinkHandle alive even if Java drops its strong ref while
+        // we're parked on `Sender::blocking_send` below.
+        let sink = unsafe { clone_sink_arc(handle) };
+        // SAFETY: array_addr and schema_addr point at FFI structs the Java
+        // side just populated via Data.exportVectorSchemaRoot. We take
+        // ownership and release them when the resulting RecordBatch drops.
+        let batch =
+            unsafe { crate::streaming_table::import_batch_from_ffi(array_addr, schema_addr)? };
+        sink.write(batch).map_err(|e| e.into())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_TableSink_closeSinkNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle == 0 {
+            return Ok(());
+        }
+        let sink = unsafe { clone_sink_arc(handle) };
+        sink.close();
+        Ok(())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_TableSink_failSinkNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    message: JString<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("TableSink handle is null".into());
+        }
+        let sink = unsafe { clone_sink_arc(handle) };
+        let msg: String = env.get_string(&message)?.into();
+        sink.fail(msg).map_err(|e| e.into())
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_TableSink_dropHandleNative<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) {
+    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+        if handle != 0 {
+            // SAFETY: handle is the Box<Arc<TableSinkHandle>> allocated by
+            // registerStreamingTableNative. Reclaiming the Box drops the
+            // Java-side strong ref; the inner TableSinkHandle is freed only
+            // when the last in-flight write/close/fail clone drops.
+            unsafe {
+                drop(Box::from_raw(
+                    handle as *mut std::sync::Arc<crate::streaming_table::TableSinkHandle>,
+                ));
+            }
+        }
         Ok(())
     })
 }

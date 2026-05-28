@@ -588,6 +588,115 @@ public final class SessionContext implements AutoCloseable {
     registerTableNative(nativeHandle, name, schemaIpc, provider);
   }
 
+  /**
+   * Register a push-mode streaming table and return a {@link TableSink} the caller writes batches
+   * into. Companion to {@link #registerTable(String, TableProvider)} for event-driven producers
+   * that don't materialise an {@link org.apache.arrow.vector.ipc.ArrowReader} up front.
+   *
+   * <p>Producers (any thread) call {@link TableSink#write(VectorSchemaRoot)} to push a batch;
+   * DataFusion's {@code StreamingTableExec} polls the underlying mpsc channel during query
+   * execution. When the producer is done it calls {@link TableSink#close()} to signal end-of-stream
+   * (or {@link TableSink#fail(Throwable)} to signal an error). The {@code capacity} argument is the
+   * channel buffer size in batches; producers writing faster than the consumer block on {@code
+   * write} until space frees up.
+   *
+   * <p><strong>Single-scan semantics.</strong> The registered table can be queried at most once.
+   * Subsequent scans against the same registration throw a {@link RuntimeException}. This matches
+   * the natural semantic for an event-driven producer (the data is consumed as it arrives) and
+   * keeps the implementation from buffering every batch internally. Callers who need re-scan should
+   * use {@link #registerTable(String, TableProvider)} with {@link SimpleTableProvider} instead.
+   *
+   * <p>The registered table outlives the returned {@link TableSink}: the sink represents the
+   * producer side of the channel, and dropping it (via {@link TableSink#close()}) signals
+   * end-of-stream without unregistering the table.
+   *
+   * <p><strong>Schema constraint -- non-empty.</strong> {@code schema} must declare at least one
+   * column. The sink derives its Arrow C Data Interface scratch allocator from each incoming
+   * batch's first field vector (so the FFI scratch shares an allocator-root with the producer's
+   * buffers and the export call can transfer ownership), which has no allocator to borrow when the
+   * schema is empty. Zero-column streaming tables are uncommon in practice -- they would only arise
+   * from a planner that requested row counts from a streaming source -- and supporting them would
+   * add a second allocator-management path for a use case the OpenSearch prior art does not
+   * exercise.
+   *
+   * <p><strong>Schema constraint -- no dictionary-encoded fields.</strong> Dictionary-encoded
+   * fields are not supported in v1. {@link
+   * org.apache.arrow.c.Data#exportVectorSchemaRoot(org.apache.arrow.memory.BufferAllocator,
+   * VectorSchemaRoot, org.apache.arrow.vector.dictionary.DictionaryProvider,
+   * org.apache.arrow.c.ArrowArray, org.apache.arrow.c.ArrowSchema)} requires a non-null {@code
+   * DictionaryProvider} when any field is dictionary-encoded, and {@link TableSink#write} passes
+   * {@code null} -- so a dictionary-encoded schema would NPE on first write. Rejecting at
+   * registration makes that breakage visible up front. A future overload that accepts a {@code
+   * DictionaryProvider} would lift this restriction; out of scope for v1.
+   *
+   * @param name the table name to register under.
+   * @param schema the fixed schema of all batches the producer will push. Must have at least one
+   *     column and no dictionary-encoded fields.
+   * @param capacity the channel buffer size in batches; must be {@code > 0}. Tune based on the
+   *     producer's burstiness vs. the consumer's drain rate.
+   * @return a {@link TableSink} the caller writes batches into. Owns native resources; must be
+   *     closed.
+   * @throws IllegalArgumentException if {@code name} or {@code schema} is {@code null}; if {@code
+   *     schema} has zero columns or any dictionary-encoded field; or if {@code capacity <= 0}.
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if native registration fails (e.g. a table with the same name is
+   *     already registered).
+   */
+  public TableSink registerStreamingTable(String name, Schema schema, int capacity) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("registerStreamingTable name must be non-null");
+    }
+    if (schema == null) {
+      throw new IllegalArgumentException("registerStreamingTable schema must be non-null");
+    }
+    if (schema.getFields().isEmpty()) {
+      throw new IllegalArgumentException(
+          "registerStreamingTable schema must have at least one column "
+              + "(zero-column streaming tables are not supported -- see Javadoc)");
+    }
+    // Walk recursively: Data.exportVectorSchemaRoot recurses into Struct/List/Map/Union
+    // children and dereferences the DictionaryProvider for any dictionary-encoded field at any
+    // depth. A null provider would NPE on first write for a nested dictionary, so we have to
+    // reject the schema if *any* descendant field carries an encoding -- top-level isn't enough.
+    for (Field field : schema.getFields()) {
+      checkNoDictionaryEncoding(field, field.getName());
+    }
+    if (capacity <= 0) {
+      throw new IllegalArgumentException(
+          "registerStreamingTable capacity must be positive, was " + capacity);
+    }
+    byte[] schemaIpc = serializeSchemaIpc(schema);
+    long sinkHandle = registerStreamingTableNative(nativeHandle, name, schemaIpc, capacity);
+    // The TableSink derives its FFI scratch allocator from each incoming batch so that the
+    // sink's exported buffers share a root with the producer's vectors -- otherwise Arrow's
+    // C-Data export rejects the cross-root transfer.
+    return new TableSink(sinkHandle);
+  }
+
+  /**
+   * Recursively reject any field that carries a {@code DictionaryEncoding}. {@code path} carries
+   * the dotted path from the schema root for the error message ("a.b.c"); on the first hit the
+   * caller sees which descendant tripped the check.
+   */
+  private static void checkNoDictionaryEncoding(Field field, String path) {
+    if (field.getDictionary() != null) {
+      throw new IllegalArgumentException(
+          "registerStreamingTable does not support dictionary-encoded fields "
+              + "(field '"
+              + path
+              + "' has dictionary id "
+              + field.getDictionary().getId()
+              + "); v1 cannot supply a DictionaryProvider to Data.exportVectorSchemaRoot. "
+              + "See Javadoc for the planned follow-up.");
+    }
+    for (Field child : field.getChildren()) {
+      checkNoDictionaryEncoding(child, path + "." + child.getName());
+    }
+  }
+
   private static byte[] serializeSchemaIpc(Schema schema) {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (BufferAllocator allocator = new RootAllocator();
@@ -664,4 +773,7 @@ public final class SessionContext implements AutoCloseable {
 
   private static native void registerTableNative(
       long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
+
+  private static native long registerStreamingTableNative(
+      long handle, String name, byte[] schemaIpcBytes, int capacity);
 }
