@@ -48,6 +48,9 @@ cd native && cargo build
 
 The native library must be built before running JVM tests.
 
+Before pushing, run `make format` to apply the Java + Rust formatters in
+place. CI verifies formatting, clippy, and license headers on every PR.
+
 The first build in a fresh checkout reaches out to
 `raw.githubusercontent.com` to fetch the DataFusion `.proto` files used
 to generate the `datafusion-proto` Java classes. Subsequent builds are
@@ -80,7 +83,8 @@ The repository is a multi-module Maven build:
   cannot fall out of sync with the API.
 - `native/` — Rust crate (JNI + Arrow C Data Interface).
 - `proto/` — Protobuf definitions shared between Java and Rust.
-- `Makefile` — top-level build orchestration (`make test`, `make tpch-data`).
+- `Makefile` — top-level build orchestration (`make test`, `make format`,
+  `make tpch-data`).
 - `mvnw`, `mvnw.cmd` — bundled Maven wrapper.
 - `docs/` — Sphinx documentation source and build scripts.
 
