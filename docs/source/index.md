@@ -25,8 +25,8 @@ return to the JVM as [Apache Arrow] batches via the Arrow C Data Interface.
 [Apache DataFusion]: https://datafusion.apache.org/
 [Apache Arrow]: https://arrow.apache.org/
 
-> Early development: no releases yet, API will change. Bug reports and
-> contributions welcome.
+> Early development: the API will change between releases. Bug reports
+> and contributions welcome.
 
 ## Quickstart
 
