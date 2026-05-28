@@ -21,9 +21,10 @@ under the License.
 
 Apache DataFusion Java is published to
 [Maven Central](https://central.sonatype.com/artifact/org.apache.datafusion/datafusion-java).
-The JAR bundles the native library for Linux (x86_64, aarch64), macOS
-(x86_64, aarch64), and Windows (x86_64), so no separate native install is
-required on those platforms.
+The JAR bundles the native library for Linux (x86_64, aarch64) and macOS
+(x86_64, aarch64), so no separate native install is required on those
+platforms. Windows is not yet supported by the published JAR; Windows
+users need to build from source.
 
 ## Requirements
 
@@ -58,8 +59,8 @@ transitively — you do not need to declare it yourself.
 
 ## Build from source
 
-If you are on a platform without a bundled native library, or want to run
-against unreleased changes, build from source:
+If you are on Windows, on another platform without a bundled native
+library, or want to run against unreleased changes, build from source:
 
 ```sh
 git clone https://github.com/apache/datafusion-java.git

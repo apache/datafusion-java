@@ -12,8 +12,8 @@ return to the JVM as [Apache Arrow] batches via the Arrow C Data Interface.
 ## Install
 
 Released to [Maven Central](https://central.sonatype.com/artifact/org.apache.datafusion/datafusion-java).
-The JAR bundles the native library for Linux, macOS, and Windows on
-x86_64 / aarch64.
+The JAR bundles the native library for Linux and macOS on x86_64 and
+aarch64. Windows users need to build from source.
 
 Maven:
 
