@@ -424,6 +424,8 @@ be run individually:</p>
 </pre></div>
 </div>
 <p>The native library must be built before running JVM tests.</p>
+<p>Before pushing, run <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">format</span></code> to apply the Java + Rust formatters in
+place. CI verifies formatting, clippy, and license headers on every PR.</p>
 <p>The first build in a fresh checkout reaches out to
 <code class="docutils literal notranslate"><span class="pre">raw.githubusercontent.com</span></code> to fetch the DataFusion <code class="docutils literal notranslate"><span class="pre">.proto</span></code> files used
 to generate the <code class="docutils literal notranslate"><span class="pre">datafusion-proto</span></code> Java classes. Subsequent builds are
@@ -454,7 +456,8 @@ examples that depend on the library; built alongside the library so they
 cannot fall out of sync with the API.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">native/</span></code> — Rust crate (JNI + Arrow C Data Interface).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">proto/</span></code> — Protobuf definitions shared between Java and Rust.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — top-level build orchestration (<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">tpch-data</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — top-level build orchestration (<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">format</span></code>,
+<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">tpch-data</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">mvnw</span></code>, <code class="docutils literal notranslate"><span class="pre">mvnw.cmd</span></code> — bundled Maven wrapper.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">docs/</span></code> — Sphinx documentation source and build scripts.</p></li>
 </ul>

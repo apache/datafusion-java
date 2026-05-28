@@ -401,28 +401,35 @@ under the License.
 -->
 <section id="code-style">
 <h1>Code style<a class="headerlink" href="#code-style" title="Link to this heading">#</a></h1>
+<p>To apply Java + Rust formatters in one go:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>make<span class="w"> </span>format
+</pre></div>
+</div>
+<p>CI verifies formatting, lint, and license headers on every PR via the
+<strong>Lint</strong> and <strong>RAT License Check</strong> workflows.</p>
 <section id="java">
 <h2>Java<a class="headerlink" href="#java" title="Link to this heading">#</a></h2>
-<p>Run the Spotless formatter before committing. CI fails the build if
-formatting drifts:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./mvnw<span class="w"> </span>spotless:apply
+<p>Spotless is configured in the parent <code class="docutils literal notranslate"><span class="pre">pom.xml</span></code>. The CI <code class="docutils literal notranslate"><span class="pre">fmt-check</span></code> job
+runs:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>./mvnw<span class="w"> </span>spotless:check
 </pre></div>
 </div>
 </section>
 <section id="rust">
 <h2>Rust<a class="headerlink" href="#rust" title="Link to this heading">#</a></h2>
-<p>Run inside <code class="docutils literal notranslate"><span class="pre">native/</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>cargo<span class="w"> </span>fmt
+<p>The CI <code class="docutils literal notranslate"><span class="pre">clippy</span></code> job runs (from <code class="docutils literal notranslate"><span class="pre">native/</span></code>):</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>cargo<span class="w"> </span>fmt<span class="w"> </span>--all<span class="w"> </span>--<span class="w"> </span>--check
 cargo<span class="w"> </span>clippy<span class="w"> </span>--all-targets<span class="w"> </span>--<span class="w"> </span>-D<span class="w"> </span>warnings
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">-D</span> <span class="pre">warnings</span></code> turns clippy warnings into build failures, matching CI.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-D</span> <span class="pre">warnings</span></code> escalates every clippy warning to a build failure.</p>
 </section>
 <section id="license-headers">
 <h2>License headers<a class="headerlink" href="#license-headers" title="Link to this heading">#</a></h2>
-<p>New source files need the Apache 2.0 license header. Apache RAT enforces
-this during <code class="docutils literal notranslate"><span class="pre">verify</span></code> — <code class="docutils literal notranslate"><span class="pre">./mvnw</span> <span class="pre">verify</span></code> will fail if a tracked file is
-missing the header.</p>
+<p>Every tracked source file needs the Apache 2.0 license header. The
+<strong>RAT License Check</strong> workflow runs <code class="docutils literal notranslate"><span class="pre">./mvnw</span> <span class="pre">-N</span> <span class="pre">apache-rat:check</span></code> on every
+PR (including docs-only changes). Exclusions live in
+<code class="docutils literal notranslate"><span class="pre">dev/release/rat_exclude_files.txt</span></code>.</p>
 </section>
 </section>
 

@@ -406,17 +406,48 @@ under the License.
 -->
 <section id="installation">
 <h1>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h1>
-<p>Apache DataFusion Java has not yet published a release. Until the first
-release, the only way to use the library is to build from source.</p>
+<p>Apache DataFusion Java is published to
+<a class="reference external" href="https://central.sonatype.com/artifact/org.apache.datafusion/datafusion-java">Maven Central</a>.
+The JAR bundles the native library for Linux (x86_64, aarch64) and macOS
+(x86_64, aarch64), so no separate native install is required on those
+platforms. Windows is not yet supported by the published JAR; Windows
+users need to build from source.</p>
 <section id="requirements">
 <h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><strong>JDK 17 or newer.</strong> Set <code class="docutils literal notranslate"><span class="pre">JAVA_HOME</span></code> to point at it.</p></li>
-<li><p><strong>Rust toolchain (stable).</strong> Install via <a class="reference external" href="https://rustup.rs/">rustup</a>.</p></li>
+<ul>
+<li><p><strong>JDK 17 or newer.</strong></p></li>
+<li><p>Arrow needs access to <code class="docutils literal notranslate"><span class="pre">java.nio</span></code> internals. Add this to the JVM
+arguments of whatever runs your code:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">--</span><span class="n">add</span><span class="o">-</span><span class="n">opens</span><span class="o">=</span><span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">nio</span><span class="o">=</span><span class="n">ALL</span><span class="o">-</span><span class="n">UNNAMED</span>
+</pre></div>
+</div>
+</li>
 </ul>
+</section>
+<section id="maven">
+<h2>Maven<a class="headerlink" href="#maven" title="Link to this heading">#</a></h2>
+<div class="highlight-xml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;dependency&gt;</span>
+<span class="w">    </span><span class="nt">&lt;groupId&gt;</span>org.apache.datafusion<span class="nt">&lt;/groupId&gt;</span>
+<span class="w">    </span><span class="nt">&lt;artifactId&gt;</span>datafusion-java<span class="nt">&lt;/artifactId&gt;</span>
+<span class="w">    </span><span class="nt">&lt;version&gt;</span>0.1.0<span class="nt">&lt;/version&gt;</span>
+<span class="nt">&lt;/dependency&gt;</span>
+</pre></div>
+</div>
+</section>
+<section id="gradle">
+<h2>Gradle<a class="headerlink" href="#gradle" title="Link to this heading">#</a></h2>
+<div class="highlight-kotlin notranslate"><div class="highlight"><pre><span></span><span class="n">dependencies</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;org.apache.datafusion:datafusion-java:0.1.0&quot;</span><span class="p">)</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Arrow (<code class="docutils literal notranslate"><span class="pre">arrow-vector</span></code>, <code class="docutils literal notranslate"><span class="pre">arrow-c-data</span></code>, <code class="docutils literal notranslate"><span class="pre">arrow-memory-netty</span></code>) is pulled in
+transitively — you do not need to declare it yourself.</p>
 </section>
 <section id="build-from-source">
 <h2>Build from source<a class="headerlink" href="#build-from-source" title="Link to this heading">#</a></h2>
+<p>If you are on Windows, on another platform without a bundled native
+library, or want to run against unreleased changes, build from source:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/apache/datafusion-java.git
 <span class="nb">cd</span><span class="w"> </span>datafusion-java
 make<span class="w"> </span><span class="nb">test</span>
@@ -425,6 +456,8 @@ make<span class="w"> </span><span class="nb">test</span>
 <p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code> compiles the native Rust crate, then runs the JUnit tests
 against it. The native library must be built before the JVM tests can
 run.</p>
+<p>Building from source requires a stable Rust toolchain (install via
+<a class="reference external" href="https://rustup.rs/">rustup</a>) in addition to the JDK.</p>
 <p>The first build in a fresh checkout reaches out to
 <code class="docutils literal notranslate"><span class="pre">raw.githubusercontent.com</span></code> to fetch the DataFusion <code class="docutils literal notranslate"><span class="pre">.proto</span></code> files used to
 generate the <code class="docutils literal notranslate"><span class="pre">datafusion-proto</span></code> Java classes. Subsequent builds are
@@ -484,6 +517,8 @@ DataFusion version — see the <a class="reference internal" href="../contributo
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#requirements">Requirements</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#maven">Maven</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gradle">Gradle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-from-source">Build from source</a></li>
 </ul>
   </nav></div>
