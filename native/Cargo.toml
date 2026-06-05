@@ -38,6 +38,7 @@ default = [
     "object-store-aws",
     "object-store-gcp",
     "object-store-http",
+    "spark",
 ]
 object-store-aws = ["object_store/aws"]
 object-store-gcp = ["object_store/gcp"]
@@ -67,12 +68,21 @@ protoc = ["datafusion-substrait?/protoc"]
 # invoked in a build that compiled the feature off, so the Java surface is
 # unchanged either way.
 runtime-metrics = ["dep:tokio-metrics"]
+# Apache Spark-compatible functions, registered when a caller builds a
+# context with `SessionContextBuilder.withSparkFunctions()`. On by default so
+# Java callers don't have to think about features; builds that strip it get a
+# clear runtime error from the JVM if the flag is requested.
+spark = ["dep:datafusion-spark"]
 
 [dependencies]
 arrow = { version = "58", features = ["ffi"] }
 async-trait = "0.1"
 datafusion = { version = "53.1.0", features = ["avro"] }
 datafusion-proto = "53.1.0"
+# Apache Spark-compatible functions + expression planners. Optional and
+# gated behind the `spark` feature (in the default set). The `core` feature
+# of the crate is what exposes `SessionStateBuilderSpark`.
+datafusion-spark = { version = "53.1.0", features = ["core"], optional = true }
 datafusion-substrait = { version = "53.1.0", optional = true }
 futures = "0.3"
 jni = "0.21"
