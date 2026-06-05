@@ -50,7 +50,7 @@ use datafusion::dataframe::DataFrame;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
@@ -115,6 +115,42 @@ fn install_memory_tracker(
     let tracker = std::sync::Arc::new(crate::memory::TrackingMemoryPool::new(inner));
     builder.memory_pool = Some(tracker.clone());
     tracker
+}
+
+/// Build a `SessionContext` from a prepared config + runtime env. When
+/// `spark_functions` is set, register Apache Spark-compatible functions and
+/// expression planners via the `datafusion-spark` crate (requires the `spark`
+/// Cargo feature); otherwise build the plain context. Returns an error if the
+/// caller asked for Spark functions in a build that compiled the feature off.
+fn build_session_context(
+    config: SessionConfig,
+    runtime_env: Arc<RuntimeEnv>,
+    spark_functions: bool,
+) -> JniResult<SessionContext> {
+    if spark_functions {
+        #[cfg(feature = "spark")]
+        {
+            use datafusion::execution::SessionStateBuilder;
+            use datafusion_spark::SessionStateBuilderSpark;
+            // Order matters: `with_spark_features` runs after
+            // `with_default_features` so Spark implementations override the
+            // DataFusion built-ins of the same name.
+            let state = SessionStateBuilder::new()
+                .with_config(config)
+                .with_runtime_env(runtime_env)
+                .with_default_features()
+                .with_spark_features()
+                .build();
+            Ok(SessionContext::new_with_state(state))
+        }
+        #[cfg(not(feature = "spark"))]
+        {
+            let _ = (config, runtime_env);
+            Err("spark Cargo feature is not enabled in this build of datafusion-jni".into())
+        }
+    } else {
+        Ok(SessionContext::new_with_config_rt(config, runtime_env))
+    }
 }
 
 #[no_mangle]
@@ -225,8 +261,9 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createSessionCo
         // update two atomics.
         let tracker = install_memory_tracker(&mut runtime_builder);
 
-        let runtime_env = runtime_builder.build()?;
-        let ctx = SessionContext::new_with_config_rt(config, Arc::new(runtime_env));
+        let runtime_env = Arc::new(runtime_builder.build()?);
+        let ctx =
+            build_session_context(config, runtime_env, opts.spark_functions.unwrap_or(false))?;
 
         // Object-store registrations come last because they need a built
         // RuntimeEnv to register against. A failure here drops `ctx` (and its
