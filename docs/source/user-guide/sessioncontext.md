@@ -60,3 +60,24 @@ try (SessionContext ctx = SessionContext.builder()
     // ...
 }
 ```
+
+## Spark-compatible functions
+
+`withSparkFunctions()` registers Apache Spark–compatible functions and
+expression planners (from the
+[`datafusion-spark`](https://crates.io/crates/datafusion-spark) crate) on the
+context:
+
+```java
+try (SessionContext ctx = SessionContext.builder()
+        .withSparkFunctions()
+        .build();
+     DataFrame df = ctx.sql("SELECT crc32('Spark')")) {
+    // ...
+}
+```
+
+When enabled, Spark-compatible functions override any DataFusion built-in of
+the same name. This requires the native library to be built with the `spark`
+Cargo feature, which is enabled in the default build; otherwise `build()`
+throws explaining the feature is missing.
