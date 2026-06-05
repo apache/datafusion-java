@@ -1331,3 +1331,28 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNa
         Ok(())
     })
 }
+
+#[cfg(all(test, feature = "spark"))]
+mod spark_tests {
+    use super::*;
+
+    #[test]
+    fn spark_functions_register_crc32() {
+        let rt = Arc::new(RuntimeEnvBuilder::new().build().unwrap());
+        let ctx = build_session_context(SessionConfig::new(), rt, true).unwrap();
+        assert!(
+            ctx.state().scalar_functions().contains_key("crc32"),
+            "expected Spark crc32 to be registered when spark_functions = true"
+        );
+    }
+
+    #[test]
+    fn plain_context_has_no_crc32() {
+        let rt = Arc::new(RuntimeEnvBuilder::new().build().unwrap());
+        let ctx = build_session_context(SessionConfig::new(), rt, false).unwrap();
+        assert!(
+            !ctx.state().scalar_functions().contains_key("crc32"),
+            "crc32 must not be registered without spark_functions"
+        );
+    }
+}
