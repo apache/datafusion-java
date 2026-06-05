@@ -427,6 +427,21 @@ class SessionContextBuilderTest {
   }
 
   @Test
+  void withSparkFunctionsRoundTripsThroughProto() throws Exception {
+    byte[] bytes = SessionContext.builder().withSparkFunctions().toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertTrue(parsed.hasSparkFunctions());
+    assertTrue(parsed.getSparkFunctions());
+  }
+
+  @Test
+  void sparkFunctionsAbsentWhenNotRequested() throws Exception {
+    byte[] bytes = SessionContext.builder().batchSize(8192).toBytes();
+    SessionOptions parsed = SessionOptions.parseFrom(bytes);
+    assertFalse(parsed.hasSparkFunctions());
+  }
+
+  @Test
   void tempDirectoryStaysOnLegacyField() throws Exception {
     // tempDirectory(String) writes the existing SessionOptions.temp_directory
     // field, not disk_manager -- bytes identical to pre-PR behaviour for

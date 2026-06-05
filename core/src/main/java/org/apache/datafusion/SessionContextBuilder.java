@@ -44,6 +44,7 @@ public final class SessionContextBuilder {
   private boolean spillDisabled;
   private Long maxTempDirectorySize;
   private CacheManagerOptions cacheManager;
+  private boolean sparkFunctions;
   private final LinkedHashMap<String, String> options = new LinkedHashMap<>();
   private final List<ObjectStoreOptions> objectStores = new ArrayList<>();
 
@@ -228,6 +229,20 @@ public final class SessionContextBuilder {
   }
 
   /**
+   * Register Apache Spark-compatible functions and expression planners on the new context, using
+   * the {@code datafusion-spark} crate. Once enabled, Spark-compatible functions (e.g. {@code
+   * crc32}) are callable from SQL and override any DataFusion built-in of the same name.
+   *
+   * <p>Requires the native library to be built with the {@code spark} Cargo feature, which is
+   * enabled in the default build. If it is not, {@link #build()} throws a {@link RuntimeException}
+   * explaining the feature is missing.
+   */
+  public SessionContextBuilder withSparkFunctions() {
+    this.sparkFunctions = true;
+    return this;
+  }
+
+  /**
    * Register an {@code object_store::ObjectStore} backend on the new context's {@code RuntimeEnv}.
    * Build {@link ObjectStoreOptions} via the per-backend factories ({@link ObjectStoreOptions#s3},
    * {@link ObjectStoreOptions#gcs}, {@link ObjectStoreOptions#http(String)}). The store is
@@ -308,6 +323,9 @@ public final class SessionContextBuilder {
     }
     for (Map.Entry<String, String> e : options.entrySet()) {
       b.addOptions(ConfigOption.newBuilder().setKey(e.getKey()).setValue(e.getValue()).build());
+    }
+    if (sparkFunctions) {
+      b.setSparkFunctions(true);
     }
     for (ObjectStoreOptions os : objectStores) {
       b.addObjectStores(os.toRegistration());
