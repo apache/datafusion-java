@@ -1043,6 +1043,41 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_getOptionNative
 }
 
 #[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableExists<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+) -> jboolean {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jboolean> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+        Ok(ctx.table_exist(&name)? as jboolean)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_deregisterTable<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        if handle == 0 {
+            return Err("SessionContext handle is null".into());
+        }
+        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let name: String = env.get_string(&name)?.into();
+        ctx.deregister_table(&name)?;
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_SessionContext_closeSessionContext<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
