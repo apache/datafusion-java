@@ -20,6 +20,7 @@
 package org.apache.datafusion;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,6 +34,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SessionContextTest {
   @Test
@@ -88,6 +90,73 @@ class SessionContextTest {
         throw new RuntimeException(e);
       }
       assertThrows(IllegalStateException.class, () -> df.collect(allocator));
+    }
+  }
+
+  @Test
+  void tableExistsReturnsFalseForUnregisteredTable() {
+    try (SessionContext ctx = new SessionContext()) {
+      assertFalse(ctx.tableExists("orders"));
+    }
+  }
+
+  @Test
+  void tableExistsReturnsTrueAfterRegisterCsv(@TempDir Path tempDir) throws Exception {
+    Path csv = tempDir.resolve("orders.csv");
+    Files.writeString(csv, "id,amount\n1,100\n2,200\n");
+
+    try (SessionContext ctx = new SessionContext()) {
+      assertFalse(ctx.tableExists("orders"));
+      ctx.registerCsv("orders", csv.toAbsolutePath().toString());
+      assertTrue(ctx.tableExists("orders"));
+    }
+  }
+
+  @Test
+  void deregisterTableRemovesRegisteredTable(@TempDir Path tempDir) throws Exception {
+    Path csv = tempDir.resolve("orders.csv");
+    Files.writeString(csv, "id,amount\n1,100\n2,200\n");
+
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.registerCsv("orders", csv.toAbsolutePath().toString());
+      assertTrue(ctx.tableExists("orders"));
+      ctx.deregisterTable("orders");
+      assertFalse(ctx.tableExists("orders"));
+    }
+  }
+
+  @Test
+  void deregisterTableIsNoOpForUnregisteredTable() {
+    try (SessionContext ctx = new SessionContext()) {
+      ctx.deregisterTable("nonexistent");
+    }
+  }
+
+  @Test
+  void tableExistsThrowsWhenContextIsClosed() {
+    SessionContext ctx = new SessionContext();
+    ctx.close();
+    assertThrows(IllegalStateException.class, () -> ctx.tableExists("orders"));
+  }
+
+  @Test
+  void deregisterTableThrowsWhenContextIsClosed() {
+    SessionContext ctx = new SessionContext();
+    ctx.close();
+    assertThrows(IllegalStateException.class, () -> ctx.deregisterTable("orders"));
+  }
+
+  @Test
+  void tableExistsThrowsForNullName() {
+    try (SessionContext ctx = new SessionContext()) {
+      assertThrows(IllegalArgumentException.class, () -> ctx.tableExists(null));
+    }
+  }
+
+  @Test
+  void deregisterTableThrowsForNullName() {
+    try (SessionContext ctx = new SessionContext()) {
+      assertThrows(IllegalArgumentException.class, () -> ctx.deregisterTable(null));
     }
   }
 }

@@ -612,6 +612,9 @@ public final class SessionContext implements AutoCloseable {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
     }
+    if (name == null) {
+      throw new IllegalArgumentException("tableExists name must be non-null");
+    }
     return tableExists(nativeHandle, name);
   }
 
@@ -626,6 +629,9 @@ public final class SessionContext implements AutoCloseable {
   public void deregisterTable(String name) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null) {
+      throw new IllegalArgumentException("deregisterTable name must be non-null");
     }
     deregisterTable(nativeHandle, name);
   }

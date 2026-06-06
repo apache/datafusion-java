@@ -1053,6 +1053,9 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableExists<'lo
         if handle == 0 {
             return Err("SessionContext handle is null".into());
         }
+        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext,
+        // the null check above guards against zero, and the Java side zeroes nativeHandle
+        // on close() so a closed context is caught before reaching here.
         let ctx = unsafe { &*(handle as *const SessionContext) };
         let name: String = env.get_string(&name)?.into();
         Ok(ctx.table_exist(&name)? as jboolean)
@@ -1070,6 +1073,9 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_deregisterTable
         if handle == 0 {
             return Err("SessionContext handle is null".into());
         }
+        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext,
+        // the null check above guards against zero, and the Java side zeroes nativeHandle
+        // on close() so a closed context is caught before reaching here.
         let ctx = unsafe { &*(handle as *const SessionContext) };
         let name: String = env.get_string(&name)?.into();
         ctx.deregister_table(&name)?;
