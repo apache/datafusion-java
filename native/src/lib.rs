@@ -1042,6 +1042,20 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_getOptionNative
     )
 }
 
+/// Converts a raw JNI handle into a shared reference to a [`SessionContext`].
+///
+/// # Safety for the unsafe usage
+/// The caller must ensure `handle` was produced by `Box::into_raw(Box::new(ctx))`
+/// in `createSessionContext` and has not yet been freed. The Java side zeroes
+/// `nativeHandle` on `close()`, so the `handle == 0` guard in every JNI handler
+/// ensures this invariant holds before `unwrap_context` is called.
+fn unwrap_context(handle: jlong) -> JniResult<&'static SessionContext> {
+    if handle == 0 {
+        return Err("SessionContext handle is null".into());
+    }
+    Ok(unsafe { &*(handle as *const SessionContext) })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableExists<'local>(
     mut env: JNIEnv<'local>,
@@ -1050,13 +1064,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableExists<'lo
     name: JString<'local>,
 ) -> jboolean {
     try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jboolean> {
-        if handle == 0 {
-            return Err("SessionContext handle is null".into());
-        }
-        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext,
-        // the null check above guards against zero, and the Java side zeroes nativeHandle
-        // on close() so a closed context is caught before reaching here.
-        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let ctx = unwrap_context(handle)?;
         let name: String = env.get_string(&name)?.into();
         Ok(ctx.table_exist(&name)? as jboolean)
     })
@@ -1070,13 +1078,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_deregisterTable
     name: JString<'local>,
 ) {
     try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
-        if handle == 0 {
-            return Err("SessionContext handle is null".into());
-        }
-        // SAFETY: handle is a valid Box<SessionContext> allocated by createSessionContext,
-        // the null check above guards against zero, and the Java side zeroes nativeHandle
-        // on close() so a closed context is caught before reaching here.
-        let ctx = unsafe { &*(handle as *const SessionContext) };
+        let ctx = unwrap_context(handle)?;
         let name: String = env.get_string(&name)?.into();
         ctx.deregister_table(&name)?;
         Ok(())
