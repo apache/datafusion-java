@@ -1042,6 +1042,49 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_getOptionNative
     )
 }
 
+/// Converts a raw JNI handle into a shared reference to a [`SessionContext`].
+///
+/// # Safety for the unsafe usage
+/// The caller must ensure `handle` was produced by `Box::into_raw(Box::new(ctx))`
+/// in `createSessionContext` and has not yet been freed. The Java side zeroes
+/// `nativeHandle` on `close()`, so the `handle == 0` guard in every JNI handler
+/// ensures this invariant holds before `unwrap_context` is called.
+fn unwrap_context(handle: jlong) -> JniResult<&'static SessionContext> {
+    if handle == 0 {
+        return Err("SessionContext handle is null".into());
+    }
+    Ok(unsafe { &*(handle as *const SessionContext) })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_tableExists<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+) -> jboolean {
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jboolean> {
+        let ctx = unwrap_context(handle)?;
+        let name: String = env.get_string(&name)?.into();
+        Ok(ctx.table_exist(&name)? as jboolean)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_SessionContext_deregisterTable<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    name: JString<'local>,
+) {
+    try_unwrap_or_throw(&mut env, (), |env| -> JniResult<()> {
+        let ctx = unwrap_context(handle)?;
+        let name: String = env.get_string(&name)?.into();
+        ctx.deregister_table(&name)?;
+        Ok(())
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_SessionContext_closeSessionContext<'local>(
     mut env: JNIEnv<'local>,

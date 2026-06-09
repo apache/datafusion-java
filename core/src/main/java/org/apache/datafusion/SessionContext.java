@@ -601,6 +601,43 @@ public final class SessionContext implements AutoCloseable {
     return baos.toByteArray();
   }
 
+  /**
+   * Returns {@code true} if a table with the given name is registered in this session.
+   *
+   * <p>This is the Java counterpart to DataFusion's Rust {@code SessionContext::table_exist}.
+   *
+   * @throws IllegalStateException if this context is closed.
+   */
+  public boolean tableExists(String name) {
+    checkOpenSessionContext();
+    if (name == null) {
+      throw new IllegalArgumentException("tableExists name must be non-null");
+    }
+    return tableExists(nativeHandle, name);
+  }
+
+  /**
+   * Removes the table with the given name from this session. Does nothing if no table with that
+   * name is registered.
+   *
+   * <p>This is the Java counterpart to DataFusion's Rust {@code SessionContext::deregister_table}.
+   *
+   * @throws IllegalStateException if this context is closed.
+   */
+  public void deregisterTable(String name) {
+    checkOpenSessionContext();
+    if (name == null) {
+      throw new IllegalArgumentException("deregisterTable name must be non-null");
+    }
+    deregisterTable(nativeHandle, name);
+  }
+
+  private void checkOpenSessionContext() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+  }
+
   @Override
   public void close() {
     if (nativeHandle != 0) {
@@ -664,4 +701,8 @@ public final class SessionContext implements AutoCloseable {
 
   private static native void registerTableNative(
       long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
+
+  private static native boolean tableExists(long handle, String name);
+
+  private static native void deregisterTable(long handle, String name);
 }
