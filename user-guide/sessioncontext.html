@@ -445,6 +445,25 @@ Javadoc for the full list.</p>
 </pre></div>
 </div>
 </section>
+<section id="spark-compatible-functions">
+<h2>Spark-compatible functions<a class="headerlink" href="#spark-compatible-functions" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">withSparkFunctions()</span></code> registers Apache Spark–compatible functions and
+expression planners (from the
+<a class="reference external" href="https://crates.io/crates/datafusion-spark"><code class="docutils literal notranslate"><span class="pre">datafusion-spark</span></code></a> crate) on the
+context:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">.</span><span class="na">builder</span><span class="p">()</span>
+<span class="w">        </span><span class="p">.</span><span class="na">withSparkFunctions</span><span class="p">()</span>
+<span class="w">        </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
+<span class="w">     </span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">&quot;SELECT crc32(&#39;Spark&#39;)&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>When enabled, Spark-compatible functions override any DataFusion built-in of
+the same name. This requires the native library to be built with the <code class="docutils literal notranslate"><span class="pre">spark</span></code>
+Cargo feature, which is enabled in the default build; otherwise <code class="docutils literal notranslate"><span class="pre">build()</span></code>
+throws explaining the feature is missing.</p>
+</section>
 </section>
 
 
@@ -497,6 +516,7 @@ Javadoc for the full list.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle">Lifecycle</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#spark-compatible-functions">Spark-compatible functions</a></li>
 </ul>
   </nav></div>
 
