@@ -23,27 +23,18 @@ import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionRead
 
 /**
  * Spark `Batch` for a DataFusion-backed scan. Owns:
- *   - partition planning (driver-side: `factory.listPartitions` enumerates `PartitionInfo`
- *     entries → one task per entry; each task receives that partition's `partitionBytes` and
- *     `preferredLocations`)
+ *   - partition planning (driver-side: reuses the `PartitionInfo[]` already resolved by
+ *     [[DatafusionScanBuilder]] — one task per entry; each task receives that entry's
+ *     `partitionBytes` + `preferredLocations`)
  *   - per-task reader factory ([[DatafusionPartitionReaderFactory]])
  */
 class DatafusionBatch(val scan: DatafusionScan) extends Batch {
 
   override def planInputPartitions(): Array[InputPartition] = {
-    val factory = instantiateFactory(scan.factoryFqcn)
-    val partitions: Array[PartitionInfo] = factory.listPartitions(scan.optionsProtoBytes)
-
-    if (partitions == null || partitions.isEmpty) {
-      throw new IllegalStateException(
-        s"FfiProviderFactory '${scan.factoryFqcn}' returned no partitions to scan"
-      )
-    }
-
     val projection = scan.prunedSchema.fieldNames
     val filterBytes: Array[Array[Byte]] = scan.pushedPredicateBytes
 
-    partitions.iterator.map { p =>
+    scan.partitions.iterator.map { p =>
       DatafusionInputPartition(
         factoryFqcn = scan.factoryFqcn,
         optionsProtoBytes = scan.optionsProtoBytes,
@@ -58,9 +49,4 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
 
   override def createReaderFactory(): PartitionReaderFactory =
     new DatafusionPartitionReaderFactory(scan.prunedSchema)
-
-  private def instantiateFactory(fqcn: String): FfiProviderFactory = {
-    val cls = Class.forName(fqcn)
-    cls.getDeclaredConstructor().newInstance().asInstanceOf[FfiProviderFactory]
-  }
 }

@@ -120,6 +120,16 @@ public final class MyBridgeProviderFactory implements FfiProviderFactory {
         // The driver-side schema probe passes an empty array; honour it.
         return MyBridgeNative.createFfiProvider(optionsProtoBytes, partitionBytes);
     }
+
+    @Override
+    public ReportedPartitioning reportPartitioning(byte[] optionsProtoBytes) {
+        // Optional. Return non-null only when each PartitionInfo's rows all share the same
+        // key tuple under the declared transforms — Spark elides shuffles ahead of joins/aggs
+        // grouped on those keys. Return null when the layout is unknown or row-key mapping
+        // would be lossy.
+        return ReportedPartitioning.identity("device_id");
+        // or: ReportedPartitioning.bucket(numBuckets, "user_id");
+    }
 }
 ```
 
@@ -168,7 +178,9 @@ df = (spark.read.format("my_format")
 | Phase                       | Where     | Path |
 | --------------------------- | --------- | ---- |
 | `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → widen → `registerFfiTable` → `ctx.tableSchema` |
-| `planInputPartitions`       | Driver    | `factory.listPartitions(optionsBytes)` → one task per `PartitionInfo`; each task gets that entry's `partitionBytes` + `preferredLocations` |
+| `ScanBuilder.build`         | Driver    | `factory.listPartitions(optionsBytes)` (cached on Scan) + `factory.reportPartitioning(optionsBytes)` (cached on Scan) |
+| `outputPartitioning`        | Driver    | `KeyGroupedPartitioning(reported.keys, partitions.length)` when bridge declared one; `UnknownPartitioning(partitions.length)` otherwise. Spark may elide shuffles when keys line up with downstream join/agg grouping. |
+| `planInputPartitions`       | Driver    | Reuses the cached `PartitionInfo[]`; one task per entry with that entry's `partitionBytes` + `preferredLocations` |
 | Predicate translation       | Driver    | `SparkPredicateTranslator.translate(Predicate)` → `LogicalExprNode` proto bytes (each pushed predicate is independent) |
 | Per-task scan               | Executor  | Same factory → `createProvider(opts, partitionBytes)` → widen → `registerFfiTable` → `ctx.sql("SELECT proj FROM t")` → fold `DataFrame.filterFromProto(bytes)` over pushed predicates → `executeStream` |
 

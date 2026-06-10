@@ -30,6 +30,12 @@ import org.apache.spark.sql.types.StructType
  * Pushdown discipline: over-claiming Exact = wrong results, under-claiming = full scans. The
  * translator (see [[SparkPredicateTranslator]]) only emits proto for predicates it can encode
  * losslessly — anything else returns `None` and lands in residuals.
+ *
+ * `build()` is also where we resolve driver-side facts that the optimizer needs *before* it
+ * starts asking the [[DatafusionScan]] about its output partitioning: the partition list
+ * (`listPartitions`) and the bridge's optional [[ReportedPartitioning]]. Resolving both here once
+ * and threading them onto the Scan keeps `DatafusionBatch.planInputPartitions` shuffle-free and
+ * lets `outputPartitioning()` answer without an extra factory call per query.
  */
 class DatafusionScanBuilder(
     factoryFqcn: String,
@@ -71,6 +77,29 @@ class DatafusionScanBuilder(
     pruned = requiredSchema
   }
 
-  override def build(): Scan =
-    new DatafusionScan(factoryFqcn, optionsProtoBytes, fullSchema, pruned, pushed, pushedBytes)
+  override def build(): Scan = {
+    val factory = instantiateFactory(factoryFqcn)
+    val partitions: Array[PartitionInfo] = factory.listPartitions(optionsProtoBytes)
+    if (partitions == null || partitions.isEmpty) {
+      throw new IllegalStateException(
+        s"FfiProviderFactory '$factoryFqcn' returned no partitions to scan"
+      )
+    }
+    val reported: ReportedPartitioning = factory.reportPartitioning(optionsProtoBytes)
+    new DatafusionScan(
+      factoryFqcn,
+      optionsProtoBytes,
+      fullSchema,
+      pruned,
+      pushed,
+      pushedBytes,
+      partitions,
+      reported
+    )
+  }
+
+  private def instantiateFactory(fqcn: String): FfiProviderFactory = {
+    val cls = Class.forName(fqcn)
+    cls.getDeclaredConstructor().newInstance().asInstanceOf[FfiProviderFactory]
+  }
 }

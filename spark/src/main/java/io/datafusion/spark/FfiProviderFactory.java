@@ -81,4 +81,23 @@ public interface FfiProviderFactory {
    *     DatafusionSource.inferSchema}.
    */
   long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes);
+
+  /**
+   * Declare how rows are partitioned across the {@link PartitionInfo} entries returned by {@link
+   * #listPartitions(byte[])}. Driver-side only.
+   *
+   * <p>When non-null, the connector surfaces a {@code KeyGroupedPartitioning(keys,
+   * listPartitions(...).length)} to Spark via {@code SupportsReportPartitioning} so the optimizer
+   * can elide shuffles ahead of joins/aggregations on the declared keys.
+   *
+   * <p>Default returns {@code null} — no partitioning guarantees, Spark plans as if the scan's
+   * output ordering and grouping are unknown.
+   *
+   * <p>If a bridge implements this, it must hold the {@link ReportedPartitioning} contract: every
+   * row in a given partition evaluates to the same tuple of key values under the declared
+   * transforms.
+   */
+  default ReportedPartitioning reportPartitioning(byte[] optionsProtoBytes) {
+    return null;
+  }
 }
