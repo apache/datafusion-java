@@ -64,6 +64,12 @@ message SessionOptions {
   // Disk-manager configuration (disable spill, size cap). Unset fields
   // leave the upstream `RuntimeEnvBuilder` default in place.
   optional DiskManagerOptions disk_manager = 10;
+  // Register Apache Spark-compatible functions and expression planners on the
+  // new context (via the datafusion-spark crate). Requires the native library
+  // to be built with the `spark` Cargo feature (on in the default build);
+  // otherwise construction fails with a clear error. Spark functions override
+  // DataFusion built-ins of the same name.
+  optional bool spark_functions = 11;
 }
 
 // Disk-manager configuration. The two fields are independent on the wire;
