@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import io.datafusion.spark.FfiProviderFactory;
+import io.datafusion.spark.PartitionInfo;
 
 /**
  * Minimal {@link FfiProviderFactory} that exposes the example {@code MemTable} produced by {@link
@@ -61,9 +62,10 @@ import io.datafusion.spark.FfiProviderFactory;
  *
  * <p>An empty {@code byte[]} is also accepted by the native side and decoded as all defaults.
  *
- * <p>A single partition (id {@code "p0"}) is reported so Spark spawns one task; the executor calls
- * {@link #createProvider(byte[])} to obtain a fresh {@code FFI_TableProvider} pointer, hands it to
- * {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)}, and streams the
+ * <p>A single partition (id {@code "p0"}, empty {@code partitionBytes}, no preferred host) is
+ * reported so Spark spawns one task; the executor calls {@link #createProvider(byte[], byte[])}
+ * to obtain a fresh {@code FFI_TableProvider} pointer, hands it to {@link
+ * org.apache.datafusion.SessionContext#registerFfiTable(String, long)}, and streams the
  * resulting Arrow record batches back into the Spark scan.
  */
 public final class ExampleFfiProviderFactory implements FfiProviderFactory {
@@ -95,12 +97,15 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
   }
 
   @Override
-  public String[] listPartitions(byte[] optionsProtoBytes) {
-    return new String[] {"p0"};
+  public PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
+    // Single partition; the example MemTable is not actually sliced. A real bridge would
+    // populate `partitionBytes` per slice and `preferredLocations` with the hosts holding it.
+    return new PartitionInfo[] {new PartitionInfo("p0", new byte[0], new String[0])};
   }
 
   @Override
-  public long createProvider(byte[] optionsProtoBytes) {
+  public long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes) {
+    // The example bridge has no per-partition state; `partitionBytes` is ignored.
     return FfiTableProviderExampleNative.createMemTableProvider(optionsProtoBytes);
   }
 

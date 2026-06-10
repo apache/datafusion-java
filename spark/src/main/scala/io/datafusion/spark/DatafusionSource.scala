@@ -67,7 +67,9 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
     val arrowSchema = {
       val ctx = new SessionContext()
       try {
-        val rawPtr = factory.createProvider(optionsBytes)
+        // Schema probe: pass empty partitionBytes — bridges are required to honour an empty
+        // payload for the driver-side probe (schema must not depend on per-partition state).
+        val rawPtr = factory.createProvider(optionsBytes, Array.emptyByteArray)
         val widenedPtr = FfiHelperNative.wrapWithWidening(rawPtr)
         ctx.registerFfiTable("__df_schema_probe__", widenedPtr)
         ctx.tableSchema("__df_schema_probe__")

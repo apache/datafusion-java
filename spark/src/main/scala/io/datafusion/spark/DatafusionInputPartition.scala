@@ -25,18 +25,28 @@ import org.apache.spark.sql.connector.read.InputPartition
  * Per-task payload shipped from driver to executor via Java serialization.
  *
  *  - `factoryFqcn`: fully-qualified class name of the bridge's `FfiProviderFactory`. The
- *    executor reflectively instantiates this and calls `createProvider(optionsProtoBytes)`.
- *  - `optionsProtoBytes`: bridge-specific connection options, encoded by the bridge. Opaque to
- *    connector-core.
+ *    executor reflectively instantiates this and calls `createProvider(optionsProtoBytes,
+ *    partitionBytes)`.
+ *  - `optionsProtoBytes`: bridge-specific global connection options, encoded by the bridge.
+ *    Opaque to connector-core. Same bytes ride along on every partition.
  *  - `projectionColumnNames`: pruned column list (post-`pruneColumns`).
  *  - `filterProtoBytes`: V2 `Predicate` → DataFusion `LogicalExprNode` proto bytes; each one is
  *    applied via `DataFrame.filterFromProto`.
- *  - `partitionId`: stable identifier (e.g. Rerun segment id) — for `preferredLocations` / debug.
+ *  - `partitionId`: stable identifier (e.g. Rerun segment id) — surfaces in Spark UI/logs/errors.
+ *  - `partitionBytes`: opaque per-partition payload from `PartitionInfo.partitionBytes`. Passed
+ *    back into `createProvider` so the bridge materialises *this* slice.
+ *  - `preferredLocs`: hostnames where this partition's data lives; returned from
+ *    `preferredLocations()` so Spark schedules the task there subject to `spark.locality.wait`.
  */
 final case class DatafusionInputPartition(
     factoryFqcn: String,
     optionsProtoBytes: Array[Byte],
     projectionColumnNames: Array[String],
     filterProtoBytes: Array[Array[Byte]],
-    partitionId: String
-) extends InputPartition
+    partitionId: String,
+    partitionBytes: Array[Byte],
+    preferredLocs: Array[String]
+) extends InputPartition {
+
+  override def preferredLocations(): Array[String] = preferredLocs
+}

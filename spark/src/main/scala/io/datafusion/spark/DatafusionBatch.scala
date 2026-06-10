@@ -23,17 +23,18 @@ import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionRead
 
 /**
  * Spark `Batch` for a DataFusion-backed scan. Owns:
- *   - partition planning (driver-side: `factory.listPartitions` enumerates partition ids → one
- *     task per id)
+ *   - partition planning (driver-side: `factory.listPartitions` enumerates `PartitionInfo`
+ *     entries → one task per entry; each task receives that partition's `partitionBytes` and
+ *     `preferredLocations`)
  *   - per-task reader factory ([[DatafusionPartitionReaderFactory]])
  */
 class DatafusionBatch(val scan: DatafusionScan) extends Batch {
 
   override def planInputPartitions(): Array[InputPartition] = {
     val factory = instantiateFactory(scan.factoryFqcn)
-    val partitionIds: Array[String] = factory.listPartitions(scan.optionsProtoBytes)
+    val partitions: Array[PartitionInfo] = factory.listPartitions(scan.optionsProtoBytes)
 
-    if (partitionIds == null || partitionIds.isEmpty) {
+    if (partitions == null || partitions.isEmpty) {
       throw new IllegalStateException(
         s"FfiProviderFactory '${scan.factoryFqcn}' returned no partitions to scan"
       )
@@ -42,13 +43,15 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
     val projection = scan.prunedSchema.fieldNames
     val filterBytes: Array[Array[Byte]] = scan.pushedPredicateBytes
 
-    partitionIds.iterator.map { id =>
+    partitions.iterator.map { p =>
       DatafusionInputPartition(
         factoryFqcn = scan.factoryFqcn,
         optionsProtoBytes = scan.optionsProtoBytes,
         projectionColumnNames = projection,
         filterProtoBytes = filterBytes,
-        partitionId = id
+        partitionId = p.id,
+        partitionBytes = p.partitionBytes,
+        preferredLocs = p.preferredLocations
       ).asInstanceOf[InputPartition]
     }.toArray
   }

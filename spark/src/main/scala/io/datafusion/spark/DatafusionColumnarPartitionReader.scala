@@ -31,8 +31,9 @@ import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
  * Per-task columnar reader. Lifecycle:
  *
  *   1. Reflectively instantiate the bridge's `FfiProviderFactory` (no-arg).
- *   2. `createProvider(optionsProtoBytes)` — bridge builds an `Arc<dyn TableProvider>`, wraps it
- *      in an `FFI_TableProvider`, returns the raw pointer.
+ *   2. `createProvider(optionsProtoBytes, partitionBytes)` — bridge builds an `Arc<dyn
+ *      TableProvider>` materialising the slice described by `partitionBytes`, wraps it in an
+ *      `FFI_TableProvider`, returns the raw pointer.
  *   3. Hand that pointer to connector-core's widening cdylib via `FfiHelperNative.wrapWithWidening`.
  *      The cdylib wraps the inner provider in a `WideningTableProvider` (kernel-level
  *      `arrow::compute::cast` for Spark-incompatible Arrow types) and re-FFIs it.
@@ -55,7 +56,7 @@ class DatafusionColumnarPartitionReader(
   private val factory: FfiProviderFactory = instantiateFactory(partition.factoryFqcn)
 
   private val df: DataFrame = {
-    val rawPtr = factory.createProvider(partition.optionsProtoBytes)
+    val rawPtr = factory.createProvider(partition.optionsProtoBytes, partition.partitionBytes)
     val widenedPtr = FfiHelperNative.wrapWithWidening(rawPtr)
     ctx.registerFfiTable(TableName, widenedPtr)
     var d = ctx.sql(buildSql())
