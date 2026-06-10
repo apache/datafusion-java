@@ -58,8 +58,9 @@ public final class FfiTableProviderExample {
   public static void main(String[] args) throws Exception {
     // Build the FFI provider on the Rust side. The returned `long` is a
     // `Box::into_raw(Box::new(FFI_TableProvider))` pointer; ownership flows
-    // through `registerFfiTable` into the SessionContext.
-    long ffiProviderPtr = FfiTableProviderExampleNative.createMemTableProvider();
+    // through `registerFfiTable` into the SessionContext. Empty options bytes
+    // pick the native defaults (name_prefix="row", num_rows=4, num_batches=1).
+    long ffiProviderPtr = FfiTableProviderExampleNative.createMemTableProvider(new byte[0]);
     if (ffiProviderPtr == 0) {
       throw new IllegalStateException("Native FFI provider builder returned 0");
     }

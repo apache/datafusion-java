@@ -147,26 +147,40 @@ def main() -> None:
     # otherwise set example.ffi.lib.path via spark.driver.extraJavaOptions.
     os.chdir(REPO_ROOT)
 
+    # `name_prefix`, `num_rows`, `num_batches` are interpreted by
+    # ExampleFfiProviderFactory.encodeOptions and decoded on the Rust side
+    # in examples/native/src/lib.rs. They demonstrate driver-side options
+    # flowing through to the native MemTable build.
+    name_prefix = "user"
+    num_rows = 5
+    num_batches = 3
     df = (
         spark.read.format("datafusion")
         .option(
             "df.factory",
             "org.apache.datafusion.examples.ExampleFfiProviderFactory",
         )
+        .option("name_prefix", name_prefix)
+        .option("num_rows", str(num_rows))
+        .option("num_batches", str(num_batches))
         .load()
     )
+
+    total_rows = num_rows * num_batches
+    print(f"=== options: name_prefix={name_prefix} num_rows={num_rows} num_batches={num_batches} ===")
+    print(f"=== expecting {total_rows} rows across {num_batches} Arrow batches ===")
 
     print("=== schema ===")
     df.printSchema()
 
-    print("=== full scan ===")
-    df.show(truncate=False)
+    print(f"=== full scan (first {total_rows} rows) ===")
+    df.show(n=total_rows, truncate=False)
 
-    print("=== filter pushdown: value > 2.0 ===")
-    df.filter("value > 2.0").show(truncate=False)
+    print("=== filter pushdown: value > 5.0 ===")
+    df.filter("value > 5.0").show(n=total_rows, truncate=False)
 
     print("=== projection: id, name ===")
-    df.select("id", "name").show(truncate=False)
+    df.select("id", "name").show(n=total_rows, truncate=False)
 
     spark.stop()
 

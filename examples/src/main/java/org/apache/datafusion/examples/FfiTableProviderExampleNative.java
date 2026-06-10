@@ -55,12 +55,16 @@ final class FfiTableProviderExampleNative {
   }
 
   /**
-   * Build a tiny {@code MemTable} on the Rust side, wrap it in an {@code FFI_TableProvider}, and
-   * return the raw boxed pointer as a {@code long}. Ownership transfers to the caller; passing the
-   * pointer to {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)}
-   * discharges it.
+   * Build a {@code MemTable} on the Rust side, wrap it in an {@code FFI_TableProvider}, and return
+   * the raw boxed pointer as a {@code long}. Ownership transfers to the caller; passing the pointer
+   * to {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)} discharges it.
+   *
+   * <p>{@code optionsBytes} is the length-prefixed binary blob produced by {@link
+   * ExampleFfiProviderFactory#encodeOptions(java.util.Map)}. An empty or {@code null} array
+   * decodes as all defaults ({@code name_prefix="row"}, {@code num_rows=4}, {@code
+   * num_batches=1}).
    */
-  static native long createMemTableProvider();
+  static native long createMemTableProvider(byte[] optionsBytes);
 
   /**
    * Drop an FFI_TableProvider pointer that was NEVER handed to {@code
