@@ -28,7 +28,6 @@ fn main() {
         "../proto/json_write_options.proto",
         "../proto/object_store_options.proto",
         "../proto/parquet_read_options.proto",
-        "../proto/rerun_table_options.proto",
     ];
     for p in PROTOS {
         println!("cargo:rerun-if-changed={p}");
