@@ -81,6 +81,21 @@ jni = "0.21"
 object_store = { version = "0.13", default-features = false }
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# Rerun provider crates. Linked directly into the cdylib so the embedded
+# DataFusion `SessionContext` can register the `TableProvider` via the
+# native `ctx.register_table(...)` path — no `datafusion-ffi` boundary.
+re_datafusion = { path = "../../reality/rerun/crates/store/re_datafusion" }
+re_redap_client = { path = "../../reality/rerun/crates/store/re_redap_client" }
+re_dataframe = { path = "../../reality/rerun/crates/store/re_dataframe" }
+re_log_types = { path = "../../reality/rerun/crates/store/re_log_types" }
+re_protos = { path = "../../reality/rerun/crates/store/re_protos" }
+re_types_core = { path = "../../reality/rerun/crates/store/re_types_core" }
+re_uri = { path = "../../reality/rerun/crates/store/re_uri" }
+re_auth = { path = "../../reality/rerun/crates/utils/re_auth" }
+# Direct rustls dep so we can install the default crypto provider once at
+# startup — required by the rerun TLS stack (see rerun_py catalog_client.rs).
+rustls = "0.23"
 # Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
 # behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
 # requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.

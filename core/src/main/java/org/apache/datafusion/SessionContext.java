@@ -570,6 +570,75 @@ public final class SessionContext implements AutoCloseable {
    *     context is closed.
    * @throws RuntimeException if native registration fails.
    */
+  /**
+   * Register a Rerun dataset as a {@link org.apache.datafusion.protobuf.RerunTableOptions table}
+   * named {@code name}. Schema discovery and gRPC connection setup happen on the calling thread
+   * (synchronously). Subsequent {@link #sql} / {@link #fromProto} queries that reference {@code
+   * name} drive the embedded Rerun {@code TableProvider} directly — no extra JNI calls per scan.
+   *
+   * <p>Push-down for filter and projection is negotiated by sending a {@code LogicalPlanNode}
+   * through {@link #fromProto}: the JVM side encodes {@code TableScan(name) + Filter + Projection}
+   * referencing this registered table, and the Rust executor executes it natively.
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if native registration fails (network, auth, schema, etc.).
+   */
+  /**
+   * Raw-bytes overload of {@link #registerRerunTable(String, RerunTableOptions)}. Used by the Spark
+   * connector on the executor side: the driver serializes a {@link RerunTableOptions} once via
+   * {@link RerunTableOptions#toProtoBytes()} and ships the bytes through Java serialization,
+   * skipping a POJO round-trip.
+   *
+   * <p>{@code optionsProtoBytes} must be a serialized {@code datafusion_java.RerunTableOptions}
+   * proto (see {@code rerun_table_options.proto}).
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if native registration fails (network, auth, schema, etc.).
+   */
+  public void registerRerunTable(String name, byte[] optionsProtoBytes) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null || name.isEmpty()) {
+      throw new IllegalArgumentException("registerRerunTable name must be non-empty");
+    }
+    if (optionsProtoBytes == null) {
+      throw new IllegalArgumentException("registerRerunTable optionsProtoBytes must be non-null");
+    }
+    registerRerunTableNative(nativeHandle, name, optionsProtoBytes);
+  }
+
+  public void registerRerunTable(String name, RerunTableOptions options) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("SessionContext is closed");
+    }
+    if (name == null || name.isEmpty()) {
+      throw new IllegalArgumentException("registerRerunTable name must be non-empty");
+    }
+    if (options == null) {
+      throw new IllegalArgumentException("registerRerunTable options must be non-null");
+    }
+    registerRerunTableNative(nativeHandle, name, options.toProtoBytes());
+  }
+
+  /**
+   * Enumerate segment ids for the dataset described by {@code options}. Spark uses this on the
+   * driver to plan one input partition per segment; on the executor, the connector re-builds the
+   * same options with {@link RerunTableOptions#withSegments} narrowed to a single segment and calls
+   * {@link #registerRerunTable}.
+   *
+   * <p>This is logically a static operation — it makes its own gRPC connection and does not need a
+   * {@link SessionContext}. Exposed as a static method on this class so all native entry points
+   * live together.
+   */
+  public static String[] listRerunSegments(RerunTableOptions options) {
+    if (options == null) {
+      throw new IllegalArgumentException("listRerunSegments options must be non-null");
+    }
+    String[] result = listRerunSegmentsNative(options.toProtoBytes());
+    return result == null ? new String[0] : result;
+  }
+
   public void registerTable(String name, TableProvider provider) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
@@ -664,4 +733,9 @@ public final class SessionContext implements AutoCloseable {
 
   private static native void registerTableNative(
       long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
+
+  private static native void registerRerunTableNative(
+      long handle, String name, byte[] optionsProtoBytes);
+
+  private static native String[] listRerunSegmentsNative(byte[] optionsProtoBytes);
 }

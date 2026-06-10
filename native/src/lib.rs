@@ -25,6 +25,7 @@ mod json;
 mod memory;
 mod object_store;
 mod proto;
+mod rerun_provider;
 mod runtime_metrics;
 mod schema;
 mod table_provider;
@@ -530,6 +531,35 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_filterRows<'local>(
         let df = unsafe { &*(handle as *const DataFrame) }.clone();
         let predicate: String = env.get_string(&predicate)?.into();
         let expr = df.parse_sql_expr(&predicate)?;
+        let new_df = df.filter(expr)?;
+        Ok(Box::into_raw(Box::new(new_df)) as jlong)
+    })
+}
+
+/// Decode a DataFusion-proto `LogicalExprNode` and apply it as a `Filter` to this DataFrame.
+/// Used by the Spark connector to push V2 `Predicate`s as DataFusion `Expr` bytes (translated
+/// JVM-side by `SparkPredicateTranslator`).
+#[no_mangle]
+pub extern "system" fn Java_org_apache_datafusion_DataFrame_filterFromProto<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    expr_proto_bytes: JByteArray<'local>,
+) -> jlong {
+    use datafusion_proto::logical_plan::from_proto::parse_expr;
+    use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
+    use datafusion_proto::protobuf::LogicalExprNode;
+
+    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
+        if handle == 0 {
+            return Err("DataFrame handle is null".into());
+        }
+        let df = unsafe { &*(handle as *const DataFrame) }.clone();
+        let bytes: Vec<u8> = env.convert_byte_array(&expr_proto_bytes)?;
+        let node = LogicalExprNode::decode(bytes.as_slice())?;
+        let task_ctx = df.task_ctx();
+        let extension_codec = DefaultLogicalExtensionCodec {};
+        let expr = parse_expr(&node, &task_ctx, &extension_codec)?;
         let new_df = df.filter(expr)?;
         Ok(Box::into_raw(Box::new(new_df)) as jlong)
     })

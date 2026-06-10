@@ -231,6 +231,27 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Apply a DataFusion-proto {@code LogicalExprNode} as a filter to this DataFrame. The bytes must
+   * be a serialized {@code datafusion.LogicalExprNode} (see {@code
+   * org.apache.datafusion.protobuf.LogicalExprNode}). Used by the Spark connector to push V2 {@code
+   * Predicate}s as proto-encoded expressions (sibling of {@link #filter(String)} for the structured
+   * wire path).
+   *
+   * @throws IllegalStateException if this context is closed.
+   * @throws RuntimeException if the bytes are not a valid {@code LogicalExprNode}, the expression
+   *     references unknown columns/UDFs, or filter construction fails.
+   */
+  public DataFrame filterFromProto(byte[] exprProtoBytes) {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    if (exprProtoBytes == null) {
+      throw new IllegalArgumentException("filterFromProto exprProtoBytes must be non-null");
+    }
+    return new DataFrame(filterFromProto(nativeHandle, exprProtoBytes));
+  }
+
+  /**
    * Take the first {@code fetch} rows. Equivalent to {@link #limit(int, int)} with {@code skip =
    * 0}. The receiver remains usable and must still be closed independently.
    */
@@ -804,6 +825,8 @@ public final class DataFrame implements AutoCloseable {
   private static native long selectColumns(long handle, String[] columnNames);
 
   private static native long filterRows(long handle, String predicate);
+
+  private static native long filterFromProto(long handle, byte[] exprProtoBytes);
 
   private static native long limitRows(long handle, int skip, int fetch);
 
