@@ -20,14 +20,14 @@
 all: native jvm
 
 native:
-	cd native && cargo build
+	cargo build --workspace
 
-# Build the native crate with the `runtime-metrics` Cargo feature enabled.
+# Build the JNI crate with the `runtime-metrics` Cargo feature enabled.
 # Requires `--cfg tokio_unstable` because tokio-metrics gates its API there.
 # Default `make native` does not pull this in; callers who need
 # SessionContext.runtimeStats() pick this target explicitly.
 native-runtime-metrics:
-	cd native && RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+	RUSTFLAGS="--cfg tokio_unstable" cargo build -p datafusion-jni --features runtime-metrics
 
 jvm:
 	./mvnw package -DskipTests
@@ -39,10 +39,10 @@ test: native
 # `:check` form inline in .github/workflows/lint.yml.
 format:
 	./mvnw -q spotless:apply
-	cd native && cargo fmt --all
+	cargo fmt --all
 
 clean:
-	cd native && cargo clean
+	cargo clean
 	./mvnw clean
 
 tpch-data:

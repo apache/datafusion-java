@@ -140,8 +140,8 @@ under the License.
                         <configuration>
                             <target>
                                 <property name="datafusion.spark.helper.source"
-                                          value="${project.basedir}/native/target/${datafusion.native.profile}/${datafusion.spark.helper.filename}"/>
-                                <fail message="Widening cdylib not found at ${datafusion.spark.helper.source}. Run 'cd spark/native &amp;&amp; cargo build' (or '--release' for the release profile) before building the JAR.">
+                                          value="${maven.multiModuleProjectDirectory}/rust-target/${datafusion.native.profile}/${datafusion.spark.helper.filename}"/>
+                                <fail message="Widening cdylib not found at ${datafusion.spark.helper.source}. Run 'cargo build -p datafusion-spark-helper' (or '--release' for the release profile) before building the JAR.">
                                     <condition><not><available file="${datafusion.spark.helper.source}"/></not></condition>
                                 </fail>
                                 <mkdir dir="${project.build.outputDirectory}/io/datafusion/spark/${datafusion.spark.helper.os}/${datafusion.spark.helper.arch}"/>

@@ -196,7 +196,7 @@ pub fn runtime_stats() -> JniResult<[i64; STATS_FIELD_COUNT]> {
     Err(
         "datafusion-jni was built without the `runtime-metrics` Cargo feature; \
          rebuild the native crate with \
-         `RUSTFLAGS=\"--cfg tokio_unstable\" cargo build --features runtime-metrics` \
+         `RUSTFLAGS=\"--cfg tokio_unstable\" cargo build -p datafusion-jni --features runtime-metrics` \
          to enable SessionContext.runtimeStats"
             .into(),
     )

@@ -102,8 +102,8 @@ under the License.
                         <configuration>
                             <target>
                                 <property name="datafusion.native.lib.source"
-                                          value="${maven.multiModuleProjectDirectory}/native/target/${datafusion.native.profile}/${datafusion.lib.filename}"/>
-                                <fail message="Native library not found at ${datafusion.native.lib.source}. Run 'cd native &amp;&amp; cargo build' (or 'make') before building the JAR.">
+                                          value="${maven.multiModuleProjectDirectory}/rust-target/${datafusion.native.profile}/${datafusion.lib.filename}"/>
+                                <fail message="Native library not found at ${datafusion.native.lib.source}. Run 'cargo build -p datafusion-jni' (or 'make') before building the JAR.">
                                     <condition><not><available file="${datafusion.native.lib.source}"/></not></condition>
                                 </fail>
                                 <mkdir dir="${project.build.outputDirectory}/org/apache/datafusion/${datafusion.lib.os}/${datafusion.lib.arch}"/>

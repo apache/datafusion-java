@@ -37,21 +37,20 @@ add `-Dmaven.repo.local=/path/to/repo` to BOTH invocations.)
 ## Building the FFI example's cdylib
 
 The `FfiTableProviderExample` relies on a small Rust cdylib under
-[`native/`](native/) — built independently from the main `datafusion-jni`
-crate:
+[`native/`](native/). It is a member of the repo-root Cargo workspace, so
+build it by name from anywhere in the tree:
 
 ```bash
-cd examples/native
-cargo build --release
+cargo build -p datafusion-java-ffi-example --release
 ```
 
 The example's `System.load` searches the following paths in order:
 
 1. `-Dexample.ffi.lib.path=/abs/path/to/lib...` (explicit override)
-2. `examples/native/target/release/<mappedName>` (Maven's cwd is the repo root)
-3. `examples/native/target/debug/<mappedName>`
-4. `native/target/release/<mappedName>` (cwd inside the `examples` module)
-5. `native/target/debug/<mappedName>`
+2. `rust-target/release/<mappedName>` (Maven's cwd is the repo root)
+3. `rust-target/debug/<mappedName>`
+4. `../rust-target/release/<mappedName>` (cwd inside the `examples` module)
+5. `../rust-target/debug/<mappedName>`
 
 Where `<mappedName>` is `libdatafusion_java_ffi_example.so` on Linux,
 `libdatafusion_java_ffi_example.dylib` on macOS, or

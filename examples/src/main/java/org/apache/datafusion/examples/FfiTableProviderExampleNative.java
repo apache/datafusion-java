@@ -34,10 +34,11 @@ import java.util.Locale;
  *
  * <ol>
  *   <li>Absolute path passed via {@code -Dexample.ffi.lib.path=/abs/path/to/lib...}.
- *   <li>{@code examples/native/target/release/<mappedName>} relative to the current working
- *       directory (the default when invoked via {@code mvn exec:java} from the repo root).
- *   <li>{@code examples/native/target/debug/<mappedName>} as a fallback for {@code cargo build}
- *       without {@code --release}.
+ *   <li>{@code rust-target/release/<mappedName>} relative to the current working directory
+ *       (the workspace output dir; default when invoked via {@code mvn exec:java} from the
+ *       repo root).
+ *   <li>{@code rust-target/debug/<mappedName>} as a fallback for {@code cargo build} without
+ *       {@code --release}.
  * </ol>
  *
  * <p>If none of these exist, an {@link UnsatisfiedLinkError} surfaces with the search list so the
@@ -73,14 +74,15 @@ final class FfiTableProviderExampleNative {
     Path explicit = optionalPath(System.getProperty("example.ffi.lib.path"));
 
     // Cover both common cwds: repo root (mvn exec from datafusion-java/) and
-    // the examples module (mvn exec from datafusion-java/examples/).
+    // the examples module (mvn exec from datafusion-java/examples/). The
+    // workspace writes to `rust-target/` at the repo root.
     Path[] candidates =
         new Path[] {
           explicit,
-          Paths.get("examples", "native", "target", "release", mapped),
-          Paths.get("examples", "native", "target", "debug", mapped),
-          Paths.get("native", "target", "release", mapped),
-          Paths.get("native", "target", "debug", mapped),
+          Paths.get("rust-target", "release", mapped),
+          Paths.get("rust-target", "debug", mapped),
+          Paths.get("..", "rust-target", "release", mapped),
+          Paths.get("..", "rust-target", "debug", mapped),
         };
 
     for (Path candidate : candidates) {
@@ -99,7 +101,7 @@ final class FfiTableProviderExampleNative {
         String.format(
             Locale.ROOT,
             "Example native library %s not found. Searched: [%s]. "
-                + "Build with 'cd examples/native && cargo build --release', or pass "
+                + "Build with 'cargo build -p datafusion-java-ffi-example --release', or pass "
                 + "-Dexample.ffi.lib.path=<absolute path to the cdylib>.",
             mapped,
             searched));

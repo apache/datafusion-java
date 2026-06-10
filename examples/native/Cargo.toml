@@ -20,8 +20,8 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-arrow = { version = "58", features = ["ffi"] }
-datafusion = { version = "53.1.0" }
-datafusion-ffi = "53.1.0"
-jni = "0.21"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+arrow = { workspace = true }
+datafusion = { workspace = true }
+datafusion-ffi = { workspace = true }
+jni = { workspace = true }
+tokio = { workspace = true }

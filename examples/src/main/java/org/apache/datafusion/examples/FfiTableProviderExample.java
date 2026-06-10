@@ -39,7 +39,7 @@ import org.apache.datafusion.SessionContext;
  * <p>How to run (from the fork repo root):
  *
  * <pre>{@code
- * (cd examples/native && cargo build --release)
+ * cargo build -p datafusion-java-ffi-example --release
  * mvn -B install -DskipTests -Drat.skip=true \
  *     -Ddatafusion.native.profile=release
  * mvn -B -pl examples exec:exec \

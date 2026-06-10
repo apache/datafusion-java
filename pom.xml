@@ -175,11 +175,10 @@ under the License.
                         <exclude>.mvn/**</exclude>
                         <!-- Build outputs and generated test data -->
                         <exclude>**/target/**</exclude>
-                        <exclude>native/target/**</exclude>
+                        <exclude>rust-target/**</exclude>
                         <exclude>tpch-data/**</exclude>
-                        <!-- Rust lockfiles -->
-                        <exclude>native/Cargo.lock</exclude>
-                        <exclude>**/Cargo.lock</exclude>
+                        <!-- Rust lockfile (single workspace lock) -->
+                        <exclude>Cargo.lock</exclude>
                         <!-- Spark DataSource SPI registration file (line-delimited FQCN list, no header) -->
                         <exclude>**/META-INF/services/**</exclude>
                         <!-- Source-tarball exclude list (data file consumed by check-rat-report.py) -->

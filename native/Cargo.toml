@@ -69,26 +69,20 @@ protoc = ["datafusion-substrait?/protoc"]
 runtime-metrics = ["dep:tokio-metrics"]
 
 [dependencies]
-arrow = { version = "58", features = ["ffi"] }
-async-trait = "0.1"
-datafusion = { version = "53.1.0", features = ["avro"] }
-datafusion-ffi = "53.1.0"
-datafusion-proto = "53.1.0"
-datafusion-substrait = { version = "53.1.0", optional = true }
-futures = "0.3"
-jni = "0.21"
-# Pin to the same major as DataFusion 53.1 pulls in transitively (0.13.x)
-# so we share the same `dyn ObjectStore` vtable and don't double-link.
-object_store = { version = "0.13", default-features = false }
-prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread"] }
-
-# Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
-# behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
-# requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.
-tokio-metrics = { version = "0.5", optional = true }
-url = "2"
+arrow = { workspace = true }
+async-trait = { workspace = true }
+datafusion = { workspace = true, features = ["avro"] }
+datafusion-ffi = { workspace = true }
+datafusion-proto = { workspace = true }
+datafusion-substrait = { workspace = true, optional = true }
+futures = { workspace = true }
+jni = { workspace = true }
+object_store = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true }
+tokio-metrics = { workspace = true, optional = true }
+url = { workspace = true }
 
 [build-dependencies]
-prost-build = "0.14"
-protoc-bin-vendored = "3"
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }

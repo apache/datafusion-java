@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
  * #checkFeatureEnabled}. Run
  *
  * <pre>{@code
- * (cd native && RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics)
+ * RUSTFLAGS="--cfg tokio_unstable" cargo build -p datafusion-jni --features runtime-metrics
  * }</pre>
  *
  * before {@code ./mvnw test} to exercise this class.
