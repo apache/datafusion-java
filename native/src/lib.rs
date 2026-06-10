@@ -132,13 +132,11 @@ fn build_session_context(
         {
             use datafusion::execution::SessionStateBuilder;
             use datafusion_spark::SessionStateBuilderSpark;
-            // Order matters: `with_spark_features` runs after
-            // `with_default_features` so Spark implementations override the
-            // DataFusion built-ins of the same name.
-            let state = SessionStateBuilder::new()
+            // `with_spark_features` runs after the default features so Spark
+            // implementations override the built-ins of the same name.
+            let state = SessionStateBuilder::new_with_default_features()
                 .with_config(config)
                 .with_runtime_env(runtime_env)
-                .with_default_features()
                 .with_spark_features()
                 .build();
             Ok(SessionContext::new_with_state(state))
