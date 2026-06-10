@@ -75,8 +75,16 @@ Box::into_raw(Box::new(ffi)) as jlong
 ```
 
 Driver-side partition enumeration goes through a second JNI entrypoint
-`listPartitions(options_proto_bytes) -> String[]`. One Spark task gets created
-per returned id.
+`listPartitions(options_proto_bytes) -> PartitionInfo[]`. One Spark task gets
+created per returned entry. Each `PartitionInfo` carries:
+
+- `id` — stable, human-readable partition identifier (surfaces in Spark UI/logs).
+- `partitionBytes` — opaque per-partition payload, replayed into
+  `createProvider(opts, partitionBytes)` so the executor materialises *this*
+  slice. Empty array = no per-partition state.
+- `preferredLocations` — hostnames where this slice's data lives. Spark uses
+  these (subject to `spark.locality.wait`) to co-locate the task with the
+  data — e.g. four partitions per worker on a 3-worker cluster.
 
 ## JVM glue
 
@@ -95,13 +103,22 @@ public final class MyBridgeProviderFactory implements FfiProviderFactory {
     }
 
     @Override
-    public String[] listPartitions(byte[] optionsProtoBytes) {
-        return MyBridgeNative.listPartitions(optionsProtoBytes);
+    public PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
+        // Bridge enumerates slices and resolves their host placement:
+        //   record MySlice(String id, byte[] payload, String[] hosts) {}
+        MySlice[] slices = MyBridgeNative.listSlices(optionsProtoBytes);
+        PartitionInfo[] out = new PartitionInfo[slices.length];
+        for (int i = 0; i < slices.length; i++) {
+            out[i] = new PartitionInfo(slices[i].id(), slices[i].payload(), slices[i].hosts());
+        }
+        return out;
     }
 
     @Override
-    public long createProvider(byte[] optionsProtoBytes) {
-        return MyBridgeNative.createFfiProvider(optionsProtoBytes);
+    public long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes) {
+        // partitionBytes is the same payload returned from listPartitions for *this* task.
+        // The driver-side schema probe passes an empty array; honour it.
+        return MyBridgeNative.createFfiProvider(optionsProtoBytes, partitionBytes);
     }
 }
 ```
@@ -150,10 +167,10 @@ df = (spark.read.format("my_format")
 
 | Phase                       | Where     | Path |
 | --------------------------- | --------- | ---- |
-| `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider` → widen → `registerFfiTable` → `ctx.tableSchema` |
-| `planInputPartitions`       | Driver    | `factory.listPartitions(optionsBytes)` → one task per id |
+| `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → widen → `registerFfiTable` → `ctx.tableSchema` |
+| `planInputPartitions`       | Driver    | `factory.listPartitions(optionsBytes)` → one task per `PartitionInfo`; each task gets that entry's `partitionBytes` + `preferredLocations` |
 | Predicate translation       | Driver    | `SparkPredicateTranslator.translate(Predicate)` → `LogicalExprNode` proto bytes (each pushed predicate is independent) |
-| Per-task scan               | Executor  | Same factory → widen → `registerFfiTable` → `ctx.sql("SELECT proj FROM t")` → fold `DataFrame.filterFromProto(bytes)` over pushed predicates → `executeStream` |
+| Per-task scan               | Executor  | Same factory → `createProvider(opts, partitionBytes)` → widen → `registerFfiTable` → `ctx.sql("SELECT proj FROM t")` → fold `DataFrame.filterFromProto(bytes)` over pushed predicates → `executeStream` |
 
 ## Caveats
 
