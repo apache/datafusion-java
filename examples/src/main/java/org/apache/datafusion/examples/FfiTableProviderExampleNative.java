@@ -34,11 +34,10 @@ import java.util.Locale;
  *
  * <ol>
  *   <li>Absolute path passed via {@code -Dexample.ffi.lib.path=/abs/path/to/lib...}.
- *   <li>{@code rust-target/release/<mappedName>} relative to the current working directory
- *       (the workspace output dir; default when invoked via {@code mvn exec:java} from the
- *       repo root).
- *   <li>{@code rust-target/debug/<mappedName>} as a fallback for {@code cargo build} without
- *       {@code --release}.
+ *   <li>{@code rust-target/release/<mappedName>} relative to the current working directory (the
+ *       workspace output dir; default when invoked via {@code mvn exec:java} from the repo root).
+ *   <li>{@code rust-target/debug/<mappedName>} as a fallback for {@code cargo build} without {@code
+ *       --release}.
  * </ol>
  *
  * <p>If none of these exist, an {@link UnsatisfiedLinkError} surfaces with the search list so the
@@ -60,9 +59,8 @@ final class FfiTableProviderExampleNative {
    * to {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)} discharges it.
    *
    * <p>{@code optionsBytes} is the length-prefixed binary blob produced by {@link
-   * ExampleFfiProviderFactory#encodeOptions(java.util.Map)}. An empty or {@code null} array
-   * decodes as all defaults ({@code name_prefix="row"}, {@code num_rows=4}, {@code
-   * num_batches=1}).
+   * ExampleFfiProviderFactory#encodeOptions(java.util.Map)}. An empty or {@code null} array decodes
+   * as all defaults ({@code name_prefix="row"}, {@code num_rows=4}, {@code num_batches=1}).
    */
   static native long createMemTableProvider(byte[] optionsBytes);
 

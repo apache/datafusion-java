@@ -47,12 +47,13 @@ import io.datafusion.spark.FfiProviderFactory;
  *   <li>{@code name_prefix} — prefix string used for generated {@code name} column values. Default
  *       {@code "row"}.
  *   <li>{@code num_rows} — rows per batch. Default {@code 4}.
- *   <li>{@code num_batches} — number of in-memory {@code RecordBatch}es composing the table. Default
- *       {@code 1}.
+ *   <li>{@code num_batches} — number of in-memory {@code RecordBatch}es composing the table.
+ *       Default {@code 1}.
  * </ul>
  *
- * <p>Real bridges (Rerun, HDF5, custom Iceberg) use a protobuf schema for {@code optionsProtoBytes};
- * this example uses a hand-rolled length-prefixed binary format to keep the wire layer obvious:
+ * <p>Real bridges (Rerun, HDF5, custom Iceberg) use a protobuf schema for {@code
+ * optionsProtoBytes}; this example uses a hand-rolled length-prefixed binary format to keep the
+ * wire layer obvious:
  *
  * <pre>
  *   [u32 LE name_prefix_len][name_prefix UTF-8 bytes][u32 LE num_rows][u32 LE num_batches]
@@ -84,7 +85,8 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
     int numBatches = parsePositiveInt(sparkOptions, OPT_NUM_BATCHES, DEFAULT_NUM_BATCHES);
 
     byte[] nameBytes = namePrefix.getBytes(StandardCharsets.UTF_8);
-    ByteBuffer buf = ByteBuffer.allocate(4 + nameBytes.length + 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer buf =
+        ByteBuffer.allocate(4 + nameBytes.length + 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
     buf.putInt(nameBytes.length);
     buf.put(nameBytes);
     buf.putInt(numRows);
