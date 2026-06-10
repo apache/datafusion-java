@@ -44,6 +44,15 @@ under the License.
             <groupId>org.apache.datafusion</groupId>
             <artifactId>datafusion-java</artifactId>
         </dependency>
+        <!-- Provides io.datafusion.spark.FfiProviderFactory for ExampleFfiProviderFactory.
+             Compile-only: the example factory does not pull Spark itself onto the classpath;
+             the pyspark demo supplies Spark at runtime. -->
+        <dependency>
+            <groupId>org.apache.datafusion</groupId>
+            <artifactId>datafusion-java-spark_2.13</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>arrow-vector</artifactId>

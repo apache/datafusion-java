@@ -32,6 +32,7 @@ under the License.
 
     <modules>
         <module>core</module>
+        <module>spark</module>
         <module>examples</module>
     </modules>
 
@@ -159,6 +160,7 @@ under the License.
                         <exclude>README.md</exclude>
                         <exclude>CONTRIBUTING.md</exclude>
                         <exclude>docs/**</exclude>
+                        <exclude>**/*.md</exclude>
                         <!-- VCS and editor metadata -->
                         <exclude>.gitignore</exclude>
                         <exclude>.idea/**</exclude>
@@ -175,8 +177,11 @@ under the License.
                         <exclude>**/target/**</exclude>
                         <exclude>native/target/**</exclude>
                         <exclude>tpch-data/**</exclude>
-                        <!-- Rust lockfile -->
+                        <!-- Rust lockfiles -->
                         <exclude>native/Cargo.lock</exclude>
+                        <exclude>**/Cargo.lock</exclude>
+                        <!-- Spark DataSource SPI registration file (line-delimited FQCN list, no header) -->
+                        <exclude>**/META-INF/services/**</exclude>
                         <!-- Source-tarball exclude list (data file consumed by check-rat-report.py) -->
                         <exclude>dev/release/rat_exclude_files.txt</exclude>
                     </excludes>

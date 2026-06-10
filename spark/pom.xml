@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.datafusion</groupId>
+        <artifactId>datafusion-java-parent</artifactId>
+        <version>0.2.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>datafusion-java-spark_2.13</artifactId>
+    <packaging>jar</packaging>
+
+    <name>Apache DataFusion Java Spark Connector</name>
+    <description>
+        Generic Spark DataSource V2 connector that registers DataFusion
+        TableProviders via FFI. Domain bridges implement FfiProviderFactory;
+        this module supplies the Spark plumbing, predicate translation,
+        Arrow-to-Spark schema conversion, and a widening cdylib that wraps
+        an FFI_TableProvider in a WideningTableProvider before Spark sees
+        it.
+    </description>
+
+    <properties>
+        <scala.compat.version>2.13</scala.compat.version>
+        <scala.version>2.13.14</scala.version>
+        <spark.version>3.5.7</spark.version>
+        <datafusion.native.profile>debug</datafusion.native.profile>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.compat.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_${scala.compat.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.datafusion</groupId>
+            <artifactId>datafusion-java</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-c-data</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.scalatest</groupId>
+            <artifactId>scalatest_${scala.compat.version}</artifactId>
+            <version>3.2.18</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+                <version>4.8.1</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>testCompile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <scalaVersion>${scala.version}</scalaVersion>
+                    <args>
+                        <arg>-deprecation</arg>
+                        <arg>-feature</arg>
+                        <arg>-unchecked</arg>
+                    </args>
+                    <recompileMode>all</recompileMode>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-widening-cdylib</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <property name="datafusion.spark.helper.source"
+                                          value="${project.basedir}/native/target/${datafusion.native.profile}/${datafusion.spark.helper.filename}"/>
+                                <fail message="Widening cdylib not found at ${datafusion.spark.helper.source}. Run 'cd spark/native &amp;&amp; cargo build' (or '--release' for the release profile) before building the JAR.">
+                                    <condition><not><available file="${datafusion.spark.helper.source}"/></not></condition>
+                                </fail>
+                                <mkdir dir="${project.build.outputDirectory}/io/datafusion/spark/${datafusion.spark.helper.os}/${datafusion.spark.helper.arch}"/>
+                                <copy file="${datafusion.spark.helper.source}"
+                                      tofile="${project.build.outputDirectory}/io/datafusion/spark/${datafusion.spark.helper.os}/${datafusion.spark.helper.arch}/${datafusion.spark.helper.filename}"
+                                      preservelastmodified="true"
+                                      verbose="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.scalatest</groupId>
+                <artifactId>scalatest-maven-plugin</artifactId>
+                <version>2.2.0</version>
+                <configuration>
+                    <reportsDirectory>${project.build.directory}/scalatest-reports</reportsDirectory>
+                    <junitxml>.</junitxml>
+                    <filereports>WDF TestSuite.txt</filereports>
+                    <argLine>--add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>test</id>
+                        <goals><goal>test</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--
+            Per-host native bundling profiles. Resource layout inside the jar
+            mirrors NativeLibraryLoader's lookup convention:
+
+              io/datafusion/spark/linux/x86_64/libdatafusion_spark_helper.so
+              io/datafusion/spark/linux/aarch64/libdatafusion_spark_helper.so
+              io/datafusion/spark/darwin/x86_64/libdatafusion_spark_helper.dylib
+              io/datafusion/spark/darwin/aarch64/libdatafusion_spark_helper.dylib
+        -->
+        <profile>
+            <id>native-linux-amd64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-x86_64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-aarch64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>aarch64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-x86_64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-amd64</id>
+            <activation>
+                <os><family>mac</family><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-aarch64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
+                <datafusion.spark.helper.arch>aarch64</datafusion.spark.helper.arch>
+                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
+            </properties>
+        </profile>
+    </profiles>
+</project>
