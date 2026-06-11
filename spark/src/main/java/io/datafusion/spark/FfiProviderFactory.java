@@ -22,7 +22,7 @@ package io.datafusion.spark;
 import java.util.Map;
 
 /**
- * Bridge interface implemented per domain (Rerun, HDF5, custom Iceberg, etc.). A bridge owns its
+ * Bridge interface implemented per domain (HDF5, custom Iceberg, an in-house format, etc.). A bridge owns its
  * own proto schema for connection options and a cdylib that produces an {@code FFI_TableProvider}
  * pointer. The connector-core Spark plumbing is generic — it knows only this interface.
  *

@@ -21,7 +21,7 @@
 //! `FfiHelperNative.createScan` / `providerSchemaIpc`, which widen the
 //! provider and plan/execute the scan inside the connector cdylib.
 //!
-//! The same pattern is what domain bridges (Rerun, HDF5, custom Iceberg) use
+//! The same pattern is what domain bridges (HDF5, custom Iceberg, in-house formats) use
 //! to expose their TableProviders to Spark via the connector-core DataSource
 //! V2 plumbing.
 //!

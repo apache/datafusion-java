@@ -33,7 +33,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
  * Generic Spark DataSource V2 entry point. Concrete bridges either:
- *   - Subclass and override [[shortName]] + [[factoryFqcn]] (the rerun-connector pattern), or
+ *   - Subclass and override [[shortName]] + [[factoryFqcn]] (the short-name shim pattern), or
  *   - Use this class directly with `option("df.factory", "fully.qualified.FactoryClass")`.
  *
  * Schema discovery happens driver-side inside the connector cdylib: the factory's
@@ -50,9 +50,8 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
   protected val FactoryOptionKey: String = "df.factory"
 
   /**
-   * Resolve the bridge factory class name from the Spark options. Subclasses (e.g.
-   * `RerunDataSource`) override to return a hard-coded FQCN so users don't need to set
-   * `df.factory` themselves.
+   * Resolve the bridge factory class name from the Spark options. Subclasses override to return a
+   * hard-coded FQCN so users don't need to set `df.factory` themselves.
    */
   protected def factoryFqcn(options: CaseInsensitiveStringMap): String = {
     val v = options.get(FactoryOptionKey)

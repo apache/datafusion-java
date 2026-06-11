@@ -58,7 +58,7 @@ import io.datafusion.spark.PartitionInfo;
  *       (single task via {@link #listPartitions(byte[])}).
  * </ul>
  *
- * <p>Real bridges (Rerun, HDF5, custom Iceberg) use a protobuf schema for {@code
+ * <p>Real bridges (HDF5, custom Iceberg, in-house formats) use a protobuf schema for {@code
  * optionsProtoBytes}; this example uses a hand-rolled length-prefixed binary format to keep the
  * wire layer obvious:
  *

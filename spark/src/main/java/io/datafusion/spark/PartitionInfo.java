@@ -28,7 +28,7 @@ package io.datafusion.spark;
  * <p>Fields:
  *
  * <ul>
- *   <li>{@code id} — stable, human-readable identifier for this partition (e.g. a Rerun segment
+ *   <li>{@code id} — stable, human-readable identifier for this partition (e.g. a segment
  *       id). Surfaces in Spark UI, logs, and exception messages. Must be non-empty.
  *   <li>{@code partitionBytes} — opaque per-partition payload. Bridge encodes whatever the executor
  *       needs to materialise *this* slice (offsets, row ranges, sub-options, etc.). Combined with
