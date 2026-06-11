@@ -24,18 +24,19 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-import io.datafusion.spark.FfiProviderFactory;
+import io.datafusion.spark.BridgeProviderFactory;
 import io.datafusion.spark.PartitionInfo;
+import io.datafusion.spark.ScanBackend;
 
 /**
- * Minimal {@link FfiProviderFactory} that exposes the example {@code MemTable} produced by {@link
- * FfiTableProviderExampleNative#createMemTableProvider(byte[])} as a Spark DataSource V2 source.
+ * Minimal {@link BridgeProviderFactory} that exposes the example {@code MemTable} built inside the
+ * example bridge cdylib (see {@code examples/native}) as a Spark DataSource V2 source.
  *
  * <p>Wire it into PySpark with:
  *
  * <pre>{@code
  * df = (spark.read.format("datafusion")
- *         .option("df.factory", "org.apache.datafusion.examples.ExampleFfiProviderFactory")
+ *         .option("df.factory", "org.apache.datafusion.examples.ExampleBridgeProviderFactory")
  *         .option("name_prefix", "user")
  *         .option("num_rows", "5")
  *         .option("num_batches", "3")
@@ -71,12 +72,11 @@ import io.datafusion.spark.PartitionInfo;
  * two trailing fields are optional so older blobs keep decoding.
  *
  * <p>In the default mode a single partition (id {@code "p0"}, empty {@code partitionBytes}, no
- * preferred host) is reported so Spark spawns one task; the executor calls {@link
- * #createProvider(byte[], byte[])} to obtain a fresh {@code FFI_TableProvider} pointer, hands it to
- * {@code FfiHelperNative.createScan}, and streams the resulting Arrow record batches back into the
- * Spark scan.
+ * preferred host) is reported so Spark spawns one task; the executor hands the options bytes to
+ * {@code ExampleBridgeNative.createScan}, which builds the {@code MemTable} provider in process and
+ * streams the resulting Arrow record batches back into the Spark scan.
  */
-public final class ExampleFfiProviderFactory implements FfiProviderFactory {
+public final class ExampleBridgeProviderFactory implements BridgeProviderFactory {
 
   static final String OPT_NAME_PREFIX = "name_prefix";
   static final String OPT_NUM_ROWS = "num_rows";
@@ -89,7 +89,7 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
   static final int DEFAULT_NUM_BATCHES = 1;
   static final int DEFAULT_NUM_PARTITIONS = 1;
 
-  public ExampleFfiProviderFactory() {}
+  public ExampleBridgeProviderFactory() {}
 
   @Override
   public byte[] encodeOptions(Map<String, String> sparkOptions) {
@@ -123,7 +123,7 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
     // The example cannot prune its single partition, but a real bridge would inspect the
     // pushed predicates here and drop partitions that cannot match.
     System.out.println(
-        "ExampleFfiProviderFactory.listPartitions received "
+        "ExampleBridgeProviderFactory.listPartitions received "
             + filterProtoBytes.length
             + " pushed filter(s)");
     return listPartitions(optionsProtoBytes);
@@ -149,13 +149,8 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
   }
 
   @Override
-  public long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes) {
-    // The example bridge has no per-partition state; `partitionBytes` is ignored.
-    // The print makes provider-build amortization observable in the demo: shared-scan
-    // mode builds once per (executor x query) regardless of task count, while the
-    // per-partition path builds once per task.
-    System.out.println("ExampleFfiProviderFactory.createProvider building a MemTable provider");
-    return FfiTableProviderExampleNative.createMemTableProvider(optionsProtoBytes);
+  public ScanBackend scanBackend() {
+    return new ExampleScanBackend();
   }
 
   private static int parsePositiveInt(Map<String, String> opts, String key, int defaultValue) {
@@ -168,11 +163,11 @@ public final class ExampleFfiProviderFactory implements FfiProviderFactory {
       parsed = Integer.parseInt(raw.trim());
     } catch (NumberFormatException e) {
       throw new IllegalArgumentException(
-          "ExampleFfiProviderFactory: option '" + key + "' must be an integer, got: " + raw);
+          "ExampleBridgeProviderFactory: option '" + key + "' must be an integer, got: " + raw);
     }
     if (parsed <= 0) {
       throw new IllegalArgumentException(
-          "ExampleFfiProviderFactory: option '" + key + "' must be > 0, got: " + parsed);
+          "ExampleBridgeProviderFactory: option '" + key + "' must be > 0, got: " + parsed);
     }
     return parsed;
   }

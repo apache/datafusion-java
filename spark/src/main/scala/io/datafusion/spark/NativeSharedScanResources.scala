@@ -72,7 +72,7 @@ private[spark] object NativeSharedScanResources extends Logging {
       .forName(spec.factoryFqcn)
       .getDeclaredConstructor()
       .newInstance()
-      .asInstanceOf[FfiProviderFactory]
+      .asInstanceOf[BridgeProviderFactory]
     val backend = factory.scanBackend()
 
     val allocator = new RootAllocator(Long.MaxValue)

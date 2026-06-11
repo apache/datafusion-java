@@ -15,20 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Example cdylib that produces a small DataFusion `MemTable` wrapped as an
-//! `FFI_TableProvider`, returned to the JVM as a `jlong` (the raw boxed
-//! pointer). The Spark connector consumes the pointer via
-//! `FfiHelperNative.createScan` / `providerSchemaIpc`, which widen the
-//! provider and plan/execute the scan inside the connector cdylib.
+//! Example bridge cdylib: a small DataFusion `MemTable` exposed to Spark
+//! through the `datafusion-spark-bridge` SDK. `export_bridge!` generates the
+//! whole JNI surface for `org.apache.datafusion.examples.ExampleBridgeNative`;
+//! this crate only decodes the options blob and builds the provider.
 //!
-//! The same pattern is what domain bridges (HDF5, custom Iceberg, in-house formats) use
-//! to expose their TableProviders to Spark via the connector-core DataSource
-//! V2 plumbing.
+//! The same pattern is what domain bridges (HDF5, custom Iceberg, in-house
+//! formats) use to expose their TableProviders to Spark via the connector's
+//! DataSource V2 plumbing.
 //!
 //! ## Options wire format
 //!
-//! `createMemTableProvider` accepts an opaque `byte[]` that the JVM-side
-//! `ExampleFfiProviderFactory.encodeOptions` produces. Layout (little-endian):
+//! The provider builder accepts an opaque `byte[]` that the JVM-side
+//! `ExampleBridgeProviderFactory.encodeOptions` produces. Layout (little-endian):
 //!
 //! ```text
 //! [u32 name_prefix_len][name_prefix UTF-8 bytes][u32 num_rows][u32 num_batches]
@@ -38,10 +37,11 @@
 //! Empty/`null` bytes decode as all defaults: `name_prefix="row"`, `num_rows=4`,
 //! `num_batches=1`, `num_partitions=1`, `shared_scan=false`. The trailing
 //! fields are optional so blobs from older encoders keep decoding. The
-//! `shared_scan` flag is consumed JVM-side (`ExampleFfiProviderFactory.sharedScan`);
+//! `shared_scan` flag is consumed JVM-side (`ExampleBridgeProviderFactory.sharedScan`);
 //! this decoder carries it only so one blob format serves both sides. Real
-//! bridges use a real proto schema here; this example hand-rolls the encoding
-//! to keep the wire layer obvious.
+//! bridges can use the connector's default `OptionsCodec` instead (decoded via
+//! `datafusion_spark_bridge::options`); this example hand-rolls the encoding
+//! to show a custom wire layer.
 
 use std::sync::Arc;
 
@@ -49,34 +49,7 @@ use arrow::array::{Float64Array, Int64Array, RecordBatch, StringArray};
 use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use datafusion::catalog::TableProvider;
 use datafusion::datasource::MemTable;
-use datafusion::execution::TaskContextProvider;
-use datafusion::prelude::SessionContext;
-use datafusion_ffi::execution::FFI_TaskContextProvider;
-use datafusion_ffi::table_provider::FFI_TableProvider;
-use jni::objects::{JByteArray, JClass};
-use jni::sys::jlong;
-use jni::JNIEnv;
-use tokio::runtime::{Handle, Runtime};
-
-/// Tokio runtime that the FFI provider is anchored to. Shared across calls
-/// for the lifetime of the cdylib so successive `createMemTableProvider`
-/// invocations don't spawn fresh runtimes.
-fn runtime() -> &'static Handle {
-    use std::sync::OnceLock;
-    static RT: OnceLock<Runtime> = OnceLock::new();
-    RT.get_or_init(|| Runtime::new().expect("tokio runtime init failed"))
-        .handle()
-}
-
-/// Host `SessionContext` used only to obtain a `TaskContextProvider` for
-/// `FFI_TableProvider::new`. Static on purpose: the `FFI_TaskContextProvider`
-/// holds a non-owning reference, so this context must outlive every provider
-/// built from it. Nothing is ever registered on it.
-fn host_session_context() -> &'static Arc<SessionContext> {
-    use std::sync::OnceLock;
-    static CTX: OnceLock<Arc<SessionContext>> = OnceLock::new();
-    CTX.get_or_init(|| Arc::new(SessionContext::new()))
-}
+use datafusion_spark_bridge::{export_bridge, BridgeContext, JniResult};
 
 #[derive(Debug)]
 struct Options {
@@ -186,70 +159,22 @@ fn build_mem_table(
     Ok(Arc::new(MemTable::try_new(schema, partitions)?))
 }
 
-/// JNI entry point: decode the options blob, build a `MemTable` accordingly,
-/// wrap it in an `FFI_TableProvider`, return the raw boxed pointer as a `jlong`.
-/// Ownership of the boxed FFI transfers to the caller — the matching
-/// `Box::from_raw` is performed by the consumer (the Spark connector's
-/// `FfiHelperNative.createScan` / `providerSchemaIpc`).
-#[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_createMemTableProvider<
-    'local,
->(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    options_bytes: JByteArray<'local>,
-) -> jlong {
-    let result: Result<jlong, Box<dyn std::error::Error + Send + Sync>> = (|| {
-        let bytes: Vec<u8> = if options_bytes.is_null() {
-            Vec::new()
-        } else {
-            env.convert_byte_array(&options_bytes)
-                .map_err(|e| format!("failed to read options byte[] from JVM: {e}"))?
-        };
-        let opts = decode_options(&bytes)?;
-
-        let mem_table = build_mem_table(&opts)?;
-        let provider: Arc<dyn TableProvider> = mem_table;
-
-        let ctx_provider: Arc<dyn TaskContextProvider> =
-            Arc::clone(host_session_context()) as Arc<dyn TaskContextProvider>;
-        let ffi_task_ctx = FFI_TaskContextProvider::from(&ctx_provider);
-        let ffi = FFI_TableProvider::new(
-            provider,
-            /*can_support_pushdown_filters=*/ true,
-            Some(runtime().clone()),
-            ffi_task_ctx,
-            /*logical_codec=*/ None,
-        );
-        Ok(Box::into_raw(Box::new(ffi)) as jlong)
-    })();
-
-    match result {
-        Ok(ptr) => ptr,
-        Err(err) => {
-            let _ = env.throw_new("java/lang/RuntimeException", err.to_string());
-            0
-        }
-    }
+/// Build the example provider for one scan: decode the options blob, build
+/// the `MemTable` accordingly. `partition` is unused — the example reports a
+/// single partition (or relies on shared-scan mode), so there is no per-task
+/// payload to interpret.
+fn build_provider(
+    _ctx: &BridgeContext,
+    options: &[u8],
+    _partition: &[u8],
+) -> JniResult<Arc<dyn TableProvider>> {
+    let opts = decode_options(options)?;
+    Ok(build_mem_table(&opts)?)
 }
 
-/// Drop a previously-created FFI_TableProvider whose pointer was NOT handed
-/// off to a consumer. Exposed for the error path — callers that pass the
-/// pointer to `createScan` / `providerSchemaIpc` must NOT also call this;
-/// ownership has already transferred.
-#[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_dropProvider<
-    'local,
->(
-    _env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    ffi_ptr: jlong,
-) {
-    if ffi_ptr != 0 {
-        unsafe {
-            drop(Box::from_raw(ffi_ptr as *mut FFI_TableProvider));
-        }
-    }
+export_bridge! {
+    jni_class: "org_apache_datafusion_examples_ExampleBridgeNative",
+    build_provider: build_provider,
 }
 
 #[cfg(test)]
@@ -316,6 +241,8 @@ mod tests {
         let table = build_mem_table(&opts).unwrap();
         // MemTable has no partition accessor; verify via scan output partitioning.
         use datafusion::catalog::TableProvider;
+        use datafusion::prelude::SessionContext;
+        use tokio::runtime::Runtime;
         let ctx = SessionContext::new();
         let rt = Runtime::new().unwrap();
         let plan = rt

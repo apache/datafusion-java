@@ -22,7 +22,6 @@ members = [
     "native-common",
     "examples/native",
     "spark/bridge",
-    "spark/native",
 ]
 
 # Every dependency used by any workspace member is declared here so version
@@ -34,7 +33,6 @@ members = [
 arrow = { version = "58", features = ["ffi"] }
 async-trait = "0.1"
 datafusion = { version = "53.1.0" }
-datafusion-ffi = "53.1.0"
 datafusion-proto = "53.1.0"
 datafusion-substrait = "53.1.0"
 futures = "0.3"

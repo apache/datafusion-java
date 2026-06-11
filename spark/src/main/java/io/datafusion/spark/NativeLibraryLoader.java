@@ -39,11 +39,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * where {@code <os>} is one of {@code linux}, {@code darwin}, {@code windows} and {@code <arch>} is
  * {@code x86_64} or {@code aarch64}.
  *
- * <p>The connector loads its own cdylib through this class (prefix {@code io/datafusion/spark});
- * bridges are encouraged to reuse it via {@link #load(Class, String, String)} from their native
- * class's static initializer, with their own resource prefix, instead of hand-rolling extraction.
- * Bundle the cdylib with the same antrun-copy pattern the connector's pom uses (see "Packaging your
- * bridge" in {@code spark/README.md}).
+ * <p>Bridges call {@link #load(Class, String, String)} from their native class's static
+ * initializer, with their own resource prefix, instead of hand-rolling extraction. Bundle the
+ * cdylib with the antrun-copy pattern shown in "Packaging your bridge" in {@code spark/README.md}.
  */
 public final class NativeLibraryLoader {
 
@@ -51,11 +49,6 @@ public final class NativeLibraryLoader {
   private static final Set<String> LOADED = ConcurrentHashMap.newKeySet();
 
   private NativeLibraryLoader() {}
-
-  /** Connector-internal entry: loads from the connector jar's own prefix. */
-  static void loadLibrary(String name) {
-    load(NativeLibraryLoader.class, "io/datafusion/spark", name);
-  }
 
   /**
    * Extract {@code <resourcePrefix>/<os>/<arch>/<mapped name>} from {@code anchor}'s classloader

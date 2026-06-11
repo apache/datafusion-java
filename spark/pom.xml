@@ -34,19 +34,18 @@ under the License.
 
     <name>Apache DataFusion Java Spark Connector</name>
     <description>
-        Generic Spark DataSource V2 connector that registers DataFusion
-        TableProviders via FFI. Domain bridges implement FfiProviderFactory;
-        this module supplies the Spark plumbing, predicate translation,
-        Arrow-to-Spark schema conversion, and a widening cdylib that wraps
-        an FFI_TableProvider in a WideningTableProvider before Spark sees
-        it.
+        Generic Spark DataSource V2 connector for DataFusion TableProviders.
+        Domain bridges implement BridgeProviderFactory over a cdylib built
+        with the datafusion-spark-bridge Rust SDK; this module supplies the
+        Spark plumbing, predicate translation, Arrow-to-Spark schema
+        conversion, and the shared-scan cache. Pure JVM artifact — the
+        native code ships inside each bridge's own jar.
     </description>
 
     <properties>
         <scala.compat.version>2.13</scala.compat.version>
         <scala.version>2.13.14</scala.version>
         <spark.version>3.5.7</spark.version>
-        <datafusion.native.profile>debug</datafusion.native.profile>
     </properties>
 
     <dependencies>
@@ -129,32 +128,6 @@ under the License.
                 </configuration>
             </plugin>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>copy-widening-cdylib</id>
-                        <phase>process-classes</phase>
-                        <goals><goal>run</goal></goals>
-                        <configuration>
-                            <target>
-                                <property name="datafusion.spark.helper.source"
-                                          value="${maven.multiModuleProjectDirectory}/rust-target/${datafusion.native.profile}/${datafusion.spark.helper.filename}"/>
-                                <fail message="Widening cdylib not found at ${datafusion.spark.helper.source}. Run 'cargo build -p datafusion-spark-helper' (or '--release' for the release profile) before building the JAR.">
-                                    <condition><not><available file="${datafusion.spark.helper.source}"/></not></condition>
-                                </fail>
-                                <mkdir dir="${project.build.outputDirectory}/io/datafusion/spark/${datafusion.spark.helper.os}/${datafusion.spark.helper.arch}"/>
-                                <copy file="${datafusion.spark.helper.source}"
-                                      tofile="${project.build.outputDirectory}/io/datafusion/spark/${datafusion.spark.helper.os}/${datafusion.spark.helper.arch}/${datafusion.spark.helper.filename}"
-                                      preservelastmodified="true"
-                                      verbose="true"/>
-                            </target>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.scalatest</groupId>
                 <artifactId>scalatest-maven-plugin</artifactId>
                 <version>2.2.0</version>
@@ -174,81 +147,4 @@ under the License.
         </plugins>
     </build>
 
-    <profiles>
-        <!--
-            Per-host native bundling profiles. Resource layout inside the jar
-            mirrors NativeLibraryLoader's lookup convention:
-
-              io/datafusion/spark/linux/x86_64/libdatafusion_spark_helper.so
-              io/datafusion/spark/linux/aarch64/libdatafusion_spark_helper.so
-              io/datafusion/spark/darwin/x86_64/libdatafusion_spark_helper.dylib
-              io/datafusion/spark/darwin/aarch64/libdatafusion_spark_helper.dylib
-        -->
-        <profile>
-            <id>native-linux-amd64</id>
-            <activation>
-                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-        <profile>
-            <id>native-linux-x86_64</id>
-            <activation>
-                <os><family>unix</family><name>linux</name><arch>x86_64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-        <profile>
-            <id>native-linux-aarch64</id>
-            <activation>
-                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>linux</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>aarch64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.so</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-        <profile>
-            <id>native-mac-x86_64</id>
-            <activation>
-                <os><family>mac</family><arch>x86_64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-        <profile>
-            <id>native-mac-amd64</id>
-            <activation>
-                <os><family>mac</family><arch>amd64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>x86_64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-        <profile>
-            <id>native-mac-aarch64</id>
-            <activation>
-                <os><family>mac</family><arch>aarch64</arch></os>
-            </activation>
-            <properties>
-                <datafusion.spark.helper.os>darwin</datafusion.spark.helper.os>
-                <datafusion.spark.helper.arch>aarch64</datafusion.spark.helper.arch>
-                <datafusion.spark.helper.filename>libdatafusion_spark_helper.dylib</datafusion.spark.helper.filename>
-            </properties>
-        </profile>
-    </profiles>
 </project>

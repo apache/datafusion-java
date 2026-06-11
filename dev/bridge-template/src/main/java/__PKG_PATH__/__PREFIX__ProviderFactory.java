@@ -1,13 +1,13 @@
 package __PKG__;
 
-import io.datafusion.spark.FfiProviderFactory;
+import io.datafusion.spark.BridgeProviderFactory;
 import io.datafusion.spark.ScanBackend;
 
 /**
- * The bridge's contract with the Spark connector. This is a STATIC bridge — the provider is built
- * inside this bridge's own cdylib — so the only required override is {@link #scanBackend()}.
+ * The bridge's contract with the Spark connector: the provider is built inside this bridge's own
+ * cdylib, and {@link #scanBackend()} is the only required method.
  *
- * <p>Useful optional overrides (see their javadoc on {@link FfiProviderFactory}):
+ * <p>Useful optional overrides (see their javadoc on {@link BridgeProviderFactory}):
  *
  * <ul>
  *   <li>{@code encodeOptions} — only if you have your own options schema; the default ships the
@@ -19,7 +19,7 @@ import io.datafusion.spark.ScanBackend;
  *       task per DataFusion output partition. Mind the determinism contract.
  * </ul>
  */
-public final class __PREFIX__ProviderFactory implements FfiProviderFactory {
+public final class __PREFIX__ProviderFactory implements BridgeProviderFactory {
 
   @Override
   public ScanBackend scanBackend() {

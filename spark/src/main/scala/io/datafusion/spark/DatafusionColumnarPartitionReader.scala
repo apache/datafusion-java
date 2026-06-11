@@ -28,7 +28,7 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 /**
  * Per-task columnar reader for the per-partition payload (legacy) path. Lifecycle:
  *
- *   1. Reflectively instantiate the bridge's `FfiProviderFactory` (no-arg) and take its
+ *   1. Reflectively instantiate the bridge's `BridgeProviderFactory` (no-arg) and take its
  *      [[ScanBackend]].
  *   2. `backend.createScan(options, partitionBytes, ...)` — builds the provider for the slice
  *      described by `partitionBytes` and does the rest natively: widening wrap, private
@@ -90,8 +90,8 @@ class DatafusionColumnarPartitionReader(
     if (first != null) throw first
   }
 
-  private def instantiateFactory(fqcn: String): FfiProviderFactory = {
+  private def instantiateFactory(fqcn: String): BridgeProviderFactory = {
     val cls = Class.forName(fqcn)
-    cls.getDeclaredConstructor().newInstance().asInstanceOf[FfiProviderFactory]
+    cls.getDeclaredConstructor().newInstance().asInstanceOf[BridgeProviderFactory]
   }
 }

@@ -20,26 +20,14 @@
 //! Everything the Spark connector needs DataFusion-side lives here: the
 //! Spark-type [`widening`] layer, and the [`scan`] machinery (session from
 //! pinned config, projection, proto filters, planning, partition streams).
-//! Two ways to consume it:
-//!
-//! - **Static bridge (preferred when you own the provider's source).** Your
-//!   cdylib depends on this crate and invokes [`export_bridge!`] with a
-//!   builder that constructs your concrete `TableProvider` from option /
-//!   partition bytes. One cdylib, no `datafusion-ffi` ABI boundary, your
-//!   choice of DataFusion version.
-//!
-//! - **FFI bridge (when the provider arrives precompiled).** A cdylib takes
-//!   a raw `FFI_TableProvider` pointer from another library and imports it
-//!   via [`ffi::import_ffi_provider`]. This is what the connector's own
-//!   `datafusion-spark-helper` cdylib does for the generic
-//!   `io.datafusion.spark.FfiHelperNative` path.
+//! A bridge cdylib depends on this crate and invokes [`export_bridge!`] with
+//! a builder that constructs its concrete `TableProvider` from option /
+//! partition bytes — one cdylib, no FFI provider boundary; the only foreign
+//! interface is JNI plus Arrow's C stream for the results.
 
 pub mod options;
 pub mod scan;
 pub mod widening;
-
-#[cfg(feature = "ffi")]
-pub mod ffi;
 
 // Re-exported so `export_bridge!` expansions resolve these crates inside the
 // bridge author's crate without extra dependencies, and so builder signatures
@@ -94,9 +82,7 @@ pub(crate) fn runtime_handle() -> &'static Handle {
 /// (`com.example.mybridge.BridgeNative` → `"com_example_mybridge_BridgeNative"`).
 /// If the class or package name itself contains an underscore, JNI mangling
 /// requires it written as `_1`. Per-bridge class names are what let several
-/// bridges coexist in one Spark JVM — never export under
-/// `io_datafusion_spark_FfiHelperNative`, that name belongs to the generic
-/// FFI helper.
+/// bridges coexist in one Spark JVM.
 ///
 /// `build_provider` is anything callable as
 /// `Fn(&BridgeContext, &[u8], &[u8]) -> JniResult<Arc<dyn TableProvider>>`,

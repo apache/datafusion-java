@@ -100,7 +100,7 @@ private[spark] object DatafusionBatch {
     }
     if (withKeys != partitions.length) {
       throw new IllegalStateException(
-        s"FfiProviderFactory '$factoryFqcn' reported a partitioning but only $withKeys of " +
+        s"BridgeProviderFactory '$factoryFqcn' reported a partitioning but only $withKeys of " +
           s"${partitions.length} PartitionInfo entries carry partitionKeyValues; either all " +
           "partitions must carry key values or none")
     }

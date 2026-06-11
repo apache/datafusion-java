@@ -9,19 +9,21 @@
 #   http://www.apache.org/licenses/LICENSE-2.0
 
 [package]
-name = "datafusion-java-ffi-example"
+name = "datafusion-java-example-bridge"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-# Built as a cdylib so the JVM-side example can System.load() the artifact.
-# `rlib` lets us add Rust-level unit tests if needed.
+name = "datafusion_example_bridge"
+# Built as a cdylib so the JVM loads it via NativeLibraryLoader; `rlib` keeps
+# the Rust-level unit tests (options decoding, partition layout) runnable.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 arrow = { workspace = true }
 datafusion = { workspace = true }
-datafusion-ffi = { workspace = true }
-jni = { workspace = true }
+datafusion-spark-bridge = { path = "../../spark/bridge" }
+
+[dev-dependencies]
 tokio = { workspace = true }

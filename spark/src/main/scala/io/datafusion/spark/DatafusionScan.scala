@@ -46,7 +46,7 @@ final case class LegacyMode(
 
 /**
  * Shared-scan mode: one cached provider + plan per (executor × scan), `numPartitions` tasks each
- * driving one DataFusion output partition. See [[FfiProviderFactory#sharedScan]] for the
+ * driving one DataFusion output partition. See [[BridgeProviderFactory#sharedScan]] for the
  * determinism contract.
  */
 final case class SharedScanMode(
@@ -59,7 +59,7 @@ final case class SharedScanMode(
 /**
  * Read plan for a DataFusion-backed scan. Holds pruning state, the pushed predicates (for
  * `description()` / `explain(True)`), the corresponding `LogicalExprNode` proto byte arrays the
- * executor applies natively via `FfiHelperNative.createScan`, and the driver-resolved
+ * executor applies natively via `ScanBackend.createScan`, and the driver-resolved
  * [[DatafusionScanMode]].
  *
  * Legacy mode with a bridge-declared [[ReportedPartitioning]] surfaces `KeyGroupedPartitioning`

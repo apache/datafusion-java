@@ -17,26 +17,16 @@
  * under the License.
  */
 
-package io.datafusion.spark;
+package org.apache.datafusion.examples;
 
-/**
- * Generic FFI {@link ScanBackend}: asks the factory for a raw {@code FFI_TableProvider} pointer and
- * routes everything through the connector's own cdylib ({@link FfiHelperNative}). This is the
- * {@link FfiProviderFactory#scanBackend()} default; bridges that statically link their provider via
- * {@code export_bridge!} replace it with a backend delegating to their own native class.
- */
-public final class FfiScanBackend implements ScanBackend {
+import io.datafusion.spark.ScanBackend;
 
-  private final FfiProviderFactory factory;
-
-  public FfiScanBackend(FfiProviderFactory factory) {
-    this.factory = factory;
-  }
+/** Routes the connector's scan calls to the example bridge cdylib. Pure delegation. */
+final class ExampleScanBackend implements ScanBackend {
 
   @Override
   public byte[] providerSchemaIpc(byte[] options, byte[] partitionBytes) {
-    long ptr = factory.createProvider(options, partitionBytes);
-    return FfiHelperNative.providerSchemaIpc(ptr);
+    return ExampleBridgeNative.providerSchemaIpc(options, partitionBytes);
   }
 
   @Override
@@ -49,9 +39,9 @@ public final class FfiScanBackend implements ScanBackend {
       String[] optionValues,
       String[] projectionColumns,
       byte[][] filterProtos) {
-    long ptr = factory.createProvider(options, partitionBytes);
-    return FfiHelperNative.createScan(
-        ptr,
+    return ExampleBridgeNative.createScan(
+        options,
+        partitionBytes,
         targetPartitions,
         batchSize,
         optionKeys,
@@ -62,21 +52,21 @@ public final class FfiScanBackend implements ScanBackend {
 
   @Override
   public int partitionCount(long scanHandle) {
-    return FfiHelperNative.partitionCount(scanHandle);
+    return ExampleBridgeNative.partitionCount(scanHandle);
   }
 
   @Override
   public void executeStreamPartition(long scanHandle, int partition, long ffiStreamAddr) {
-    FfiHelperNative.executeStreamPartition(scanHandle, partition, ffiStreamAddr);
+    ExampleBridgeNative.executeStreamPartition(scanHandle, partition, ffiStreamAddr);
   }
 
   @Override
   public void executeStream(long scanHandle, long ffiStreamAddr) {
-    FfiHelperNative.executeStream(scanHandle, ffiStreamAddr);
+    ExampleBridgeNative.executeStream(scanHandle, ffiStreamAddr);
   }
 
   @Override
   public void closeScan(long scanHandle) {
-    FfiHelperNative.closeScan(scanHandle);
+    ExampleBridgeNative.closeScan(scanHandle);
   }
 }

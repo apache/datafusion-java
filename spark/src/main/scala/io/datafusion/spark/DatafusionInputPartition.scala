@@ -31,14 +31,14 @@ sealed trait DatafusionPartition extends InputPartition
 /**
  * Per-task payload for the per-partition payload (legacy) read path.
  *
- *  - `factoryFqcn`: fully-qualified class name of the bridge's `FfiProviderFactory`. The
+ *  - `factoryFqcn`: fully-qualified class name of the bridge's `BridgeProviderFactory`. The
  *    executor reflectively instantiates this and calls `createProvider(optionsProtoBytes,
  *    partitionBytes)`.
  *  - `optionsProtoBytes`: bridge-specific global connection options, encoded by the bridge.
  *    Opaque to connector-core. Same bytes ride along on every partition.
  *  - `projectionColumnNames`: pruned column list (post-`pruneColumns`).
  *  - `filterProtoBytes`: V2 `Predicate` → DataFusion `LogicalExprNode` proto bytes; each one is
- *    applied natively via `FfiHelperNative.createScan`.
+ *    applied natively via `ScanBackend.createScan`.
  *  - `partitionId`: stable identifier (e.g. a segment or file id) — surfaces in Spark UI/logs/errors.
  *  - `partitionBytes`: opaque per-partition payload from `PartitionInfo.partitionBytes`. Passed
  *    back into `createProvider` so the bridge materialises *this* slice.

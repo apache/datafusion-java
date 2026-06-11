@@ -21,8 +21,8 @@ package io.datafusion.spark;
 
 /**
  * Driver-side descriptor for a single partition produced by {@link
- * FfiProviderFactory#listPartitions(byte[])}. Carries the bridge-specific slice payload that the
- * executor passes back into {@link FfiProviderFactory#createProvider(byte[], byte[])}, plus
+ * BridgeProviderFactory#listPartitions(byte[])}. Carries the bridge-specific slice payload that the
+ * executor passes back into {@link BridgeProviderFactory#createProvider(byte[], byte[])}, plus
  * optional host hints for Spark's scheduler.
  *
  * <p>Fields:
@@ -32,13 +32,13 @@ package io.datafusion.spark;
  *       Surfaces in Spark UI, logs, and exception messages. Must be non-empty.
  *   <li>{@code partitionBytes} — opaque per-partition payload. Bridge encodes whatever the executor
  *       needs to materialise *this* slice (offsets, row ranges, sub-options, etc.). Combined with
- *       the global {@code optionsProtoBytes} in {@link FfiProviderFactory#createProvider(byte[],
+ *       the global {@code optionsProtoBytes} in {@link BridgeProviderFactory#createProvider(byte[],
  *       byte[])}. Empty array = no per-partition state (single-partition table).
  *   <li>{@code preferredLocations} — hostnames where this partition's data lives. Returned from
  *       {@code InputPartition.preferredLocations()} so Spark can co-locate the task with the data.
  *       Empty array = no preference. Honoured subject to {@code spark.locality.wait}.
  *   <li>{@code partitionKeyValues} — optional values of the partitioning keys for every row in this
- *       partition, in the same order as {@link FfiProviderFactory#reportPartitioning(byte[])}'s
+ *       partition, in the same order as {@link BridgeProviderFactory#reportPartitioning(byte[])}'s
  *       declared transforms. {@code null} = no key (the default). When the bridge reports a
  *       partitioning AND every partition carries key values, the connector exposes them to Spark
  *       via {@code HasPartitionKey} — required on Spark 3.3+ for the reported {@code

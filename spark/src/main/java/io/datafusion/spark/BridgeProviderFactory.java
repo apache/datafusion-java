@@ -23,30 +23,28 @@ import java.util.Map;
 
 /**
  * Bridge interface implemented per domain (HDF5, custom Iceberg, an in-house format, etc.). A
- * bridge owns its options encoding and a native scan implementation; the connector-core Spark
- * plumbing is generic — it knows only this interface.
+ * bridge owns its options encoding and a native scan implementation built with {@code
+ * datafusion_spark_bridge::export_bridge!}; the connector Spark plumbing is generic — it knows only
+ * this interface.
  *
- * <p>Two kinds of bridge, distinguished by which method they override:
- *
- * <ul>
- *   <li><b>Static bridge</b> (preferred when the provider's Rust source is yours): the cdylib is
- *       built with {@code datafusion_spark_bridge::export_bridge!} and constructs the provider from
- *       the options/partition bytes natively. Override {@link #scanBackend()} to delegate to the
- *       JNI class named in the macro; {@link #createProvider(byte[], byte[])} is never called.
- *   <li><b>FFI bridge</b> (the provider arrives precompiled, or must stay on a different DataFusion
- *       version): override {@link #createProvider(byte[], byte[])} to return a raw {@code
- *       FFI_TableProvider} pointer; the default {@link #scanBackend()} routes it through the
- *       connector's own cdylib.
- * </ul>
- *
- * <p>Everything else has a working default: {@link #encodeOptions(Map)} encodes the Spark options
- * via {@link OptionsCodec}, and {@link #listPartitions(byte[])} reports a single partition. A
- * minimal bridge therefore overrides exactly one method.
+ * <p>The single required method is {@link #scanBackend()}, returning the delegations to the JNI
+ * class the bridge named in its {@code export_bridge!} invocation. Everything else has a working
+ * default: {@link #encodeOptions(Map)} encodes the Spark options via {@link OptionsCodec}, and
+ * {@link #listPartitions(byte[])} reports a single partition.
  *
  * <p>Implementations must be no-arg constructable so the Spark connector can instantiate them
  * reflectively via {@link Class#forName(String)} on the executor.
  */
-public interface FfiProviderFactory {
+public interface BridgeProviderFactory {
+
+  /**
+   * The native scan implementation this bridge talks to: delegations to the JNI class named in the
+   * bridge's {@code export_bridge!} invocation, whose generated {@code createScan} builds the
+   * provider from the options/partition bytes in process. Called wherever the connector needs
+   * native work — driver-side schema/plan probes and executor-side streams — always on a factory
+   * freshly instantiated from its class name, so the returned backend never has to be serializable.
+   */
+  ScanBackend scanBackend();
 
   /**
    * Convert Spark's flat option map to the bridge's encoded options. Driver-side only; the bytes
@@ -68,9 +66,9 @@ public interface FfiProviderFactory {
    * PartitionInfo}. Driver-side only.
    *
    * <p>Each partition's {@code partitionBytes} ships verbatim through {@code
-   * DatafusionInputPartition} to the executor, where it is passed to {@link #createProvider(byte[],
-   * byte[])}. Use it to encode whatever slice metadata (row range, sub-options, file offsets,
-   * segment id, …) the bridge needs to materialise *that* partition.
+   * DatafusionInputPartition} to the executor, where it is passed to {@link
+   * ScanBackend#createScan}. Use it to encode whatever slice metadata (row range, sub-options, file
+   * offsets, segment id, …) the bridge needs to materialise *that* partition.
    *
    * <p>Each partition's {@code preferredLocations} hostnames are returned from {@code
    * InputPartition.preferredLocations()} so Spark co-locates the task with the data; empty array =
@@ -88,10 +86,10 @@ public interface FfiProviderFactory {
   /**
    * Filter-aware variant of {@link #listPartitions(byte[])}. The connector calls this overload with
    * the pushed-down predicates ({@code LogicalExprNode} proto bytes, one array per predicate, same
-   * encoding the executor later replays via {@code FfiHelperNative.createScan}). Bridges that can
-   * map predicates onto their partition layout (e.g. {@code segment_id = 'x'}) should prune
-   * partitions that cannot match — pruning here eliminates whole Spark tasks, whereas the per-task
-   * filter only reduces rows inside a task.
+   * encoding the executor later replays via {@link ScanBackend#createScan}). Bridges that can map
+   * predicates onto their partition layout (e.g. {@code segment_id = 'x'}) should prune partitions
+   * that cannot match — pruning here eliminates whole Spark tasks, whereas the per-task filter only
+   * reduces rows inside a task.
    *
    * <p>Pruning must be conservative: only drop a partition when NO row in it can satisfy the
    * conjunction of all pushed predicates. The default delegates to the filter-unaware overload (no
@@ -108,7 +106,7 @@ public interface FfiProviderFactory {
    * <p>When {@code true}, the connector builds ONE provider per (executor JVM × scan) with empty
    * {@code partitionBytes}, plans it once, and runs one Spark task per DataFusion output partition
    * — task {@code i} streams plan partition {@code i} from the shared, cached plan. This amortises
-   * {@code createProvider} cost across all tasks on an executor and is the right model when the
+   * provider construction cost across all tasks on an executor and is the right model when the
    * dataset has many small partitions or provider construction is expensive (remote metadata,
    * connections). {@link #listPartitions(byte[])} and {@link #reportPartitioning(byte[])} are NOT
    * called in this mode, and the scan reports {@code UnknownPartitioning} (DataFusion-native
@@ -133,40 +131,6 @@ public interface FfiProviderFactory {
    */
   default boolean sharedScan(byte[] optionsProtoBytes) {
     return false;
-  }
-
-  /**
-   * Build the underlying {@code Arc<dyn TableProvider>} for one partition and wrap it in an {@code
-   * FFI_TableProvider}. Returns the raw {@code Box::into_raw} pointer as a {@code jlong}; the
-   * caller takes ownership. Only the FFI path ({@link FfiScanBackend}, the {@link #scanBackend()}
-   * default) calls this — static bridges override {@link #scanBackend()} instead and leave this
-   * default in place.
-   *
-   * @param optionsProtoBytes global options produced by {@link #encodeOptions(Map)}
-   * @param partitionBytes per-partition slice payload from {@link PartitionInfo#partitionBytes()}.
-   *     Empty array for single-partition tables and for the driver-side schema probe in {@code
-   *     DatafusionSource.inferSchema}.
-   */
-  default long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes) {
-    throw new UnsupportedOperationException(
-        getClass().getName()
-            + " uses the default FFI scan backend but does not implement createProvider. "
-            + "Override createProvider (FFI bridge) or scanBackend (static export_bridge! "
-            + "bridge).");
-  }
-
-  /**
-   * The native scan implementation this bridge talks to. Called wherever the connector needs native
-   * work — driver-side schema/plan probes and executor-side streams — always on a factory freshly
-   * instantiated from its class name, so the returned backend never has to be serializable.
-   *
-   * <p>Default: the generic FFI path ({@link FfiScanBackend} over {@link #createProvider(byte[],
-   * byte[])} and the connector's own cdylib). Static bridges built with {@code
-   * datafusion_spark_bridge::export_bridge!} override this to return a backend that loads their
-   * cdylib and delegates each method to the JNI class named in the macro invocation.
-   */
-  default ScanBackend scanBackend() {
-    return new FfiScanBackend(this);
   }
 
   /**

@@ -26,13 +26,13 @@ import org.apache.spark.sql.connector.expressions.Transform;
 
 /**
  * Driver-side declaration of how a bridge's data is partitioned on the key columns. When supplied
- * via {@link FfiProviderFactory#reportPartitioning(byte[])}, the connector surfaces a {@link
+ * via {@link BridgeProviderFactory#reportPartitioning(byte[])}, the connector surfaces a {@link
  * org.apache.spark.sql.connector.read.partitioning.KeyGroupedPartitioning} from {@link
  * org.apache.spark.sql.connector.read.SupportsReportPartitioning#outputPartitioning()} — Spark's
  * optimizer can then skip the shuffle ahead of joins/aggregations whose grouping keys line up with
  * these transforms.
  *
- * <p>Contract: for any partition reported by {@link FfiProviderFactory#listPartitions(byte[])},
+ * <p>Contract: for any partition reported by {@link BridgeProviderFactory#listPartitions(byte[])},
  * every row produced by that partition must evaluate to the same tuple of key values under these
  * transforms. Different partitions <i>may</i> share key values (Spark will fuse them); they <b>must
  * not</b> straddle key values.

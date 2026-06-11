@@ -13,11 +13,9 @@ name = "__LIB__"
 crate-type = ["cdylib"]
 
 [dependencies]
-# default-features = false drops the datafusion-ffi import path — a static
-# bridge never crosses an FFI_TableProvider boundary.
 # TODO: replace the path with a git or crates.io dependency once you build
 # outside a local datafusion-java checkout.
-datafusion-spark-bridge = { path = "__BRIDGE_SDK_PATH__", default-features = false }
+datafusion-spark-bridge = { path = "__BRIDGE_SDK_PATH__" }
 
 [profile.release]
 strip = "debuginfo"

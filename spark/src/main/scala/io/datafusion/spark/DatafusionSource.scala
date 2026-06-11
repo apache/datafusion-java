@@ -46,7 +46,7 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
 
   override def shortName(): String = "datafusion"
 
-  /** Spark option key carrying the FfiProviderFactory FQCN when no override is provided. */
+  /** Spark option key carrying the BridgeProviderFactory FQCN when no override is provided. */
   protected val FactoryOptionKey: String = "df.factory"
 
   /**
@@ -88,8 +88,8 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
 
   override def supportsExternalMetadata(): Boolean = false
 
-  private def instantiateFactory(fqcn: String): FfiProviderFactory = {
+  private def instantiateFactory(fqcn: String): BridgeProviderFactory = {
     val cls = Class.forName(fqcn)
-    cls.getDeclaredConstructor().newInstance().asInstanceOf[FfiProviderFactory]
+    cls.getDeclaredConstructor().newInstance().asInstanceOf[BridgeProviderFactory]
   }
 }

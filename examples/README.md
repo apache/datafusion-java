@@ -64,17 +64,18 @@ the result rows. Swap `SqlQueryExample` for any class in the table below.
 ## The Spark connector example
 
 One example is not a standalone `main`:
-`ExampleFfiProviderFactory` implements the Spark connector's
-`FfiProviderFactory` interface over a tiny Rust-built in-memory table (the
-cdylib under [`native/`](native/)). It exists to be loaded *by Spark* — the
-runnable end-to-end version is the PySpark demo under
-[`python/`](python/), and the guide to building your own connector is
+`ExampleBridgeProviderFactory` implements the Spark connector's
+`BridgeProviderFactory` interface over a tiny in-memory table built inside
+the example bridge cdylib (the `export_bridge!` crate under
+[`native/`](native/)). It exists to be loaded *by Spark* — the runnable
+end-to-end version is the PySpark demo under [`python/`](python/), and the
+guide to building your own connector is
 [`../spark/README.md`](../spark/README.md).
 
 To build its cdylib (workspace member, buildable from anywhere in the tree):
 
 ```bash
-cargo build -p datafusion-java-ffi-example --release
+cargo build -p datafusion-java-example-bridge --release
 ```
 
 Building the examples jar then bundles the cdylib inside it (under
@@ -83,7 +84,7 @@ there at runtime via the connector's `NativeLibraryLoader` — the same
 packaging recipe a real bridge uses (see "Packaging your bridge" in
 [`../spark/README.md`](../spark/README.md)). To run against an unpackaged
 local build instead, pass
-`-Dexample.ffi.lib.path=/abs/path/to/libdatafusion_java_ffi_example.{so,dylib}`.
+`-Dexample.bridge.lib.path=/abs/path/to/libdatafusion_example_bridge.{so,dylib}`.
 
 ## Troubleshooting
 
@@ -94,5 +95,5 @@ local build instead, pass
   built in a different profile than Maven expects. Re-run build step 1 and
   keep `-Ddatafusion.native.profile=release` consistent between the cargo
   profile (`--release`) and the Maven flag.
-- **`UnsatisfiedLinkError ... datafusion_java_ffi_example`** — only the FFI
-  example's cdylib is missing; see "The Spark connector example" above.
+- **`UnsatisfiedLinkError ... datafusion_example_bridge`** — only the example
+  bridge cdylib is missing; see "The Spark connector example" above.

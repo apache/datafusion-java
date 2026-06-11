@@ -21,11 +21,34 @@ package io.datafusion.spark
 
 import org.scalatest.funsuite.AnyFunSuite
 
-class FfiProviderFactoryDefaultsTest extends AnyFunSuite {
+class BridgeProviderFactoryDefaultsTest extends AnyFunSuite {
+
+  /** Backend stub: the defaults under test never touch native code. */
+  private object StubBackend extends ScanBackend {
+    def providerSchemaIpc(options: Array[Byte], partitionBytes: Array[Byte]): Array[Byte] =
+      throw new UnsupportedOperationException
+    def createScan(
+        options: Array[Byte],
+        partitionBytes: Array[Byte],
+        targetPartitions: Int,
+        batchSize: Int,
+        optionKeys: Array[String],
+        optionValues: Array[String],
+        projectionColumns: Array[String],
+        filterProtos: Array[Array[Byte]]): Long = throw new UnsupportedOperationException
+    def partitionCount(scanHandle: Long): Int = throw new UnsupportedOperationException
+    def executeStreamPartition(scanHandle: Long, partition: Int, ffiStreamAddr: Long): Unit =
+      throw new UnsupportedOperationException
+    def executeStream(scanHandle: Long, ffiStreamAddr: Long): Unit =
+      throw new UnsupportedOperationException
+    def closeScan(scanHandle: Long): Unit = throw new UnsupportedOperationException
+  }
 
   /** Factory overriding only listPartitions (to spy on its inputs). */
-  private class MinimalFactory extends FfiProviderFactory {
+  private class MinimalFactory extends BridgeProviderFactory {
     var lastListPartitionsOpts: Array[Byte] = _
+
+    override def scanBackend(): ScanBackend = StubBackend
 
     override def listPartitions(optionsProtoBytes: Array[Byte]): Array[PartitionInfo] = {
       lastListPartitionsOpts = optionsProtoBytes
@@ -33,8 +56,10 @@ class FfiProviderFactoryDefaultsTest extends AnyFunSuite {
     }
   }
 
-  /** Every method left at its default — the literal minimum a bridge can ship. */
-  private class EmptyFactory extends FfiProviderFactory
+  /** Only the required method implemented — the literal minimum a bridge can ship. */
+  private class EmptyFactory extends BridgeProviderFactory {
+    override def scanBackend(): ScanBackend = StubBackend
+  }
 
   test("sharedScan defaults to false") {
     assert(!new MinimalFactory().sharedScan(Array[Byte](1, 2, 3)))
@@ -54,17 +79,6 @@ class FfiProviderFactoryDefaultsTest extends AnyFunSuite {
     assert(partitions(0).id == "p0")
     assert(partitions(0).partitionBytes().isEmpty)
     assert(partitions(0).preferredLocations().isEmpty)
-  }
-
-  test("default createProvider rejects with guidance toward scanBackend") {
-    val e = intercept[UnsupportedOperationException] {
-      new EmptyFactory().createProvider(Array.emptyByteArray, Array.emptyByteArray)
-    }
-    assert(e.getMessage.contains("scanBackend"))
-  }
-
-  test("default scanBackend is the FFI path") {
-    assert(new EmptyFactory().scanBackend().isInstanceOf[FfiScanBackend])
   }
 
   test("filter-aware listPartitions delegates to the filter-unaware overload") {

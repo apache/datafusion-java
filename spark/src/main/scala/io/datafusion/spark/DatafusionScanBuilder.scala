@@ -99,12 +99,12 @@ class DatafusionScanBuilder(
     )
   }
 
-  private def buildLegacyMode(factory: FfiProviderFactory): LegacyMode = {
+  private def buildLegacyMode(factory: BridgeProviderFactory): LegacyMode = {
     val partitions: Array[PartitionInfo] =
       factory.listPartitions(optionsProtoBytes, pushedBytes)
     if (partitions == null || partitions.isEmpty) {
       throw new IllegalStateException(
-        s"FfiProviderFactory '$factoryFqcn' returned no partitions to scan"
+        s"BridgeProviderFactory '$factoryFqcn' returned no partitions to scan"
       )
     }
     LegacyMode(partitions, factory.reportPartitioning(optionsProtoBytes))
@@ -144,8 +144,8 @@ class DatafusionScanBuilder(
     SharedScanMode(scanId, numPartitions, pinned, idleTtlMs)
   }
 
-  private def instantiateFactory(fqcn: String): FfiProviderFactory = {
+  private def instantiateFactory(fqcn: String): BridgeProviderFactory = {
     val cls = Class.forName(fqcn)
-    cls.getDeclaredConstructor().newInstance().asInstanceOf[FfiProviderFactory]
+    cls.getDeclaredConstructor().newInstance().asInstanceOf[BridgeProviderFactory]
   }
 }

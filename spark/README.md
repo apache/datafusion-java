@@ -14,35 +14,31 @@ supplies everything else.
 
 ## How it fits together
 
-Three layers, two of which already exist:
+Two layers, one of which already exists:
 
 ```
  your bridge (you write this)          this module (already written)
 +--------------------------------+   +----------------------------------+
-| Rust cdylib                    |   | connector cdylib (spark/native)  |
-|   builds your TableProvider,   |   |   type widening, session setup,  |
-|   wraps it as FFI_TableProvider|-->|   projection, filters, planning, |
-|                                |   |   partition streams              |
-| Java FfiProviderFactory        |   | Scala/Java DSv2 plumbing         |
-|   turns Spark options into     |   |   (spark/src) schema inference,  |
-|   bytes, hands pointers across |-->|   pushdown, task planning,       |
-|                                |   |   shared-scan cache              |
+| cdylib on datafusion-spark-    |   | Scala/Java DSv2 plumbing         |
+| bridge (spark/bridge SDK):     |   |   (spark/src) schema inference,  |
+|   your TableProvider + one     |<--|   pushdown, task planning,       |
+|   export_bridge! invocation;   |-->|   shared-scan cache              |
+|   the SDK supplies widening,   |   |                                  |
+|   session, filters, planning,  |   | (pure JVM — all native code      |
+|   partition streams            |   |  ships inside YOUR jar)          |
 +--------------------------------+   +----------------------------------+
                                                      |
                                                      v
                                        spark.read.format("...").load()
 ```
 
-The only things that cross between your Rust code and the connector are:
-
-- an opaque `FFI_TableProvider` pointer (your provider, handed over as a
-  `long`), and
-- opaque `byte[]` blobs that *you* define (your options and per-partition
-  payloads — the connector never inspects them).
-
+The only things that cross between the JVM and your cdylib are opaque
+`byte[]` blobs that *you* define (options and per-partition payloads — the
+connector never inspects them) going in, and Arrow C streams coming back.
 Everything DataFusion-side (planning, filter application, execution) happens
-inside the connector's native library. There is no DataFusion session on the
-JVM side at all.
+inside your bridge's native library. There is no DataFusion session on the
+JVM side at all, and no `FFI_TableProvider` boundary anywhere — your
+concrete provider is linked into the same cdylib as the scan machinery.
 
 ## Getting started: generate a bridge
 
@@ -62,8 +58,8 @@ sections below explain what each generated piece is for.
 
 | # | Piece | Language | Contract lives at | Working example |
 |---|-------|----------|-------------------|-----------------|
-| 1 | A JNI entry point that builds your `TableProvider` and returns a raw `FFI_TableProvider` pointer | Rust | — (plain `#[no_mangle]` JNI fn) | [`examples/native/src/lib.rs`](../examples/native/src/lib.rs) |
-| 2 | An `FfiProviderFactory` implementation | Java | [`src/main/java/io/datafusion/spark/FfiProviderFactory.java`](src/main/java/io/datafusion/spark/FfiProviderFactory.java) | [`examples/.../ExampleFfiProviderFactory.java`](../examples/src/main/java/org/apache/datafusion/examples/ExampleFfiProviderFactory.java) |
+| 1 | A provider builder + one `export_bridge!` invocation | Rust | [`bridge/src/lib.rs`](bridge/src/lib.rs) (macro rustdoc) | [`examples/native/src/lib.rs`](../examples/native/src/lib.rs) |
+| 2 | A `BridgeProviderFactory` implementation (one required method) + the JNI/backend boilerplate | Java | [`src/main/java/io/datafusion/spark/BridgeProviderFactory.java`](src/main/java/io/datafusion/spark/BridgeProviderFactory.java) | [`examples/.../ExampleBridgeProviderFactory.java`](../examples/src/main/java/org/apache/datafusion/examples/ExampleBridgeProviderFactory.java) |
 | 3 | (optional) A `DatafusionSource` subclass giving your source a short name | Scala/Java | [`src/main/scala/io/datafusion/spark/DatafusionSource.scala`](src/main/scala/io/datafusion/spark/DatafusionSource.scala) | see "Wiring it into Spark" below |
 
 An end-to-end runnable version of all three — in-memory table, factory, and a
@@ -72,10 +68,9 @@ PySpark script that scans, filters, and projects it — lives under
 
 ### 1. The Rust side
 
-Two ways to build your cdylib. **Static (preferred when you own the
-provider's source):** depend on the [`datafusion-spark-bridge`](bridge/)
-SDK crate and let it generate the JNI surface — no `FFI_TableProvider`, no
-`datafusion-ffi` ABI coupling, one cdylib, your choice of DataFusion version:
+Depend on the [`datafusion-spark-bridge`](bridge/) SDK crate and let it
+generate the JNI surface; you supply one builder turning your option /
+partition bytes into a concrete `TableProvider`:
 
 ```rust
 use std::sync::Arc;
@@ -102,62 +97,26 @@ export_bridge! {
 
 The macro's rustdoc lists the exact `static native` method set the named
 Java class must declare; your factory routes the connector to it by
-overriding `scanBackend()` (see section 2).
-
-**FFI (when the provider arrives precompiled, or must stay on a different
-DataFusion version):** one JNI function that decodes your options bytes,
-builds an `Arc<dyn TableProvider>`, and wraps it:
-
-```rust
-/// Host SessionContext for FFI_TableProvider::new's task-context plumbing.
-/// MUST outlive every provider built from it — the FFI_TaskContextProvider
-/// holds a non-owning reference, and the connector calls back through it on
-/// every scan. Keep it in a static; a function-local context dropped after
-/// this call leaves the provider with a dangling task-context source.
-fn host_session_context() -> &'static Arc<SessionContext> {
-    static CTX: OnceLock<Arc<SessionContext>> = OnceLock::new();
-    CTX.get_or_init(|| Arc::new(SessionContext::new()))
-}
-
-let provider: Arc<dyn TableProvider> = runtime().block_on(build_provider(opts))?;
-let ctx_provider: Arc<dyn TaskContextProvider> =
-    Arc::clone(host_session_context()) as Arc<dyn TaskContextProvider>;
-let ffi = FFI_TableProvider::new(
-    provider,
-    /*can_support_pushdown_filters=*/ true,
-    Some(runtime().clone()),
-    FFI_TaskContextProvider::from(&ctx_provider),
-    /*logical_codec=*/ None,  // default DataFusion codec
-);
-Box::into_raw(Box::new(ffi)) as jlong
-```
-
-Two lifetime rules:
-
-- Ownership of the returned pointer transfers to whoever you hand it to (the
-  factory passes it straight into the connector).
-- The `SessionContext` behind the `FFI_TaskContextProvider` must live as long
-  as any provider built from it — hence the `static` above. Nothing is ever
-  registered on it; it exists only so scans can obtain a task context.
+overriding `scanBackend()` (see section 2). One cdylib total: your provider
+and the SDK's scan machinery are the same library, so there is no provider
+hand-off across a binary boundary and no `datafusion-ffi` anywhere. The
+builder receives empty partition bytes for the driver-side schema probe —
+schema must not depend on per-partition state.
 
 [`examples/native/src/lib.rs`](../examples/native/src/lib.rs)
 is a complete, commented version of this for a `MemTable`.
 
 ### 2. The Java factory
 
-`FfiProviderFactory` is the contract between Spark and your bridge. It must
-have a no-arg constructor (executors instantiate it reflectively by class
-name). Everything has a working default — Spark options are encoded with
-`OptionsCodec` (decode them in Rust via
+`BridgeProviderFactory` is the contract between Spark and your bridge. It
+must have a no-arg constructor (executors instantiate it reflectively by
+class name). The single required method is `scanBackend()` — Spark options
+are encoded with `OptionsCodec` by default (decode them in Rust via
 `datafusion_spark_bridge::options::decode_options`), and `listPartitions`
-reports one whole-dataset partition — so a minimal bridge overrides exactly
-one method, chosen by which native path it uses.
-
-**Static bridge:** override `scanBackend()` to delegate to the JNI class you
-named in `export_bridge!`:
+defaults to one whole-dataset partition:
 
 ```java
-public final class MyBridgeProviderFactory implements FfiProviderFactory {
+public final class MyBridgeProviderFactory implements BridgeProviderFactory {
 
     @Override
     public ScanBackend scanBackend() {
@@ -167,7 +126,9 @@ public final class MyBridgeProviderFactory implements FfiProviderFactory {
 
 /** Declares the native methods generated by export_bridge! and loads the cdylib. */
 final class BridgeNative {
-    static { /* load your cdylib once, e.g. via a NativeLibraryLoader-style helper */ }
+    static {
+        NativeLibraryLoader.load(BridgeNative.class, "com/example/mybridge", "my_bridge");
+    }
     static native byte[] providerSchemaIpc(byte[] options, byte[] partition);
     static native long createScan(byte[] options, byte[] partition,
         int targetPartitions, int batchSize, String[] optionKeys,
@@ -180,22 +141,7 @@ final class BridgeNative {
 ```
 
 (`MyBridgeBackend implements ScanBackend` forwards each method to
-`BridgeNative` — pure boilerplate the scaffold will generate.)
-
-**FFI bridge:** override `createProvider` instead; the default
-`scanBackend()` routes the pointer through the connector's own cdylib:
-
-```java
-public final class MyBridgeProviderFactory implements FfiProviderFactory {
-
-    /** Build the provider for one slice. Called with EMPTY partitionBytes for
-     *  the driver-side schema probe — schema must not depend on the slice. */
-    @Override
-    public long createProvider(byte[] optionsProtoBytes, byte[] partitionBytes) {
-        return MyBridgeNative.createFfiProvider(optionsProtoBytes, partitionBytes);
-    }
-}
-```
+`BridgeNative` — pure boilerplate the scaffold generates.)
 
 Override `encodeOptions` only if the bridge already has its own options
 schema (e.g. a protobuf), and `listPartitions` when the dataset should split
@@ -216,7 +162,7 @@ into more than one Spark task:
 The remaining optional methods — `sharedScan`, `reportPartitioning`, and the
 filter-aware `listPartitions(opts, filters)` overload — are covered in their
 own sections below. Their javadoc in
-[`FfiProviderFactory.java`](src/main/java/io/datafusion/spark/FfiProviderFactory.java)
+[`BridgeProviderFactory.java`](src/main/java/io/datafusion/spark/BridgeProviderFactory.java)
 is the authoritative contract.
 
 ### 3. Wiring it into Spark
@@ -270,9 +216,9 @@ static {
 
 The pom side is one antrun copy execution plus per-host profiles; the
 examples module is a complete working copy of the pattern (see the
-`copy-ffi-example-cdylib` execution and the `native-*` profiles in
+`copy-example-bridge-cdylib` execution and the `native-*` profiles in
 [`examples/pom.xml`](../examples/pom.xml), and the loader call in
-[`FfiTableProviderExampleNative.java`](../examples/src/main/java/org/apache/datafusion/examples/FfiTableProviderExampleNative.java)).
+[`ExampleBridgeNative.java`](../examples/src/main/java/org/apache/datafusion/examples/ExampleBridgeNative.java)).
 For a multi-platform jar, build the cdylib per platform in CI and copy each
 into its own `<os>/<arch>/` directory before `mvn package` — the layout
 supports them side by side.
@@ -416,7 +362,7 @@ executor's partition count diverges from the driver's, but equal counts with
 different contents are undetectable by construction. The provider's
 `ExecutionPlan` must also tolerate `execute(i)` being called more than once
 per plan instance (Spark retries and speculatively re-executes tasks). Full
-contract: `FfiProviderFactory.sharedScan` javadoc.
+contract: `BridgeProviderFactory.sharedScan` javadoc.
 
 Shared-scan operational details:
 
@@ -461,48 +407,47 @@ Shared-scan operational details:
 
 | Phase | Where | Path |
 | ----- | ----- | ---- |
-| Schema inference | Driver | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → connector cdylib widens + returns the Arrow schema |
+| Schema inference | Driver | `factory.encodeOptions` → `backend.providerSchemaIpc(opts, EMPTY)` — bridge cdylib builds + widens the provider, returns the Arrow schema |
 | Scan planning (default mode) | Driver | `factory.listPartitions(opts[, filters])` → one task per entry, with its `partitionBytes` + `preferredLocations` |
 | Scan planning (shared-scan) | Driver | probe build (same code path executors use) → plan partition count `N` → `N` tasks |
 | Predicate translation | Driver | `SparkPredicateTranslator` → proto bytes per pushed predicate |
-| Per-task scan (default mode) | Executor | `createProvider(opts, partitionBytes)` → `FfiHelperNative.createScan` (widen, project, filter, plan) → stream whole plan |
+| Per-task scan (default mode) | Executor | `backend.createScan(opts, partitionBytes, ...)` (build provider, widen, project, filter, plan) → stream whole plan |
 | Per-task scan (shared-scan) | Executor | cache-acquire by `scanId` (first task builds) → stream plan partition `i` → release |
 
-The JNI surface backing all of this is
-[`FfiHelperNative.java`](src/main/java/io/datafusion/spark/FfiHelperNative.java)
-/ [`native/src/scan.rs`](native/src/scan.rs).
+The native machinery backing all of this is
+[`bridge/src/scan.rs`](bridge/src/scan.rs), exported into each bridge's
+cdylib by `export_bridge!` and reached through its [`ScanBackend`](src/main/java/io/datafusion/spark/ScanBackend.java).
 
 ## Module layout
 
 ```
 spark/
-├── src/main/java/io/datafusion/spark/    public SPI + JNI boundary (Java on
-│                                         purpose: bridge jars stay Scala-free)
-│     FfiProviderFactory.java               <- the contract you implement
-│     ScanBackend.java                       <- native scan surface (per-bridge
-│                                              or the generic FfiScanBackend)
+├── src/main/java/io/datafusion/spark/    public SPI (Java on purpose:
+│                                         bridge jars stay Scala-free)
+│     BridgeProviderFactory.java            <- the contract you implement
+│     ScanBackend.java                      <- native scan surface (delegations
+│                                              to your bridge's JNI class)
+│     NativeLibraryLoader.java              <- bundled-cdylib extraction/loading
 │     PartitionInfo.java                    <- one entry = one Spark task
 │     ReportedPartitioning.java             <- optional shuffle-elision declaration
-│     FfiHelperNative.java                  <- JNI into the connector cdylib
 ├── src/main/scala/io/datafusion/spark/   connector internals (DSv2 wiring,
 │                                         readers, pushdown, shared-scan cache)
-├── bridge/                               datafusion-spark-bridge SDK rlib:
-│                                         widening + scan machinery +
-│                                         export_bridge! for static bridges
-└── native/                               connector cdylib: thin JNI shims for
-                                          the generic FfiHelperNative (FFI
-                                          path), all logic in bridge/
+└── bridge/                               datafusion-spark-bridge SDK rlib:
+                                          widening + scan machinery +
+                                          export_bridge! (the native side of
+                                          every bridge cdylib)
 ```
 
 ## Caveats
 
-- One logical-extension codec per provider — the connector uses DataFusion's
-  default codec when deserializing pushed filter expressions, which covers
-  columns, literals, and built-in functions. Bridges whose providers
-  round-trip custom `LogicalNode`s need a custom codec at
-  `FFI_TableProvider::new` time.
-- Each cdylib brings its own Tokio runtime and (for TLS-using bridges) its
-  own rustls install. Both should be `Once`-gated in your bridge.
-- The connector and your bridge must agree on the `datafusion-ffi` ABI —
-  build both against the same DataFusion major version (this repo pins it in
-  the workspace [`Cargo.toml`](../Cargo.toml)).
+- Pushed filter expressions are deserialized with DataFusion's default
+  logical-extension codec, which covers columns, literals, and built-in
+  functions. Anything the Spark-side translator can't express stays in Spark
+  as a residual filter, so coverage gaps cost performance, never
+  correctness.
+- The bridge cdylib's DataFusion version is the SDK's: cargo resolves one
+  `datafusion` for your provider and the scan machinery together, pinned in
+  this repo's workspace [`Cargo.toml`](../Cargo.toml). Upgrading DataFusion
+  means rebuilding the bridge against a newer SDK.
+- The SDK's Tokio runtime is per-cdylib and `Once`-gated; TLS-using bridges
+  should `Once`-gate their rustls install the same way.

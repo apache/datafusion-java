@@ -1,30 +1,28 @@
 # PySpark end-to-end demo
 
-`ffi_table_provider_demo.py` proves the full DataFusion → Spark path:
+`bridge_demo.py` proves the full DataFusion → Spark path:
 
 ```
-examples/native (cdylib)          <-- in-memory MemTable
-   |  jlong (FFI_TableProvider*)
-   v
-ExampleFfiProviderFactory         <-- implements FfiProviderFactory
+examples/native (export_bridge! cdylib)   <-- in-memory MemTable + scan machinery
+   ^  byte[] options / FFI_ArrowArrayStream
+   |
+ExampleBridgeProviderFactory              <-- implements BridgeProviderFactory
    |  Class.forName(...)
    v
-datafusion-java-spark             <-- DSv2 plumbing, widening, predicate xlate
+datafusion-java-spark                     <-- DSv2 plumbing, predicate xlate
    |  spark.read.format("datafusion")
    v
-PySpark DataFrame                 <-- printSchema / show / filter / select
+PySpark DataFrame                         <-- printSchema / show / filter / select
 ```
 
 ## Prerequisites
 
 1. **Java 17.** `JAVA_HOME` must point at a JDK 17 install.
 
-2. **Three cdylibs** built from this repo:
+2. **The example bridge cdylib** built from this repo:
 
    ```bash
-   cd native               && cargo build --release && cd ..
-   cd examples/native      && cargo build --release && cd ../..
-   cd spark/native         && cargo build --release && cd ../..
+   cargo build -p datafusion-java-example-bridge --release
    ```
 
 3. **Maven artifacts installed into a side-loaded local repository.**
@@ -71,7 +69,7 @@ PySpark DataFrame                 <-- printSchema / show / filter / select
 ## Run
 
 ```bash
-examples/python/.venv/bin/python examples/python/ffi_table_provider_demo.py
+examples/python/.venv/bin/python examples/python/bridge_demo.py
 ```
 
 Expected output:
@@ -129,6 +127,6 @@ Arrow batches cross back to Spark.
 - The `datafusion` format short name resolves via the SPI file in
   `spark/src/main/resources/META-INF/services/org.apache.spark.sql.sources.DataSourceRegister`.
   You can also use the FQCN: `format("io.datafusion.spark.DatafusionSource")`.
-- To swap in your own bridge, write a `FfiProviderFactory` against your own
-  cdylib (mirroring `ExampleFfiProviderFactory`) and pass its FQCN via
+- To swap in your own bridge, write a `BridgeProviderFactory` against your own
+  cdylib (mirroring `ExampleBridgeProviderFactory`) and pass its FQCN via
   `option("df.factory", ...)`.

@@ -27,8 +27,8 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Default wire format for {@link FfiProviderFactory#encodeOptions(Map)}: the Spark options map as
- * length-prefixed UTF-8 pairs, <b>sorted by key</b>.
+ * Default wire format for {@link BridgeProviderFactory#encodeOptions(Map)}: the Spark options map
+ * as length-prefixed UTF-8 pairs, <b>sorted by key</b>.
  *
  * <p>Layout (all integers big-endian {@code int32}): entry count, then per entry key length, key
  * bytes, value length, value bytes. Key-sorting makes the bytes a pure function of the map's

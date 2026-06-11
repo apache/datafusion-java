@@ -17,7 +17,7 @@
 
 //! Decoder for the connector's default options wire format.
 //!
-//! `FfiProviderFactory.encodeOptions`'s default (`OptionsCodec` on the JVM
+//! `BridgeProviderFactory.encodeOptions`'s default (`OptionsCodec` on the JVM
 //! side) encodes the Spark options map as length-prefixed UTF-8 pairs,
 //! sorted by key: big-endian `i32` entry count, then per entry key length,
 //! key bytes, value length, value bytes. Key-sorting makes the bytes a pure

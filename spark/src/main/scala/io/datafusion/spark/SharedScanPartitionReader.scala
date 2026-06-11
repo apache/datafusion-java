@@ -48,7 +48,7 @@ class SharedScanPartitionReader(
       s"shared-scan determinism violation for scanId=${partition.scanId}: driver planned " +
         s"${partition.numPartitions} partition(s) but this executor planned $executorCount. " +
         "The provider's partitioning must be a pure function of optionsProtoBytes; pin your " +
-        "source snapshot (see FfiProviderFactory.sharedScan).")
+        "source snapshot (see BridgeProviderFactory.sharedScan).")
   }
 
   private val taskAllocator: BufferAllocator = {

@@ -47,7 +47,7 @@ under the License.
             <groupId>org.apache.datafusion</groupId>
             <artifactId>datafusion-java</artifactId>
         </dependency>
-        <!-- Provides io.datafusion.spark.FfiProviderFactory for ExampleFfiProviderFactory.
+        <!-- Provides io.datafusion.spark.BridgeProviderFactory for ExampleBridgeProviderFactory.
              Compile-only: the example factory does not pull Spark itself onto the classpath;
              the pyspark demo supplies Spark at runtime. -->
         <dependency>
@@ -105,14 +105,14 @@ under the License.
                 <version>3.1.0</version>
                 <executions>
                     <execution>
-                        <id>copy-ffi-example-cdylib</id>
+                        <id>copy-example-bridge-cdylib</id>
                         <phase>process-classes</phase>
                         <goals><goal>run</goal></goals>
                         <configuration>
                             <target>
                                 <property name="example.ffi.lib.source"
                                           value="${maven.multiModuleProjectDirectory}/rust-target/${datafusion.native.profile}/${example.ffi.filename}"/>
-                                <fail message="Example bridge cdylib not found at ${example.ffi.lib.source}. Run 'cargo build -p datafusion-java-ffi-example' (or '--release' for the release profile) before building the JAR.">
+                                <fail message="Example bridge cdylib not found at ${example.ffi.lib.source}. Run 'cargo build -p datafusion-java-example-bridge' (or '--release' for the release profile) before building the JAR.">
                                     <condition><not><available file="${example.ffi.lib.source}"/></not></condition>
                                 </fail>
                                 <mkdir dir="${project.build.outputDirectory}/org/apache/datafusion/examples/${example.ffi.os}/${example.ffi.arch}"/>
@@ -139,7 +139,7 @@ under the License.
             <properties>
                 <example.ffi.os>linux</example.ffi.os>
                 <example.ffi.arch>x86_64</example.ffi.arch>
-                <example.ffi.filename>libdatafusion_java_ffi_example.so</example.ffi.filename>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
             </properties>
         </profile>
         <profile>
@@ -150,7 +150,7 @@ under the License.
             <properties>
                 <example.ffi.os>linux</example.ffi.os>
                 <example.ffi.arch>x86_64</example.ffi.arch>
-                <example.ffi.filename>libdatafusion_java_ffi_example.so</example.ffi.filename>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
             </properties>
         </profile>
         <profile>
@@ -161,7 +161,7 @@ under the License.
             <properties>
                 <example.ffi.os>linux</example.ffi.os>
                 <example.ffi.arch>aarch64</example.ffi.arch>
-                <example.ffi.filename>libdatafusion_java_ffi_example.so</example.ffi.filename>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
             </properties>
         </profile>
         <profile>
@@ -172,7 +172,7 @@ under the License.
             <properties>
                 <example.ffi.os>darwin</example.ffi.os>
                 <example.ffi.arch>x86_64</example.ffi.arch>
-                <example.ffi.filename>libdatafusion_java_ffi_example.dylib</example.ffi.filename>
+                <example.ffi.filename>libdatafusion_example_bridge.dylib</example.ffi.filename>
             </properties>
         </profile>
         <profile>
@@ -183,7 +183,7 @@ under the License.
             <properties>
                 <example.ffi.os>darwin</example.ffi.os>
                 <example.ffi.arch>aarch64</example.ffi.arch>
-                <example.ffi.filename>libdatafusion_java_ffi_example.dylib</example.ffi.filename>
+                <example.ffi.filename>libdatafusion_example_bridge.dylib</example.ffi.filename>
             </properties>
         </profile>
     </profiles>

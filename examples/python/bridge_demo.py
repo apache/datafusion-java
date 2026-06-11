@@ -16,21 +16,19 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-"""End-to-end PySpark demo of the DataFusion FFI table provider.
+"""End-to-end PySpark demo of a DataFusion table provider exposed as a Spark data source.
 
 Wires the in-memory example MemTable produced by ``examples/native`` into a
 Spark DataSource V2 scan through the generic connector in ``spark/``.
 
 Prerequisites (run from the repo root):
 
-  cd native && cargo build --release && cd ..
-  cd examples/native && cargo build --release && cd ../..
-  cd spark/native && cargo build --release && cd ../..
+  cargo build --release --workspace
   mvn install -Ddatafusion.native.profile=release -DskipTests
 
 Run:
 
-  python3 examples/python/ffi_table_provider_demo.py
+  python3 examples/python/bridge_demo.py
 """
 
 import glob
@@ -125,7 +123,7 @@ def main() -> None:
     extra_classpath = ":".join(app_jars)
 
     spark = (
-        SparkSession.builder.appName("datafusion-ffi-demo")
+        SparkSession.builder.appName("datafusion-bridge-demo")
         .master("local[2]")
         .config("spark.jars", jars)
         .config("spark.driver.extraClassPath", extra_classpath)
@@ -143,11 +141,11 @@ def main() -> None:
 
     # The example cdylib is bundled inside the examples jar and extracted by
     # NativeLibraryLoader at first use; no working-directory or path setup is
-    # needed. (-Dexample.ffi.lib.path via extraJavaOptions overrides it for
+    # needed. (-Dexample.bridge.lib.path via extraJavaOptions overrides it for
     # unpackaged local builds.)
 
     # `name_prefix`, `num_rows`, `num_batches` are interpreted by
-    # ExampleFfiProviderFactory.encodeOptions and decoded on the Rust side
+    # ExampleBridgeProviderFactory.encodeOptions and decoded on the Rust side
     # in examples/native/src/lib.rs. They demonstrate driver-side options
     # flowing through to the native MemTable build.
     name_prefix = "user"
@@ -157,7 +155,7 @@ def main() -> None:
         spark.read.format("datafusion")
         .option(
             "df.factory",
-            "org.apache.datafusion.examples.ExampleFfiProviderFactory",
+            "org.apache.datafusion.examples.ExampleBridgeProviderFactory",
         )
         .option("name_prefix", name_prefix)
         .option("num_rows", str(num_rows))
@@ -184,7 +182,7 @@ def main() -> None:
     legacy_rows = {tuple(r) for r in df.collect()}
 
     # --- shared-scan mode -------------------------------------------------
-    # `shared_scan=true` flips ExampleFfiProviderFactory.sharedScan: one
+    # `shared_scan=true` flips ExampleBridgeProviderFactory.sharedScan: one
     # provider + plan cached per executor, one Spark task per MemTable
     # partition (num_partitions=4), each task streaming one DataFusion plan
     # partition. Results must be identical to the legacy run above.
@@ -193,7 +191,7 @@ def main() -> None:
         spark.read.format("datafusion")
         .option(
             "df.factory",
-            "org.apache.datafusion.examples.ExampleFfiProviderFactory",
+            "org.apache.datafusion.examples.ExampleBridgeProviderFactory",
         )
         .option("name_prefix", name_prefix)
         .option("num_rows", str(num_rows))

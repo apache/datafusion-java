@@ -30,7 +30,7 @@ import org.apache.spark.sql.internal.SQLConf
  * executor — and partition-indexed execution would silently drop or duplicate data. The driver
  * resolves these values once in `DatafusionScanBuilder.build()`, ships them inside every
  * [[DatafusionSharedScanPartition]], and both the driver probe and the executors hand the same
- * values to `FfiHelperNative.createScan`, which builds the native `SessionContext` from them.
+ * values to `ScanBackend.createScan`, which builds the native `SessionContext` from them.
  *
  * `options` additionally disables the optimizer's plan-reshaping repartition passes so the
  * physical partitioning is exactly what the provider's `scan()` reports, on every machine.
