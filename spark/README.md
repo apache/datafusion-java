@@ -232,6 +232,93 @@ registered via a
 (this module registers `datafusion` the same way — see
 [`src/main/resources/META-INF/services/`](src/main/resources/META-INF/services/)).
 
+## Packaging your bridge
+
+The end-user experience to aim for is one artifact:
+
+```python
+# spark.jars (or --packages) gets exactly one jar, then:
+df = spark.read.format("my_format").option("url", "...").load()
+```
+
+Three pieces make that work:
+
+**Bundle your cdylib inside the jar.** Copy it into your jar's resources at
+`<your/package/path>/<os>/<arch>/<mapped name>` and load it from your native
+class's static initializer with the connector's loader — no hand-rolled
+extraction code:
+
+```java
+static {
+    NativeLibraryLoader.load(BridgeNative.class, "com/example/mybridge", "my_bridge");
+}
+```
+
+The pom side is one antrun copy execution plus per-host profiles; the
+examples module is a complete working copy of the pattern (see the
+`copy-ffi-example-cdylib` execution and the `native-*` profiles in
+[`examples/pom.xml`](../examples/pom.xml), and the loader call in
+[`FfiTableProviderExampleNative.java`](../examples/src/main/java/org/apache/datafusion/examples/FfiTableProviderExampleNative.java)).
+For a multi-platform jar, build the cdylib per platform in CI and copy each
+into its own `<os>/<arch>/` directory before `mvn package` — the layout
+supports them side by side.
+
+**Shade your dependencies into one fat jar** with `maven-shade-plugin`, so
+users don't assemble a jar list:
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-shade-plugin</artifactId>
+    <executions>
+        <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+                <!-- NO <relocations>. See below. -->
+                <transformers>
+                    <!-- Merges DataSourceRegister service files so your short
+                         name survives shading. -->
+                    <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                </transformers>
+                <filters>
+                    <filter>
+                        <artifact>*:*</artifact>
+                        <excludes>
+                            <exclude>META-INF/*.SF</exclude>
+                            <exclude>META-INF/*.DSA</exclude>
+                            <exclude>META-INF/*.RSA</exclude>
+                        </excludes>
+                    </filter>
+                </filters>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+Include in the shaded jar: this connector (`datafusion-java-spark`), the core
+jar (`datafusion-java` — exception classes and, if you push predicates, the
+generated proto classes), the Arrow Java artifacts you compile against, and
+your own classes + cdylib. Keep `spark-sql`/`scala-library` `provided` — the
+cluster supplies them.
+
+**Do NOT relocate JNI-bound or JNI-loading packages.** JNI binds native
+methods by the class's fully-qualified name; `arrow-c-data` and the Arrow
+memory modules likewise load their own natives. Relocating
+`io.datafusion.spark`, `org.apache.arrow`, or your own native class breaks
+the symbol lookup at runtime. Practical consequences:
+
+- Ship a plain (unrelocated) fat jar. Two bridges in one Spark app then share
+  one copy of the connector classes — fine when they're built against the
+  same connector version, which is the only configuration we support anyway
+  (their cdylibs stay distinct via per-bridge JNI class names).
+- Spark bundles its own (often older) Arrow. Since yours can't be relocated
+  away, have users set `spark.executor.userClassPathFirst=true` and
+  `spark.driver.userClassPathFirst=true` (the pyspark demo under
+  [`examples/python/`](../examples/python/) shows the working incantation),
+  or build with Arrow pinned to the cluster's version.
+
 ## Spark tasks vs. DataFusion partitions
 
 This is the most important design decision when building a connector, so it

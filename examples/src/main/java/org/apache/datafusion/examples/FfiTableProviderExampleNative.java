@@ -19,37 +19,35 @@
 
 package org.apache.datafusion.examples;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Locale;
+import io.datafusion.spark.NativeLibraryLoader;
 
 /**
  * JNI bindings into the example cdylib at {@code examples/native}. The cdylib produces a small
  * {@code MemTable}-backed {@code FFI_TableProvider} that {@link ExampleFfiProviderFactory} hands to
  * the Spark connector ({@code FfiHelperNative.createScan}).
  *
- * <p>The library is located in this order:
- *
- * <ol>
- *   <li>Absolute path passed via {@code -Dexample.ffi.lib.path=/abs/path/to/lib...}.
- *   <li>{@code rust-target/release/<mappedName>} relative to the current working directory (the
- *       workspace output dir; default when invoked via {@code mvn exec:java} from the repo root).
- *   <li>{@code rust-target/debug/<mappedName>} as a fallback for {@code cargo build} without {@code
- *       --release}.
- * </ol>
- *
- * <p>If none of these exist, an {@link UnsatisfiedLinkError} surfaces with the search list so the
- * user knows what to build.
+ * <p>The cdylib is bundled inside this jar at {@code
+ * org/apache/datafusion/examples/<os>/<arch>/} (see the antrun execution in {@code
+ * examples/pom.xml}) and extracted/loaded once via the connector's {@link NativeLibraryLoader} —
+ * the same two-piece recipe (pom copy block + one loader call) a real bridge uses to ship its own
+ * cdylib. For local hacking against an unpackaged build, {@code
+ * -Dexample.ffi.lib.path=/abs/path/to/libdatafusion_java_ffi_example.dylib} bypasses the bundled
+ * copy.
  */
 final class FfiTableProviderExampleNative {
-
-  private static final String LIBRARY_NAME = "datafusion_java_ffi_example";
 
   private FfiTableProviderExampleNative() {}
 
   static {
-    loadLibrary();
+    String explicit = System.getProperty("example.ffi.lib.path");
+    if (explicit != null && !explicit.isEmpty()) {
+      System.load(explicit);
+    } else {
+      NativeLibraryLoader.load(
+          FfiTableProviderExampleNative.class,
+          "org/apache/datafusion/examples",
+          "datafusion_java_ffi_example");
+    }
   }
 
   /**
@@ -69,46 +67,4 @@ final class FfiTableProviderExampleNative {
    * providerSchemaIpc}) accepts the pointer it owns the box.
    */
   static native void dropProvider(long ffiTableProviderPtr);
-
-  private static void loadLibrary() {
-    String mapped = System.mapLibraryName(LIBRARY_NAME);
-    Path explicit = optionalPath(System.getProperty("example.ffi.lib.path"));
-
-    // Cover both common cwds: repo root (mvn exec from datafusion-java/) and
-    // the examples module (mvn exec from datafusion-java/examples/). The
-    // workspace writes to `rust-target/` at the repo root.
-    Path[] candidates =
-        new Path[] {
-          explicit,
-          Paths.get("rust-target", "release", mapped),
-          Paths.get("rust-target", "debug", mapped),
-          Paths.get("..", "rust-target", "release", mapped),
-          Paths.get("..", "rust-target", "debug", mapped),
-        };
-
-    for (Path candidate : candidates) {
-      if (candidate != null && Files.exists(candidate)) {
-        System.load(candidate.toAbsolutePath().toString());
-        return;
-      }
-    }
-
-    StringBuilder searched = new StringBuilder();
-    for (Path c : candidates) {
-      if (searched.length() > 0) searched.append(", ");
-      searched.append(c == null ? "null" : c.toAbsolutePath().toString());
-    }
-    throw new UnsatisfiedLinkError(
-        String.format(
-            Locale.ROOT,
-            "Example native library %s not found. Searched: [%s]. "
-                + "Build with 'cargo build -p datafusion-java-ffi-example --release', or pass "
-                + "-Dexample.ffi.lib.path=<absolute path to the cdylib>.",
-            mapped,
-            searched));
-  }
-
-  private static Path optionalPath(String s) {
-    return (s == null || s.isEmpty()) ? null : Paths.get(s);
-  }
 }

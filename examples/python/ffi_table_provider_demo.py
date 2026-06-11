@@ -141,11 +141,10 @@ def main() -> None:
         .getOrCreate()
     )
 
-    # The example cdylib (libdatafusion_java_ffi_example.{so,dylib}) is loaded
-    # by FfiTableProviderExampleNative from examples/native/target. As long as
-    # PySpark is launched from the repo root the relative-path search succeeds;
-    # otherwise set example.ffi.lib.path via spark.driver.extraJavaOptions.
-    os.chdir(REPO_ROOT)
+    # The example cdylib is bundled inside the examples jar and extracted by
+    # NativeLibraryLoader at first use; no working-directory or path setup is
+    # needed. (-Dexample.ffi.lib.path via extraJavaOptions overrides it for
+    # unpackaged local builds.)
 
     # `name_prefix`, `num_rows`, `num_batches` are interpreted by
     # ExampleFfiProviderFactory.encodeOptions and decoded on the Rust side

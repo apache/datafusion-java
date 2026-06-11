@@ -25,29 +25,62 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Extracts a cdylib bundled inside the connector-core jar to a temp file and loads it via {@link
- * System#load}. Layout inside the jar:
+ * Extracts a cdylib bundled inside a jar to a temp file and loads it via {@link System#load}.
+ * Expected layout inside the jar:
  *
  * <pre>
- *   io/datafusion/spark/&lt;os&gt;/&lt;arch&gt;/lib&lt;name&gt;.&lt;ext&gt;
+ *   &lt;resourcePrefix&gt;/&lt;os&gt;/&lt;arch&gt;/lib&lt;name&gt;.&lt;ext&gt;
  * </pre>
  *
  * where {@code <os>} is one of {@code linux}, {@code darwin}, {@code windows} and {@code <arch>} is
  * {@code x86_64} or {@code aarch64}.
+ *
+ * <p>The connector loads its own cdylib through this class (prefix {@code io/datafusion/spark});
+ * bridges are encouraged to reuse it via {@link #load(Class, String, String)} from their native
+ * class's static initializer, with their own resource prefix, instead of hand-rolling extraction.
+ * Bundle the cdylib with the same antrun-copy pattern the connector's pom uses (see "Packaging
+ * your bridge" in {@code spark/README.md}).
  */
-final class NativeLibraryLoader {
+public final class NativeLibraryLoader {
+
+  /** {@code <resourcePrefix>/<name>} entries already extracted and loaded by this classloader. */
+  private static final Set<String> LOADED = ConcurrentHashMap.newKeySet();
 
   private NativeLibraryLoader() {}
 
+  /** Connector-internal entry: loads from the connector jar's own prefix. */
   static void loadLibrary(String name) {
+    load(NativeLibraryLoader.class, "io/datafusion/spark", name);
+  }
+
+  /**
+   * Extract {@code <resourcePrefix>/<os>/<arch>/<mapped name>} from {@code anchor}'s classloader
+   * and {@link System#load} it. Idempotent per (prefix, name): repeated calls — e.g. one per
+   * Spark task instantiating the bridge's native class — load once.
+   *
+   * @param anchor class whose classloader holds the resource (the bridge's own native class, so
+   *     the lookup works under Spark's per-application classloaders)
+   * @param resourcePrefix jar-internal directory, no leading or trailing slash (e.g. {@code
+   *     "com/example/mybridge"})
+   * @param name unmapped library name (e.g. {@code "my_bridge"} for {@code libmy_bridge.so})
+   * @throws UnsatisfiedLinkError if the resource is missing or extraction fails
+   */
+  public static void load(Class<?> anchor, String resourcePrefix, String name) {
+    String key = resourcePrefix + "/" + name;
+    if (!LOADED.add(key)) {
+      return;
+    }
     String resource =
         String.format(
-            "/io/datafusion/spark/%s/%s/%s",
-            currentOs(), currentArch(), System.mapLibraryName(name));
-    try (InputStream in = NativeLibraryLoader.class.getResourceAsStream(resource)) {
+            "/%s/%s/%s/%s",
+            resourcePrefix, currentOs(), currentArch(), System.mapLibraryName(name));
+    try (InputStream in = anchor.getResourceAsStream(resource)) {
       if (in == null) {
+        LOADED.remove(key);
         throw new UnsatisfiedLinkError("Native library not found on classpath: " + resource);
       }
       Path tmp = Files.createTempFile("libdatafusion-spark-", "-" + System.mapLibraryName(name));
@@ -55,8 +88,12 @@ final class NativeLibraryLoader {
       Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
       System.load(tmp.toAbsolutePath().toString());
     } catch (IOException e) {
+      LOADED.remove(key);
       throw new UnsatisfiedLinkError(
           "Failed to extract native library " + resource + ": " + e.getMessage());
+    } catch (RuntimeException | Error e) {
+      LOADED.remove(key);
+      throw e;
     }
   }
 

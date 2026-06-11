@@ -77,17 +77,13 @@ To build its cdylib (workspace member, buildable from anywhere in the tree):
 cargo build -p datafusion-java-ffi-example --release
 ```
 
-The factory's `System.load` searches, in order:
-
-1. `-Dexample.ffi.lib.path=/abs/path/to/lib...` (explicit override)
-2. `rust-target/release/<mappedName>` (cwd = repo root)
-3. `rust-target/debug/<mappedName>`
-4. `../rust-target/release/<mappedName>` (cwd = the `examples` module)
-5. `../rust-target/debug/<mappedName>`
-
-where `<mappedName>` is `libdatafusion_java_ffi_example.so` (Linux),
-`libdatafusion_java_ffi_example.dylib` (macOS), or
-`datafusion_java_ffi_example.dll` (Windows).
+Building the examples jar then bundles the cdylib inside it (under
+`org/apache/datafusion/examples/<os>/<arch>/`), and the factory loads it from
+there at runtime via the connector's `NativeLibraryLoader` — the same
+packaging recipe a real bridge uses (see "Packaging your bridge" in
+[`../spark/README.md`](../spark/README.md)). To run against an unpackaged
+local build instead, pass
+`-Dexample.ffi.lib.path=/abs/path/to/libdatafusion_java_ffi_example.{so,dylib}`.
 
 ## Troubleshooting
 
