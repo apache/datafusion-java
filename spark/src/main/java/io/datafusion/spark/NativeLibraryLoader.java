@@ -42,8 +42,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>The connector loads its own cdylib through this class (prefix {@code io/datafusion/spark});
  * bridges are encouraged to reuse it via {@link #load(Class, String, String)} from their native
  * class's static initializer, with their own resource prefix, instead of hand-rolling extraction.
- * Bundle the cdylib with the same antrun-copy pattern the connector's pom uses (see "Packaging
- * your bridge" in {@code spark/README.md}).
+ * Bundle the cdylib with the same antrun-copy pattern the connector's pom uses (see "Packaging your
+ * bridge" in {@code spark/README.md}).
  */
 public final class NativeLibraryLoader {
 
@@ -59,11 +59,11 @@ public final class NativeLibraryLoader {
 
   /**
    * Extract {@code <resourcePrefix>/<os>/<arch>/<mapped name>} from {@code anchor}'s classloader
-   * and {@link System#load} it. Idempotent per (prefix, name): repeated calls — e.g. one per
-   * Spark task instantiating the bridge's native class — load once.
+   * and {@link System#load} it. Idempotent per (prefix, name): repeated calls — e.g. one per Spark
+   * task instantiating the bridge's native class — load once.
    *
-   * @param anchor class whose classloader holds the resource (the bridge's own native class, so
-   *     the lookup works under Spark's per-application classloaders)
+   * @param anchor class whose classloader holds the resource (the bridge's own native class, so the
+   *     lookup works under Spark's per-application classloaders)
    * @param resourcePrefix jar-internal directory, no leading or trailing slash (e.g. {@code
    *     "com/example/mybridge"})
    * @param name unmapped library name (e.g. {@code "my_bridge"} for {@code libmy_bridge.so})

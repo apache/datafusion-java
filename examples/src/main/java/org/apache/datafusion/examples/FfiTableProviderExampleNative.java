@@ -26,13 +26,12 @@ import io.datafusion.spark.NativeLibraryLoader;
  * {@code MemTable}-backed {@code FFI_TableProvider} that {@link ExampleFfiProviderFactory} hands to
  * the Spark connector ({@code FfiHelperNative.createScan}).
  *
- * <p>The cdylib is bundled inside this jar at {@code
- * org/apache/datafusion/examples/<os>/<arch>/} (see the antrun execution in {@code
- * examples/pom.xml}) and extracted/loaded once via the connector's {@link NativeLibraryLoader} —
- * the same two-piece recipe (pom copy block + one loader call) a real bridge uses to ship its own
- * cdylib. For local hacking against an unpackaged build, {@code
- * -Dexample.ffi.lib.path=/abs/path/to/libdatafusion_java_ffi_example.dylib} bypasses the bundled
- * copy.
+ * <p>The cdylib is bundled inside this jar at {@code org/apache/datafusion/examples/<os>/<arch>/}
+ * (see the antrun execution in {@code examples/pom.xml}) and extracted/loaded once via the
+ * connector's {@link NativeLibraryLoader} — the same two-piece recipe (pom copy block + one loader
+ * call) a real bridge uses to ship its own cdylib. For local hacking against an unpackaged build,
+ * {@code -Dexample.ffi.lib.path=/abs/path/to/libdatafusion_java_ffi_example.dylib} bypasses the
+ * bundled copy.
  */
 final class FfiTableProviderExampleNative {
 

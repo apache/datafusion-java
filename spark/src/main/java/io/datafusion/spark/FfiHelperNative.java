@@ -59,8 +59,8 @@ public final class FfiHelperNative {
    * <p>Takes ownership of {@code ffiProviderRawPtr}. {@code targetPartitions} / {@code batchSize}
    * {@code <= 0} leave the DataFusion defaults; {@code optionKeys}/{@code optionValues} are
    * parallel arrays of DataFusion config overrides; an empty {@code projectionColumns} selects all
-   * columns; each element of {@code filterProtos} is a serialized {@code datafusion.LogicalExprNode}
-   * applied as a filter.
+   * columns; each element of {@code filterProtos} is a serialized {@code
+   * datafusion.LogicalExprNode} applied as a filter.
    *
    * <p>The caller owns the returned handle and must pair it with {@link #closeScan(long)}. Closing
    * while a stream opened from this handle is still in flight is undefined behaviour — the
@@ -82,7 +82,8 @@ public final class FfiHelperNative {
    * Open an independent stream over ONE plan partition, writing an {@code FFI_ArrowArrayStream}
    * into the caller-allocated struct at {@code ffiStreamAddr}. Concurrent-safe across JVM threads.
    */
-  public static native void executeStreamPartition(long scanHandle, int partition, long ffiStreamAddr);
+  public static native void executeStreamPartition(
+      long scanHandle, int partition, long ffiStreamAddr);
 
   /**
    * Stream the WHOLE plan (all partitions coalesced) into the caller-allocated {@code

@@ -20,10 +20,10 @@
 package io.datafusion.spark;
 
 /**
- * Generic FFI {@link ScanBackend}: asks the factory for a raw {@code FFI_TableProvider} pointer
- * and routes everything through the connector's own cdylib ({@link FfiHelperNative}). This is the
- * {@link FfiProviderFactory#scanBackend()} default; bridges that statically link their provider
- * via {@code export_bridge!} replace it with a backend delegating to their own native class.
+ * Generic FFI {@link ScanBackend}: asks the factory for a raw {@code FFI_TableProvider} pointer and
+ * routes everything through the connector's own cdylib ({@link FfiHelperNative}). This is the
+ * {@link FfiProviderFactory#scanBackend()} default; bridges that statically link their provider via
+ * {@code export_bridge!} replace it with a backend delegating to their own native class.
  */
 public final class FfiScanBackend implements ScanBackend {
 
@@ -51,7 +51,12 @@ public final class FfiScanBackend implements ScanBackend {
       byte[][] filterProtos) {
     long ptr = factory.createProvider(options, partitionBytes);
     return FfiHelperNative.createScan(
-        ptr, targetPartitions, batchSize, optionKeys, optionValues, projectionColumns,
+        ptr,
+        targetPartitions,
+        batchSize,
+        optionKeys,
+        optionValues,
+        projectionColumns,
         filterProtos);
   }
 

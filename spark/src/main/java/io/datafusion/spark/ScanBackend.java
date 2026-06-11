@@ -20,9 +20,9 @@
 package io.datafusion.spark;
 
 /**
- * Native scan surface the connector plumbing talks to. One method per JNI entry point of the
- * {@code datafusion-spark-bridge} scan machinery; implementations only differ in <em>which</em>
- * native library and class the calls land on:
+ * Native scan surface the connector plumbing talks to. One method per JNI entry point of the {@code
+ * datafusion-spark-bridge} scan machinery; implementations only differ in <em>which</em> native
+ * library and class the calls land on:
  *
  * <ul>
  *   <li>{@link FfiScanBackend} (the {@link FfiProviderFactory#scanBackend()} default) builds the
@@ -30,8 +30,8 @@ package io.datafusion.spark;
  *       the connector's own cdylib ({@link FfiHelperNative}) — the generic FFI path.
  *   <li>A static bridge supplies its own implementation delegating to the class it named in its
  *       {@code export_bridge!} invocation, whose generated {@code createScan} builds the provider
- *       from {@code options}/{@code partitionBytes} directly — no pointer handover, no
- *       {@code datafusion-ffi}.
+ *       from {@code options}/{@code partitionBytes} directly — no pointer handover, no {@code
+ *       datafusion-ffi}.
  * </ul>
  *
  * <p>Implementations must be stateless or thread-safe: the driver probes schemas and plans through
@@ -42,8 +42,8 @@ package io.datafusion.spark;
 public interface ScanBackend {
 
   /**
-   * Driver-side schema probe: the widened Arrow schema of the provider described by {@code
-   * options} + {@code partitionBytes}, serialized as Arrow IPC bytes (deserialize with {@code
+   * Driver-side schema probe: the widened Arrow schema of the provider described by {@code options}
+   * + {@code partitionBytes}, serialized as Arrow IPC bytes (deserialize with {@code
    * MessageSerializer.deserializeSchema}).
    */
   byte[] providerSchemaIpc(byte[] options, byte[] partitionBytes);
@@ -51,8 +51,8 @@ public interface ScanBackend {
   /**
    * Build a planned scan and return its handle. {@code targetPartitions}/{@code batchSize} {@code
    * <= 0} leave DataFusion defaults; {@code optionKeys}/{@code optionValues} are parallel config
-   * override arrays; empty {@code projectionColumns} selects all columns; each {@code
-   * filterProtos} element is a serialized {@code datafusion.LogicalExprNode}.
+   * override arrays; empty {@code projectionColumns} selects all columns; each {@code filterProtos}
+   * element is a serialized {@code datafusion.LogicalExprNode}.
    *
    * <p>The caller owns the handle and must pair it with {@link #closeScan(long)}. Closing while a
    * stream opened from the handle is in flight is undefined behaviour — the shared-scan cache's

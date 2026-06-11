@@ -30,9 +30,9 @@ import java.util.Map;
  *
  * <ul>
  *   <li><b>Static bridge</b> (preferred when the provider's Rust source is yours): the cdylib is
- *       built with {@code datafusion_spark_bridge::export_bridge!} and constructs the provider
- *       from the options/partition bytes natively. Override {@link #scanBackend()} to delegate to
- *       the JNI class named in the macro; {@link #createProvider(byte[], byte[])} is never called.
+ *       built with {@code datafusion_spark_bridge::export_bridge!} and constructs the provider from
+ *       the options/partition bytes natively. Override {@link #scanBackend()} to delegate to the
+ *       JNI class named in the macro; {@link #createProvider(byte[], byte[])} is never called.
  *   <li><b>FFI bridge</b> (the provider arrives precompiled, or must stay on a different DataFusion
  *       version): override {@link #createProvider(byte[], byte[])} to return a raw {@code
  *       FFI_TableProvider} pointer; the default {@link #scanBackend()} routes it through the
@@ -77,14 +77,12 @@ public interface FfiProviderFactory {
    * no preference.
    *
    * <p>Default: one partition ({@code "p0"}, empty payload, no host preference) — one Spark task
-   * scans the whole dataset. Fine for small tables and first bring-up; override (or opt into
-   * {@link #sharedScan(byte[])}) before pointing it at anything large. Size guidance lives in
-   * {@code spark/README.md}.
+   * scans the whole dataset. Fine for small tables and first bring-up; override (or opt into {@link
+   * #sharedScan(byte[])}) before pointing it at anything large. Size guidance lives in {@code
+   * spark/README.md}.
    */
   default PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
-    return new PartitionInfo[] {
-      new PartitionInfo("p0", new byte[0], new String[0])
-    };
+    return new PartitionInfo[] {new PartitionInfo("p0", new byte[0], new String[0])};
   }
 
   /**
@@ -158,15 +156,14 @@ public interface FfiProviderFactory {
   }
 
   /**
-   * The native scan implementation this bridge talks to. Called wherever the connector needs
-   * native work — driver-side schema/plan probes and executor-side streams — always on a factory
-   * freshly instantiated from its class name, so the returned backend never has to be
-   * serializable.
+   * The native scan implementation this bridge talks to. Called wherever the connector needs native
+   * work — driver-side schema/plan probes and executor-side streams — always on a factory freshly
+   * instantiated from its class name, so the returned backend never has to be serializable.
    *
-   * <p>Default: the generic FFI path ({@link FfiScanBackend} over {@link
-   * #createProvider(byte[], byte[])} and the connector's own cdylib). Static bridges built with
-   * {@code datafusion_spark_bridge::export_bridge!} override this to return a backend that loads
-   * their cdylib and delegates each method to the JNI class named in the macro invocation.
+   * <p>Default: the generic FFI path ({@link FfiScanBackend} over {@link #createProvider(byte[],
+   * byte[])} and the connector's own cdylib). Static bridges built with {@code
+   * datafusion_spark_bridge::export_bridge!} override this to return a backend that loads their
+   * cdylib and delegates each method to the JNI class named in the macro invocation.
    */
   default ScanBackend scanBackend() {
     return new FfiScanBackend(this);

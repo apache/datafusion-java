@@ -32,8 +32,8 @@ import java.util.TreeMap;
  *
  * <p>Layout (all integers big-endian {@code int32}): entry count, then per entry key length, key
  * bytes, value length, value bytes. Key-sorting makes the bytes a pure function of the map's
- * contents regardless of source iteration order — required by the shared-scan determinism
- * contract, where the options bytes are the cache/plan identity.
+ * contents regardless of source iteration order — required by the shared-scan determinism contract,
+ * where the options bytes are the cache/plan identity.
  *
  * <p>The Rust decoder lives in {@code datafusion_spark_bridge::options}; bridges using the default
  * {@code encodeOptions} read their options there as a {@code BTreeMap<String, String>}. The two
@@ -45,8 +45,7 @@ public final class OptionsCodec {
 
   /** Encode {@code options} sorted by key. {@code null} or empty map encodes as count 0. */
   public static byte[] encode(Map<String, String> options) {
-    TreeMap<String, String> sorted =
-        options == null ? new TreeMap<>() : new TreeMap<>(options);
+    TreeMap<String, String> sorted = options == null ? new TreeMap<>() : new TreeMap<>(options);
     ByteArrayOutputStream out = new ByteArrayOutputStream();
     writeInt(out, sorted.size());
     for (Map.Entry<String, String> e : sorted.entrySet()) {

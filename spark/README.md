@@ -44,6 +44,20 @@ Everything DataFusion-side (planning, filter application, execution) happens
 inside the connector's native library. There is no DataFusion session on the
 JVM side at all.
 
+## Getting started: generate a bridge
+
+Don't hand-assemble the pieces below — stamp them out:
+
+```bash
+python3 dev/new_bridge.py --name acme --package com.example.acme
+```
+
+generates a standalone project (Rust cdylib with a working demo provider,
+the four Java classes, service registration, shaded-jar pom with the cdylib
+bundled, pyspark smoke test, README with the build commands). Replace the
+demo `MemTable` in its `native/src/lib.rs` and you have a connector. The
+sections below explain what each generated piece is for.
+
 ## What you implement
 
 | # | Piece | Language | Contract lives at | Working example |
