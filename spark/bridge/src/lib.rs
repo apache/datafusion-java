@@ -34,6 +34,7 @@
 //!   `datafusion-spark-helper` cdylib does for the generic
 //!   `io.datafusion.spark.FfiHelperNative` path.
 
+pub mod options;
 pub mod scan;
 pub mod widening;
 

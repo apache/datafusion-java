@@ -19,31 +19,52 @@
 
 package io.datafusion.spark
 
-import java.util.{Map => JMap}
-
 import org.scalatest.funsuite.AnyFunSuite
 
 class FfiProviderFactoryDefaultsTest extends AnyFunSuite {
 
-  /** Minimal factory implementing only the abstract methods — exercises the defaults. */
+  /** Factory overriding only listPartitions (to spy on its inputs). */
   private class MinimalFactory extends FfiProviderFactory {
     var lastListPartitionsOpts: Array[Byte] = _
-
-    override def encodeOptions(sparkOptions: JMap[String, String]): Array[Byte] =
-      Array.emptyByteArray
 
     override def listPartitions(optionsProtoBytes: Array[Byte]): Array[PartitionInfo] = {
       lastListPartitionsOpts = optionsProtoBytes
       Array(new PartitionInfo("p0", Array.emptyByteArray, Array.empty[String]))
     }
-
-    override def createProvider(
-        optionsProtoBytes: Array[Byte],
-        partitionBytes: Array[Byte]): Long = 0L
   }
+
+  /** Every method left at its default — the literal minimum a bridge can ship. */
+  private class EmptyFactory extends FfiProviderFactory
 
   test("sharedScan defaults to false") {
     assert(!new MinimalFactory().sharedScan(Array[Byte](1, 2, 3)))
+  }
+
+  test("default encodeOptions uses OptionsCodec") {
+    val opts = new java.util.HashMap[String, String]()
+    opts.put("url", "grpc://h:1")
+    val bytes = new EmptyFactory().encodeOptions(opts)
+    assert(java.util.Arrays.equals(bytes, OptionsCodec.encode(opts)))
+    assert(OptionsCodec.decode(bytes).get("url") == "grpc://h:1")
+  }
+
+  test("default listPartitions reports a single whole-dataset partition") {
+    val partitions = new EmptyFactory().listPartitions(Array[Byte](1))
+    assert(partitions.length == 1)
+    assert(partitions(0).id == "p0")
+    assert(partitions(0).partitionBytes().isEmpty)
+    assert(partitions(0).preferredLocations().isEmpty)
+  }
+
+  test("default createProvider rejects with guidance toward scanBackend") {
+    val e = intercept[UnsupportedOperationException] {
+      new EmptyFactory().createProvider(Array.emptyByteArray, Array.emptyByteArray)
+    }
+    assert(e.getMessage.contains("scanBackend"))
+  }
+
+  test("default scanBackend is the FFI path") {
+    assert(new EmptyFactory().scanBackend().isInstanceOf[FfiScanBackend])
   }
 
   test("filter-aware listPartitions delegates to the filter-unaware overload") {

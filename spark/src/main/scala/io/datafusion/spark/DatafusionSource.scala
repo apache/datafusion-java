@@ -36,11 +36,11 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
  *   - Subclass and override [[shortName]] + [[factoryFqcn]] (the short-name shim pattern), or
  *   - Use this class directly with `option("df.factory", "fully.qualified.FactoryClass")`.
  *
- * Schema discovery happens driver-side inside the connector cdylib: the factory's
- * `FFI_TableProvider` is built and handed to `FfiHelperNative.providerSchemaIpc`, which widens it
- * and returns its Arrow schema as IPC bytes. The same `optionsProtoBytes` (and the factory FQCN)
- * is then carried verbatim through `DatafusionInputPartition`, so each executor task repeats the
- * same factory → createScan pipeline locally.
+ * Schema discovery happens driver-side inside the bridge's native scan backend
+ * (`ScanBackend.providerSchemaIpc`), which widens the provider and returns its Arrow schema as
+ * IPC bytes. The same `optionsProtoBytes` (and the factory FQCN) is then carried verbatim through
+ * `DatafusionInputPartition`, so each executor task repeats the same factory → backend pipeline
+ * locally.
  */
 class DatafusionSource extends TableProvider with DataSourceRegister {
 
@@ -68,8 +68,7 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
     val optionsBytes = factory.encodeOptions(options.asCaseSensitiveMap())
     // Schema probe: pass empty partitionBytes — bridges are required to honour an empty
     // payload for the driver-side probe (schema must not depend on per-partition state).
-    val rawPtr = factory.createProvider(optionsBytes, Array.emptyByteArray)
-    val ipcBytes = FfiHelperNative.providerSchemaIpc(rawPtr)
+    val ipcBytes = factory.scanBackend().providerSchemaIpc(optionsBytes, Array.emptyByteArray)
     val arrowSchema = MessageSerializer.deserializeSchema(
       new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))))
     ArrowToSparkSchema.toSparkSchema(arrowSchema)
