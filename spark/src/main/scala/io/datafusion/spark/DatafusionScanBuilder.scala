@@ -45,7 +45,7 @@ import org.apache.spark.sql.types.StructType
  */
 class DatafusionScanBuilder(
     factoryFqcn: String,
-    optionsProtoBytes: Array[Byte],
+    optionsBytes: Array[Byte],
     fullSchema: StructType
 ) extends ScanBuilder
     with SupportsPushDownV2Filters
@@ -86,11 +86,11 @@ class DatafusionScanBuilder(
   override def build(): Scan = {
     val factory = instantiateFactory(factoryFqcn)
     val mode: DatafusionScanMode =
-      if (factory.sharedScan(optionsProtoBytes)) buildSharedScanMode()
+      if (factory.sharedScan(optionsBytes)) buildSharedScanMode()
       else buildLegacyMode(factory)
     new DatafusionScan(
       factoryFqcn,
-      optionsProtoBytes,
+      optionsBytes,
       fullSchema,
       pruned,
       pushed,
@@ -101,13 +101,13 @@ class DatafusionScanBuilder(
 
   private def buildLegacyMode(factory: BridgeProviderFactory): LegacyMode = {
     val partitions: Array[PartitionInfo] =
-      factory.listPartitions(optionsProtoBytes, pushedBytes)
+      factory.listPartitions(optionsBytes, pushedBytes)
     if (partitions == null || partitions.isEmpty) {
       throw new IllegalStateException(
         s"BridgeProviderFactory '$factoryFqcn' returned no partitions to scan"
       )
     }
-    LegacyMode(partitions, factory.reportPartitioning(optionsProtoBytes))
+    LegacyMode(partitions, factory.reportPartitioning(optionsBytes))
   }
 
   /**
@@ -125,7 +125,7 @@ class DatafusionScanBuilder(
     val probeSpec = SharedScanSpec(
       scanId = scanId,
       factoryFqcn = factoryFqcn,
-      optionsProtoBytes = optionsProtoBytes,
+      optionsBytes = optionsBytes,
       projectionColumnNames = pruned.fieldNames,
       filterProtoBytes = pushedBytes,
       pinnedConfig = pinned

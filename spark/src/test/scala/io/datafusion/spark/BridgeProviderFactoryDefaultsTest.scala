@@ -50,8 +50,8 @@ class BridgeProviderFactoryDefaultsTest extends AnyFunSuite {
 
     override def scanBackend(): ScanBackend = StubBackend
 
-    override def listPartitions(optionsProtoBytes: Array[Byte]): Array[PartitionInfo] = {
-      lastListPartitionsOpts = optionsProtoBytes
+    override def listPartitions(optionsBytes: Array[Byte]): Array[PartitionInfo] = {
+      lastListPartitionsOpts = optionsBytes
       Array(new PartitionInfo("p0", Array.emptyByteArray, Array.empty[String]))
     }
   }

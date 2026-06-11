@@ -22,7 +22,7 @@ package io.datafusion.spark;
 /**
  * Driver-side descriptor for a single partition produced by {@link
  * BridgeProviderFactory#listPartitions(byte[])}. Carries the bridge-specific slice payload that the
- * executor passes back into {@link BridgeProviderFactory#createProvider(byte[], byte[])}, plus
+ * executor passes back into {@link ScanBackend#createScan}, plus
  * optional host hints for Spark's scheduler.
  *
  * <p>Fields:
@@ -32,8 +32,8 @@ package io.datafusion.spark;
  *       Surfaces in Spark UI, logs, and exception messages. Must be non-empty.
  *   <li>{@code partitionBytes} — opaque per-partition payload. Bridge encodes whatever the executor
  *       needs to materialise *this* slice (offsets, row ranges, sub-options, etc.). Combined with
- *       the global {@code optionsProtoBytes} in {@link BridgeProviderFactory#createProvider(byte[],
- *       byte[])}. Empty array = no per-partition state (single-partition table).
+ *       the global {@code optionsBytes} in {@link ScanBackend#createScan}. Empty array = no
+ *       per-partition state (single-partition table).
  *   <li>{@code preferredLocations} — hostnames where this partition's data lives. Returned from
  *       {@code InputPartition.preferredLocations()} so Spark can co-locate the task with the data.
  *       Empty array = no preference. Honoured subject to {@code spark.locality.wait}.

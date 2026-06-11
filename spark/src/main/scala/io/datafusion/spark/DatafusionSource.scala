@@ -38,7 +38,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
  *
  * Schema discovery happens driver-side inside the bridge's native scan backend
  * (`ScanBackend.providerSchemaIpc`), which widens the provider and returns its Arrow schema as
- * IPC bytes. The same `optionsProtoBytes` (and the factory FQCN) is then carried verbatim through
+ * IPC bytes. The same `optionsBytes` (and the factory FQCN) is then carried verbatim through
  * `DatafusionInputPartition`, so each executor task repeats the same factory → backend pipeline
  * locally.
  */

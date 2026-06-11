@@ -222,8 +222,8 @@ def main() -> None:
 
     # Note on cache scope: the executor cache is keyed by a per-query scanId,
     # so sharing happens across the TASKS of one query (4 tasks above -> one
-    # provider build per executor JVM, observable via the factory's
-    # createProvider stdout line), not across separate actions. Each new
+    # provider build per executor JVM, in the bridge's native build_provider),
+    # not across separate actions. Each new
     # action plans a new scan with a fresh scanId; its entry simply joins the
     # cache until the idle TTL evicts it.
     count_again = shared.count()

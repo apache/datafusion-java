@@ -31,7 +31,7 @@ import org.apache.arrow.vector.ipc.ArrowReader
 final case class SharedScanSpec(
     scanId: String,
     factoryFqcn: String,
-    optionsProtoBytes: Array[Byte],
+    optionsBytes: Array[Byte],
     projectionColumnNames: Array[String],
     filterProtoBytes: Array[Array[Byte]],
     pinnedConfig: PinnedSessionConfig

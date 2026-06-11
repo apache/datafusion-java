@@ -149,8 +149,8 @@ into more than one Spark task:
 
 ```java
     @Override
-    public PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
-        MySlice[] slices = MyBridgeNative.listSlices(optionsProtoBytes);
+    public PartitionInfo[] listPartitions(byte[] optionsBytes) {
+        MySlice[] slices = MyBridgeNative.listSlices(optionsBytes);
         PartitionInfo[] out = new PartitionInfo[slices.length];
         for (int i = 0; i < slices.length; i++) {
             out[i] = new PartitionInfo(slices[i].id(), slices[i].payload(), slices[i].hosts());
@@ -333,7 +333,7 @@ provider builds dominate. Opting in via
 
 ```java
 @Override
-public boolean sharedScan(byte[] optionsProtoBytes) { return true; }
+public boolean sharedScan(byte[] optionsBytes) { return true; }
 ```
 
 flips the mapping: the provider is built **once per executor JVM per query**
@@ -356,7 +356,7 @@ Choosing between the modes:
 
 Shared-scan's price of admission is a **determinism contract**: the
 provider's schema, partitioning, and per-partition contents must be a pure
-function of `optionsProtoBytes`. Remote sources must pin a snapshot
+function of `optionsBytes`. Remote sources must pin a snapshot
 (version/timestamp) inside the options. The connector fails tasks when an
 executor's partition count diverges from the driver's, but equal counts with
 different contents are undetectable by construction. The provider's

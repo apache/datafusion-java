@@ -69,7 +69,7 @@ final case class SharedScanMode(
  */
 class DatafusionScan(
     val factoryFqcn: String,
-    val optionsProtoBytes: Array[Byte],
+    val optionsBytes: Array[Byte],
     val fullSchema: StructType,
     val prunedSchema: StructType,
     val pushedPredicates: Array[Predicate],

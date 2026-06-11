@@ -43,7 +43,7 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
         partitions.iterator.map { p =>
           val base = DatafusionInputPartition(
             factoryFqcn = scan.factoryFqcn,
-            optionsProtoBytes = scan.optionsProtoBytes,
+            optionsBytes = scan.optionsBytes,
             projectionColumnNames = projection,
             filterProtoBytes = filterBytes,
             partitionId = p.id,
@@ -63,7 +63,7 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
         Array.tabulate[InputPartition](numPartitions) { i =>
           DatafusionSharedScanPartition(
             factoryFqcn = scan.factoryFqcn,
-            optionsProtoBytes = scan.optionsProtoBytes,
+            optionsBytes = scan.optionsBytes,
             projectionColumnNames = projection,
             filterProtoBytes = filterBytes,
             scanId = scanId,

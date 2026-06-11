@@ -31,7 +31,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
  */
 class DatafusionTable(
     val factoryFqcn: String,
-    val optionsProtoBytes: Array[Byte],
+    val optionsBytes: Array[Byte],
     val sparkSchema: StructType
 ) extends Table
     with SupportsRead {
@@ -47,5 +47,5 @@ class DatafusionTable(
   }
 
   override def newScanBuilder(scanOpts: CaseInsensitiveStringMap): ScanBuilder =
-    new DatafusionScanBuilder(factoryFqcn, optionsProtoBytes, sparkSchema)
+    new DatafusionScanBuilder(factoryFqcn, optionsBytes, sparkSchema)
 }

@@ -49,7 +49,7 @@ class DatafusionColumnarPartitionReader(
   private val scanHandle: Long =
     try {
       backend.createScan(
-        partition.optionsProtoBytes,
+        partition.optionsBytes,
         partition.partitionBytes,
         /* targetPartitions = */ -1,
         /* batchSize = */ -1,

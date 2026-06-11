@@ -60,7 +60,7 @@ import io.datafusion.spark.ScanBackend;
  * </ul>
  *
  * <p>Real bridges (HDF5, custom Iceberg, in-house formats) use a protobuf schema for {@code
- * optionsProtoBytes}; this example uses a hand-rolled length-prefixed binary format to keep the
+ * optionsBytes}; this example uses a hand-rolled length-prefixed binary format to keep the
  * wire layer obvious:
  *
  * <pre>
@@ -112,31 +112,31 @@ public final class ExampleBridgeProviderFactory implements BridgeProviderFactory
   }
 
   @Override
-  public PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
+  public PartitionInfo[] listPartitions(byte[] optionsBytes) {
     // Single partition; the example MemTable is not actually sliced. A real bridge would
     // populate `partitionBytes` per slice and `preferredLocations` with the hosts holding it.
     return new PartitionInfo[] {new PartitionInfo("p0", new byte[0], new String[0])};
   }
 
   @Override
-  public PartitionInfo[] listPartitions(byte[] optionsProtoBytes, byte[][] filterProtoBytes) {
+  public PartitionInfo[] listPartitions(byte[] optionsBytes, byte[][] filterProtoBytes) {
     // The example cannot prune its single partition, but a real bridge would inspect the
     // pushed predicates here and drop partitions that cannot match.
     System.out.println(
         "ExampleBridgeProviderFactory.listPartitions received "
             + filterProtoBytes.length
             + " pushed filter(s)");
-    return listPartitions(optionsProtoBytes);
+    return listPartitions(optionsBytes);
   }
 
   @Override
-  public boolean sharedScan(byte[] optionsProtoBytes) {
+  public boolean sharedScan(byte[] optionsBytes) {
     // The flag is the final byte of the options blob (present only when the encoder wrote the
     // trailing fields). The bridge owns its wire format, so decoding it here is fair game.
-    return optionsProtoBytes != null
-        && optionsProtoBytes.length >= 1
-        && hasTrailingFields(optionsProtoBytes)
-        && optionsProtoBytes[optionsProtoBytes.length - 1] == 1;
+    return optionsBytes != null
+        && optionsBytes.length >= 1
+        && hasTrailingFields(optionsBytes)
+        && optionsBytes[optionsBytes.length - 1] == 1;
   }
 
   private static boolean hasTrailingFields(byte[] bytes) {

@@ -79,7 +79,7 @@ public interface BridgeProviderFactory {
    * #sharedScan(byte[])}) before pointing it at anything large. Size guidance lives in {@code
    * spark/README.md}.
    */
-  default PartitionInfo[] listPartitions(byte[] optionsProtoBytes) {
+  default PartitionInfo[] listPartitions(byte[] optionsBytes) {
     return new PartitionInfo[] {new PartitionInfo("p0", new byte[0], new String[0])};
   }
 
@@ -95,8 +95,8 @@ public interface BridgeProviderFactory {
    * conjunction of all pushed predicates. The default delegates to the filter-unaware overload (no
    * pruning), which is always correct.
    */
-  default PartitionInfo[] listPartitions(byte[] optionsProtoBytes, byte[][] filterProtoBytes) {
-    return listPartitions(optionsProtoBytes);
+  default PartitionInfo[] listPartitions(byte[] optionsBytes, byte[][] filterProtoBytes) {
+    return listPartitions(optionsBytes);
   }
 
   /**
@@ -118,7 +118,7 @@ public interface BridgeProviderFactory {
    *
    * <ul>
    *   <li>The provider's schema, partitioning, and per-partition row content are a pure function of
-   *       {@code optionsProtoBytes}. Remote sources must pin a snapshot (version, timestamp) inside
+   *       {@code optionsBytes}. Remote sources must pin a snapshot (version, timestamp) inside
    *       the options; data that compacts or moves between driver planning and executor execution
    *       otherwise yields wrong results that no runtime check can catch.
    *   <li>The provider's {@code ExecutionPlan} supports calling {@code execute(i)} more than once
@@ -129,7 +129,7 @@ public interface BridgeProviderFactory {
    * <p>The connector fails tasks with a clear error when the executor's partition count diverges
    * from the driver's — but identical counts with different contents cannot be detected.
    */
-  default boolean sharedScan(byte[] optionsProtoBytes) {
+  default boolean sharedScan(byte[] optionsBytes) {
     return false;
   }
 
@@ -154,7 +154,7 @@ public interface BridgeProviderFactory {
    * KeyGroupedPartitioning} entirely. Storage-partitioned joins additionally require {@code
    * spark.sql.sources.v2.bucketing.enabled=true}.
    */
-  default ReportedPartitioning reportPartitioning(byte[] optionsProtoBytes) {
+  default ReportedPartitioning reportPartitioning(byte[] optionsBytes) {
     return null;
   }
 }

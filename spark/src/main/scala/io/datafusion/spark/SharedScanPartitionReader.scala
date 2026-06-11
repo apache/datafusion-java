@@ -47,7 +47,7 @@ class SharedScanPartitionReader(
     throw new IllegalStateException(
       s"shared-scan determinism violation for scanId=${partition.scanId}: driver planned " +
         s"${partition.numPartitions} partition(s) but this executor planned $executorCount. " +
-        "The provider's partitioning must be a pure function of optionsProtoBytes; pin your " +
+        "The provider's partitioning must be a pure function of optionsBytes; pin your " +
         "source snapshot (see BridgeProviderFactory.sharedScan).")
   }
 

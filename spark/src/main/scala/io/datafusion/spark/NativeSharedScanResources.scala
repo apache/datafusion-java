@@ -80,7 +80,7 @@ private[spark] object NativeSharedScanResources extends Logging {
       // Shared mode builds the dataset-wide provider: empty partitionBytes, like the
       // driver-side schema probe. DataFusion-native partitioning replaces listPartitions.
       val scanHandle = backend.createScan(
-        spec.optionsProtoBytes,
+        spec.optionsBytes,
         Array.emptyByteArray,
         spec.pinnedConfig.targetPartitions,
         spec.pinnedConfig.batchSize,

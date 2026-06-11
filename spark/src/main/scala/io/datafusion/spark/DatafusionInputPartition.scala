@@ -32,22 +32,22 @@ sealed trait DatafusionPartition extends InputPartition
  * Per-task payload for the per-partition payload (legacy) read path.
  *
  *  - `factoryFqcn`: fully-qualified class name of the bridge's `BridgeProviderFactory`. The
- *    executor reflectively instantiates this and calls `createProvider(optionsProtoBytes,
- *    partitionBytes)`.
- *  - `optionsProtoBytes`: bridge-specific global connection options, encoded by the bridge.
+ *    executor reflectively instantiates this and calls
+ *    `scanBackend().createScan(optionsBytes, partitionBytes, …)`.
+ *  - `optionsBytes`: bridge-specific global connection options, encoded by the bridge.
  *    Opaque to connector-core. Same bytes ride along on every partition.
  *  - `projectionColumnNames`: pruned column list (post-`pruneColumns`).
  *  - `filterProtoBytes`: V2 `Predicate` → DataFusion `LogicalExprNode` proto bytes; each one is
  *    applied natively via `ScanBackend.createScan`.
  *  - `partitionId`: stable identifier (e.g. a segment or file id) — surfaces in Spark UI/logs/errors.
  *  - `partitionBytes`: opaque per-partition payload from `PartitionInfo.partitionBytes`. Passed
- *    back into `createProvider` so the bridge materialises *this* slice.
+ *    back into `ScanBackend.createScan` so the bridge materialises *this* slice.
  *  - `preferredLocs`: hostnames where this partition's data lives; returned from
  *    `preferredLocations()` so Spark schedules the task there subject to `spark.locality.wait`.
  */
 final case class DatafusionInputPartition(
     factoryFqcn: String,
-    optionsProtoBytes: Array[Byte],
+    optionsBytes: Array[Byte],
     projectionColumnNames: Array[String],
     filterProtoBytes: Array[Array[Byte]],
     partitionId: String,
@@ -93,7 +93,7 @@ final case class DatafusionKeyedInputPartition(
  */
 final case class DatafusionSharedScanPartition(
     factoryFqcn: String,
-    optionsProtoBytes: Array[Byte],
+    optionsBytes: Array[Byte],
     projectionColumnNames: Array[String],
     filterProtoBytes: Array[Array[Byte]],
     scanId: String,
@@ -107,7 +107,7 @@ final case class DatafusionSharedScanPartition(
     SharedScanSpec(
       scanId = scanId,
       factoryFqcn = factoryFqcn,
-      optionsProtoBytes = optionsProtoBytes,
+      optionsBytes = optionsBytes,
       projectionColumnNames = projectionColumnNames,
       filterProtoBytes = filterProtoBytes,
       pinnedConfig = pinnedConfig

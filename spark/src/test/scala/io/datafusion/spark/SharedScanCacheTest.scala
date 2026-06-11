@@ -32,7 +32,7 @@ class SharedScanCacheTest extends AnyFunSuite {
     SharedScanSpec(
       scanId = scanId,
       factoryFqcn = "test.Factory",
-      optionsProtoBytes = Array.emptyByteArray,
+      optionsBytes = Array.emptyByteArray,
       projectionColumnNames = Array.empty,
       filterProtoBytes = Array.empty,
       pinnedConfig = PinnedSessionConfig(8, 8192, Vector.empty)
