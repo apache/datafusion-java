@@ -58,23 +58,76 @@ PySpark script that scans, filters, and projects it — lives under
 
 ### 1. The Rust side
 
-One JNI function: decode your options bytes, build an
-`Arc<dyn TableProvider>`, wrap it:
+Two ways to build your cdylib. **Static (preferred when you own the
+provider's source):** depend on the [`datafusion-spark-bridge`](bridge/)
+SDK crate and let it generate the JNI surface — no `FFI_TableProvider`, no
+`datafusion-ffi` ABI coupling, one cdylib, your choice of DataFusion version:
 
 ```rust
+use std::sync::Arc;
+use datafusion_spark_bridge::datafusion::catalog::TableProvider;
+use datafusion_spark_bridge::{export_bridge, BridgeContext, JniResult};
+
+fn build_provider(
+    ctx: &BridgeContext,
+    options: &[u8],
+    partition: &[u8],
+) -> JniResult<Arc<dyn TableProvider>> {
+    let opts = MyOptions::decode(options)?;
+    Ok(ctx.block_on(MyProvider::connect(opts, partition))?)
+}
+
+export_bridge! {
+    // Underscore-mangled name of YOUR Java class declaring the native
+    // methods (dots -> underscores). Per-bridge names let several bridges
+    // coexist in one Spark JVM.
+    jni_class: "com_example_mybridge_BridgeNative",
+    build_provider: build_provider,
+}
+```
+
+The macro's rustdoc lists the exact `static native` method set the named
+Java class must declare. (JVM-side plumbing that routes the connector to a
+bridge-named native class instead of the generic helper is the next step on
+this path.)
+
+**FFI (when the provider arrives precompiled, or must stay on a different
+DataFusion version):** one JNI function that decodes your options bytes,
+builds an `Arc<dyn TableProvider>`, and wraps it:
+
+```rust
+/// Host SessionContext for FFI_TableProvider::new's task-context plumbing.
+/// MUST outlive every provider built from it — the FFI_TaskContextProvider
+/// holds a non-owning reference, and the connector calls back through it on
+/// every scan. Keep it in a static; a function-local context dropped after
+/// this call leaves the provider with a dangling task-context source.
+fn host_session_context() -> &'static Arc<SessionContext> {
+    static CTX: OnceLock<Arc<SessionContext>> = OnceLock::new();
+    CTX.get_or_init(|| Arc::new(SessionContext::new()))
+}
+
 let provider: Arc<dyn TableProvider> = runtime().block_on(build_provider(opts))?;
+let ctx_provider: Arc<dyn TaskContextProvider> =
+    Arc::clone(host_session_context()) as Arc<dyn TaskContextProvider>;
 let ffi = FFI_TableProvider::new(
     provider,
     /*can_support_pushdown_filters=*/ true,
     Some(runtime().clone()),
-    FFI_TaskContextProvider::from(&ctx_provider),  // throwaway local SessionContext
-    /*logical_codec=*/ None,                       // default DataFusion codec
+    FFI_TaskContextProvider::from(&ctx_provider),
+    /*logical_codec=*/ None,  // default DataFusion codec
 );
 Box::into_raw(Box::new(ffi)) as jlong
 ```
 
-Ownership of the pointer transfers to whoever you hand it to (the factory
-passes it straight into the connector). [`examples/native/src/lib.rs`](../examples/native/src/lib.rs)
+Two lifetime rules:
+
+- Ownership of the returned pointer transfers to whoever you hand it to (the
+  factory passes it straight into the connector).
+- The `SessionContext` behind the `FFI_TaskContextProvider` must live as long
+  as any provider built from it — hence the `static` above. Nothing is ever
+  registered on it; it exists only so scans can obtain a task context.
+
+[`examples/native/src/lib.rs`](../examples/native/src/lib.rs)
 is a complete, commented version of this for a `MemTable`.
 
 ### 2. The Java factory
@@ -296,8 +349,12 @@ spark/
 │     FfiHelperNative.java                  <- JNI into the connector cdylib
 ├── src/main/scala/io/datafusion/spark/   connector internals (DSv2 wiring,
 │                                         readers, pushdown, shared-scan cache)
-└── native/                               connector cdylib (widening + scan
-                                          planning/execution, Rust)
+├── bridge/                               datafusion-spark-bridge SDK rlib:
+│                                         widening + scan machinery +
+│                                         export_bridge! for static bridges
+└── native/                               connector cdylib: thin JNI shims for
+                                          the generic FfiHelperNative (FFI
+                                          path), all logic in bridge/
 ```
 
 ## Caveats

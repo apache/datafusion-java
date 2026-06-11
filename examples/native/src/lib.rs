@@ -68,8 +68,10 @@ fn runtime() -> &'static Handle {
         .handle()
 }
 
-/// Throwaway `SessionContext` used only to obtain a `TaskContextProvider`
-/// for `FFI_TableProvider::new`. The example does not register anything on it.
+/// Host `SessionContext` used only to obtain a `TaskContextProvider` for
+/// `FFI_TableProvider::new`. Static on purpose: the `FFI_TaskContextProvider`
+/// holds a non-owning reference, so this context must outlive every provider
+/// built from it. Nothing is ever registered on it.
 fn host_session_context() -> &'static Arc<SessionContext> {
     use std::sync::OnceLock;
     static CTX: OnceLock<Arc<SessionContext>> = OnceLock::new();

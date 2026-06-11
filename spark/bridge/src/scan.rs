@@ -15,29 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Planning and execution of a Spark scan, entirely inside this cdylib.
+//! Planning and execution of a Spark scan, provider-source-agnostic.
 //!
-//! `createScan` takes ownership of a bridge's `FFI_TableProvider` pointer,
-//! wraps the inner provider in a [`WideningTableProvider`] (in-process — no
-//! re-FFI hop), registers it on a private `SessionContext` built from the
-//! caller-pinned config, applies the pruned projection and the proto-encoded
-//! pushed filters, and plans exactly once. The returned handle supports:
+//! Every function here is the body of one JNI entry point; the caller (the
+//! generic FFI cdylib, or a static bridge's `export_bridge!` expansion)
+//! supplies only how the provider is obtained, as a `make` closure. The
+//! provider is wrapped in a [`WideningTableProvider`] here, so both binding
+//! styles get identical Spark-compatible Arrow types.
 //!
-//!   - `partitionCount` — output partitions of the physical plan (shared-scan
-//!     mode probes this on the driver and indexes tasks by it);
-//!   - `executeStreamPartition` — an independent stream over ONE plan
+//! [`create_scan`] registers the widened provider on a private
+//! `SessionContext` built from the caller-pinned config, applies the pruned
+//! projection and the proto-encoded pushed filters, and plans exactly once.
+//! The returned handle supports:
+//!
+//!   - [`partition_count`] — output partitions of the physical plan
+//!     (shared-scan mode probes this on the driver and indexes tasks by it);
+//!   - [`execute_stream_partition`] — an independent stream over ONE plan
 //!     partition, concurrently callable from multiple JVM threads
 //!     (`ExecutionPlan` and `TaskContext` are `Send + Sync`; each call only
-//!     clones their `Arc`s). Re-executing the same partition index (Spark task
-//!     retry / speculative execution) opens its own stream, but only succeeds
-//!     when every operator in that partition's pipeline supports repeated
-//!     `execute()` — stateless scans do, `RepartitionExec` pipelines do not;
-//!   - `executeStream` — the whole plan as one stream (legacy per-partition
-//!     payload mode, where the provider itself is the task's slice);
-//!   - `closeScan` — drop the plan. The single unsafe interleaving is closing
-//!     a handle that still has an in-flight call; the Java consumer (the
-//!     shared-scan cache) prevents it with a refcount covering every open
-//!     reader.
+//!     clones their `Arc`s). Re-executing the same partition index (Spark
+//!     task retry / speculative execution) opens its own stream, but only
+//!     succeeds when every operator in that partition's pipeline supports
+//!     repeated `execute()` — stateless scans do, `RepartitionExec`
+//!     pipelines do not;
+//!   - [`execute_stream`] — the whole plan as one stream (legacy
+//!     per-partition payload mode, where the provider itself is the task's
+//!     slice);
+//!   - [`close_scan`] — drop the plan. The single unsafe interleaving is
+//!     closing a handle that still has an in-flight call; the Java consumer
+//!     (the shared-scan cache) prevents it with a refcount covering every
+//!     open reader.
 //!
 //! Pinned-config determinism: the driver resolves `target_partitions` /
 //! `batch_size` / option overrides once and ships them to every executor, so
@@ -52,20 +59,19 @@ use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::catalog::TableProvider;
 use datafusion::dataframe::DataFrame;
 use datafusion::execution::TaskContext;
-use datafusion::physical_plan::{execute_stream, ExecutionPlan};
+use datafusion::physical_plan::{execute_stream as df_execute_stream, ExecutionPlan};
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_ffi::table_provider::FFI_TableProvider;
 use datafusion_jni_common::errors::{try_unwrap_or_throw, JniResult};
 use datafusion_jni_common::StreamingReader;
 use datafusion_proto::logical_plan::from_proto::parse_expr;
 use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
 use datafusion_proto::protobuf::LogicalExprNode;
-use jni::objects::{JByteArray, JClass, JObjectArray, JString};
+use jni::objects::{JByteArray, JObjectArray, JString};
 use jni::sys::{jbyteArray, jint, jlong};
 use jni::JNIEnv;
 use prost::Message;
 
-use crate::runtime;
+use crate::runtime_handle;
 use crate::widening::WideningTableProvider;
 
 /// Registration name of the (single) provider on the scan's private context.
@@ -81,20 +87,8 @@ struct ScanState {
     task_ctx: Arc<TaskContext>,
 }
 
-/// Take ownership of the bridge's `FFI_TableProvider` pointer and return the
-/// widened in-process provider.
-fn import_widened(ffi_raw_ptr: jlong) -> JniResult<Arc<dyn TableProvider>> {
-    if ffi_raw_ptr == 0 {
-        return Err("FFI_TableProvider pointer is null".into());
-    }
-    let ffi_raw: Box<FFI_TableProvider> =
-        unsafe { Box::from_raw(ffi_raw_ptr as *mut FFI_TableProvider) };
-    // `Arc::<dyn TableProvider>::from(&FFI_TableProvider)` returns a
-    // ForeignTableProvider that delegates through the producer's vtable; it
-    // owns its own retained copy, so our Box can drop immediately.
-    let inner: Arc<dyn TableProvider> = (&*ffi_raw).into();
-    drop(ffi_raw);
-    Ok(Arc::new(WideningTableProvider::new(inner)))
+fn widen(provider: Arc<dyn TableProvider>) -> Arc<dyn TableProvider> {
+    Arc::new(WideningTableProvider::new(provider))
 }
 
 fn collect_string_array(env: &mut JNIEnv, arr: &JObjectArray) -> JniResult<Vec<String>> {
@@ -127,54 +121,48 @@ fn collect_byte_arrays(env: &mut JNIEnv, arr: &JObjectArray) -> JniResult<Vec<Ve
 
 /// Driver-side schema probe: widened Arrow schema of the provider, as IPC
 /// bytes (deserialized JVM-side with `MessageSerializer.deserializeSchema`).
-/// Takes ownership of the pointer; the provider drops before returning.
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_providerSchemaIpc<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    ffi_raw_ptr: jlong,
+/// `make` runs once; the provider drops before returning.
+pub fn provider_schema_ipc(
+    env: &mut JNIEnv,
+    make: impl FnOnce(&mut JNIEnv) -> JniResult<Arc<dyn TableProvider>>,
 ) -> jbyteArray {
-    try_unwrap_or_throw(
-        &mut env,
-        std::ptr::null_mut(),
-        |env| -> JniResult<jbyteArray> {
-            let widened = import_widened(ffi_raw_ptr)?;
-            let schema = widened.schema();
-            let mut buf: Vec<u8> = Vec::new();
-            {
-                let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
-                writer.finish()?;
-            }
-            let arr = env.byte_array_from_slice(&buf)?;
-            Ok(arr.into_raw())
-        },
-    )
+    try_unwrap_or_throw(env, std::ptr::null_mut(), |env| -> JniResult<jbyteArray> {
+        let widened = widen(make(env)?);
+        let schema = widened.schema();
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut writer = StreamWriter::try_new(&mut buf, schema.as_ref())?;
+            writer.finish()?;
+        }
+        let arr = env.byte_array_from_slice(&buf)?;
+        Ok(arr.into_raw())
+    })
 }
 
-/// Build the scan: widen the provider, register it on a private context with
-/// the pinned config, apply projection + pushed filters, plan once.
+/// Build the scan: widen the provider from `make`, register it on a private
+/// context with the pinned config, apply projection + pushed filters, plan
+/// once.
 ///
 /// `target_partitions` / `batch_size` <= 0 leave the DataFusion defaults;
 /// `option_keys`/`option_values` are parallel arrays of config overrides;
 /// empty `projection_columns` selects all columns; each element of
 /// `filter_protos` is a serialized `datafusion.LogicalExprNode`.
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    ffi_raw_ptr: jlong,
+#[allow(clippy::too_many_arguments)]
+pub fn create_scan(
+    env: &mut JNIEnv,
+    make: impl FnOnce(&mut JNIEnv) -> JniResult<Arc<dyn TableProvider>>,
     target_partitions: jint,
     batch_size: jint,
-    option_keys: JObjectArray<'local>,
-    option_values: JObjectArray<'local>,
-    projection_columns: JObjectArray<'local>,
-    filter_protos: JObjectArray<'local>,
+    option_keys: &JObjectArray,
+    option_values: &JObjectArray,
+    projection_columns: &JObjectArray,
+    filter_protos: &JObjectArray,
 ) -> jlong {
-    try_unwrap_or_throw(&mut env, 0, |env| -> JniResult<jlong> {
-        let widened = import_widened(ffi_raw_ptr)?;
+    try_unwrap_or_throw(env, 0, |env| -> JniResult<jlong> {
+        let widened = widen(make(env)?);
 
-        let keys = collect_string_array(env, &option_keys)?;
-        let values = collect_string_array(env, &option_values)?;
+        let keys = collect_string_array(env, option_keys)?;
+        let values = collect_string_array(env, option_values)?;
         if keys.len() != values.len() {
             return Err(format!(
                 "option key/value arrays differ in length: {} vs {}",
@@ -183,8 +171,8 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'loca
             )
             .into());
         }
-        let projection = collect_string_array(env, &projection_columns)?;
-        let filters = collect_byte_arrays(env, &filter_protos)?;
+        let projection = collect_string_array(env, projection_columns)?;
+        let filters = collect_byte_arrays(env, filter_protos)?;
 
         let mut config = SessionConfig::new();
         if target_partitions > 0 {
@@ -200,7 +188,7 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'loca
         let ctx = SessionContext::new_with_config(config);
         ctx.register_table(SCAN_TABLE_NAME, widened)?;
 
-        let mut df: DataFrame = runtime().block_on(ctx.table(SCAN_TABLE_NAME))?;
+        let mut df: DataFrame = runtime_handle().block_on(ctx.table(SCAN_TABLE_NAME))?;
         if !projection.is_empty() {
             let refs: Vec<&str> = projection.iter().map(String::as_str).collect();
             df = df.select_columns(&refs)?;
@@ -217,7 +205,7 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'loca
 
         // task_ctx() borrows; capture before create_physical_plan consumes df.
         let task_ctx = Arc::new(df.task_ctx());
-        let plan = runtime().block_on(df.create_physical_plan())?;
+        let plan = runtime_handle().block_on(df.create_physical_plan())?;
 
         let state = ScanState {
             _ctx: ctx,
@@ -228,13 +216,9 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'loca
     })
 }
 
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_partitionCount<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    handle: jlong,
-) -> jint {
-    try_unwrap_or_throw(&mut env, 0, |_env| -> JniResult<jint> {
+/// Output partition count of the planned physical plan.
+pub fn partition_count(env: &mut JNIEnv, handle: jlong) -> jint {
+    try_unwrap_or_throw(env, 0, |_env| -> JniResult<jint> {
         if handle == 0 {
             return Err("scan handle is null".into());
         }
@@ -247,15 +231,16 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_partitionCount<'
     })
 }
 
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStreamPartition<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
+/// Open an independent stream over one plan partition, writing an
+/// `FFI_ArrowArrayStream` into the caller-allocated struct at
+/// `ffi_stream_addr`.
+pub fn execute_stream_partition(
+    env: &mut JNIEnv,
     handle: jlong,
     partition: jint,
     ffi_stream_addr: jlong,
 ) {
-    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+    try_unwrap_or_throw(env, (), |_env| -> JniResult<()> {
         if handle == 0 {
             return Err("scan handle is null".into());
         }
@@ -284,7 +269,7 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStreamPar
         // tokio::spawn at execute() time (RepartitionExec et al.), which
         // requires a runtime context to be entered.
         let stream = {
-            let _guard = runtime().enter();
+            let _guard = runtime_handle().enter();
             plan.execute(partition as usize, task_ctx)?
         };
 
@@ -299,14 +284,8 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStreamPar
 
 /// Whole-plan stream for legacy per-partition payload mode (the provider
 /// itself is the task's slice, so all plan partitions merge into one reader).
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStream<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    handle: jlong,
-    ffi_stream_addr: jlong,
-) {
-    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+pub fn execute_stream(env: &mut JNIEnv, handle: jlong, ffi_stream_addr: jlong) {
+    try_unwrap_or_throw(env, (), |_env| -> JniResult<()> {
         if handle == 0 {
             return Err("scan handle is null".into());
         }
@@ -321,8 +300,8 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStream<'l
 
         // execute_stream coalesces multi-partition plans behind one stream.
         let stream = {
-            let _guard = runtime().enter();
-            execute_stream(plan, task_ctx)?
+            let _guard = runtime_handle().enter();
+            df_execute_stream(plan, task_ctx)?
         };
 
         let reader = StreamingReader { schema, stream };
@@ -334,13 +313,10 @@ pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStream<'l
     })
 }
 
-#[no_mangle]
-pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_closeScan<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    handle: jlong,
-) {
-    try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
+/// Drop the planned scan. Must not race an in-flight stream-open on the same
+/// handle; the Java consumer's refcount enforces this.
+pub fn close_scan(env: &mut JNIEnv, handle: jlong) {
+    try_unwrap_or_throw(env, (), |_env| -> JniResult<()> {
         if handle == 0 {
             return Err("scan handle is null".into());
         }

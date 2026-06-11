@@ -1682,7 +1682,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "datafusion-spark-helper"
+name = "datafusion-spark-bridge"
 version = "0.1.0"
 dependencies = [
  "arrow",
@@ -1695,6 +1695,14 @@ dependencies = [
  "jni",
  "prost",
  "tokio",
+]
+
+[[package]]
+name = "datafusion-spark-helper"
+version = "0.1.0"
+dependencies = [
+ "datafusion-spark-bridge",
+ "jni",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ members = [
     "native",
     "native-common",
     "examples/native",
+    "spark/bridge",
     "spark/native",
 ]
 

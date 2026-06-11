@@ -15,23 +15,90 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Native side of the generic Spark connector.
+//! Generic FFI-path cdylib behind `io.datafusion.spark.FfiHelperNative`.
 //!
-//! Takes raw `FFI_TableProvider` pointers produced by a bridge cdylib and
-//! does everything DataFusion-side in process: schema probe, widening to
-//! Spark-compatible Arrow types (UInt*→signed wider, Float16→Float32,
-//! Time*→Int wider, Timestamp(*, tz)→Timestamp(Microsecond, tz)), session
-//! construction from the driver-pinned config, projection + proto-filter
-//! application, planning, and per-partition stream execution. See [`scan`]
-//! for the JNI surface and [`widening`] for the cast layer.
+//! Thin JNI shims: each entry point imports the bridge cdylib's raw
+//! `FFI_TableProvider` pointer and delegates to the scan machinery in
+//! `datafusion-spark-bridge` (widening, session from pinned config,
+//! projection, proto filters, planning, partition streams). Bridges that
+//! statically link their provider use `datafusion_spark_bridge::export_bridge!`
+//! with their own JNI class name instead of this library.
 
-use tokio::runtime::Handle;
+use datafusion_spark_bridge::ffi::import_ffi_provider;
+use datafusion_spark_bridge::scan;
+use jni::objects::{JClass, JObjectArray};
+use jni::sys::{jbyteArray, jint, jlong};
+use jni::JNIEnv;
 
-pub mod scan;
-pub mod widening;
+#[no_mangle]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_providerSchemaIpc<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    ffi_raw_ptr: jlong,
+) -> jbyteArray {
+    scan::provider_schema_ipc(&mut env, |_env| import_ffi_provider(ffi_raw_ptr))
+}
 
-/// Shared Tokio runtime (the per-cdylib singleton from
-/// `datafusion-jni-common`). Planning and stream execution all run on it.
-fn runtime() -> &'static Handle {
-    datafusion_jni_common::runtime().handle()
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_createScan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    ffi_raw_ptr: jlong,
+    target_partitions: jint,
+    batch_size: jint,
+    option_keys: JObjectArray<'local>,
+    option_values: JObjectArray<'local>,
+    projection_columns: JObjectArray<'local>,
+    filter_protos: JObjectArray<'local>,
+) -> jlong {
+    scan::create_scan(
+        &mut env,
+        |_env| import_ffi_provider(ffi_raw_ptr),
+        target_partitions,
+        batch_size,
+        &option_keys,
+        &option_values,
+        &projection_columns,
+        &filter_protos,
+    )
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_partitionCount<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jint {
+    scan::partition_count(&mut env, handle)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStreamPartition<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    partition: jint,
+    ffi_stream_addr: jlong,
+) {
+    scan::execute_stream_partition(&mut env, handle, partition, ffi_stream_addr)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_executeStream<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    ffi_stream_addr: jlong,
+) {
+    scan::execute_stream(&mut env, handle, ffi_stream_addr)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_datafusion_spark_FfiHelperNative_closeScan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) {
+    scan::close_scan(&mut env, handle)
 }
