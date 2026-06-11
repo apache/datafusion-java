@@ -182,6 +182,57 @@ def main() -> None:
     print("=== projection: id, name ===")
     df.select("id", "name").show(n=total_rows, truncate=False)
 
+    legacy_rows = {tuple(r) for r in df.collect()}
+
+    # --- shared-scan mode -------------------------------------------------
+    # `shared_scan=true` flips ExampleFfiProviderFactory.sharedScan: one
+    # provider + plan cached per executor, one Spark task per MemTable
+    # partition (num_partitions=4), each task streaming one DataFusion plan
+    # partition. Results must be identical to the legacy run above.
+    num_partitions = 4
+    shared = (
+        spark.read.format("datafusion")
+        .option(
+            "df.factory",
+            "org.apache.datafusion.examples.ExampleFfiProviderFactory",
+        )
+        .option("name_prefix", name_prefix)
+        .option("num_rows", str(num_rows))
+        .option("num_batches", str(num_batches))
+        .option("num_partitions", str(num_partitions))
+        .option("shared_scan", "true")
+        .load()
+    )
+
+    print(f"=== shared-scan mode: num_partitions={num_partitions} ===")
+    shared_partitions = shared.rdd.getNumPartitions()
+    print(f"=== shared-scan Spark partitions: {shared_partitions} ===")
+    assert shared_partitions == num_partitions, (
+        f"expected {num_partitions} Spark partitions in shared-scan mode, "
+        f"got {shared_partitions}"
+    )
+
+    shared.show(n=total_rows, truncate=False)
+    shared_rows = {tuple(r) for r in shared.collect()}
+    assert shared_rows == legacy_rows, (
+        "shared-scan rows diverge from legacy mode: "
+        f"only-legacy={legacy_rows - shared_rows} only-shared={shared_rows - legacy_rows}"
+    )
+    print(f"=== shared-scan returned the same {len(shared_rows)} rows as legacy mode ===")
+
+    print("=== shared-scan filter pushdown: value > 5.0 ===")
+    shared.filter("value > 5.0").show(n=total_rows, truncate=False)
+
+    # Note on cache scope: the executor cache is keyed by a per-query scanId,
+    # so sharing happens across the TASKS of one query (4 tasks above -> one
+    # provider build per executor JVM, observable via the factory's
+    # createProvider stdout line), not across separate actions. Each new
+    # action plans a new scan with a fresh scanId; its entry simply joins the
+    # cache until the idle TTL evicts it.
+    count_again = shared.count()
+    assert count_again == total_rows, f"expected {total_rows} rows, got {count_again}"
+    print("=== shared-scan count() as a separate action also succeeded ===")
+
     spark.stop()
 
 

@@ -37,11 +37,11 @@ use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
+use datafusion::physical_expr::EquivalenceProperties;
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream,
 };
-use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion::physical_expr::EquivalenceProperties;
 use futures::stream::StreamExt;
 
 /// Compute the cast-target DataType for an Arrow type not directly readable
@@ -85,7 +85,11 @@ fn widened_schema(inner: &ArrowSchema) -> (SchemaRef, Vec<Option<DataType>>) {
     for f in inner.fields() {
         match arrow_cast_widening(f.data_type()) {
             Some(target) => {
-                fields.push(Arc::new(Field::new(f.name(), target.clone(), f.is_nullable())));
+                fields.push(Arc::new(Field::new(
+                    f.name(),
+                    target.clone(),
+                    f.is_nullable(),
+                )));
                 targets.push(Some(target));
             }
             None => {
@@ -110,7 +114,11 @@ pub struct WideningTableProvider {
 impl WideningTableProvider {
     pub fn new(inner: Arc<dyn TableProvider>) -> Self {
         let (widened, targets) = widened_schema(&inner.schema());
-        Self { inner, widened, targets }
+        Self {
+            inner,
+            widened,
+            targets,
+        }
     }
 }
 
@@ -145,8 +153,10 @@ impl TableProvider for WideningTableProvider {
         let inner_plan = self.inner.scan(session, projection, filters, limit).await?;
         let (projected_widened, projected_targets) = match projection {
             Some(idxs) => {
-                let fields: Vec<Arc<Field>> =
-                    idxs.iter().map(|i| Arc::clone(&self.widened.fields()[*i])).collect();
+                let fields: Vec<Arc<Field>> = idxs
+                    .iter()
+                    .map(|i| Arc::clone(&self.widened.fields()[*i]))
+                    .collect();
                 let targets: Vec<Option<DataType>> =
                     idxs.iter().map(|i| self.targets[*i].clone()).collect();
                 (Arc::new(ArrowSchema::new(fields)) as SchemaRef, targets)
@@ -185,7 +195,12 @@ impl WideningExec {
             inner_props.emission_type,
             inner_props.boundedness,
         ));
-        Self { inner, schema, targets, properties }
+        Self {
+            inner,
+            schema,
+            targets,
+            properties,
+        }
     }
 }
 
@@ -250,7 +265,10 @@ impl ExecutionPlan for WideningExec {
             Err(e) => Err(e),
             Ok(batch) => cast_batch(&batch, &schema, &targets),
         });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), mapped)))
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            self.schema.clone(),
+            mapped,
+        )))
     }
 }
 
@@ -283,14 +301,26 @@ mod tests {
     #[test]
     fn unsigned_ints_widen_to_signed_wider() {
         assert_eq!(arrow_cast_widening(&DataType::UInt8), Some(DataType::Int16));
-        assert_eq!(arrow_cast_widening(&DataType::UInt16), Some(DataType::Int32));
-        assert_eq!(arrow_cast_widening(&DataType::UInt32), Some(DataType::Int64));
-        assert_eq!(arrow_cast_widening(&DataType::UInt64), Some(DataType::Int64));
+        assert_eq!(
+            arrow_cast_widening(&DataType::UInt16),
+            Some(DataType::Int32)
+        );
+        assert_eq!(
+            arrow_cast_widening(&DataType::UInt32),
+            Some(DataType::Int64)
+        );
+        assert_eq!(
+            arrow_cast_widening(&DataType::UInt64),
+            Some(DataType::Int64)
+        );
     }
 
     #[test]
     fn float16_widens_to_float32() {
-        assert_eq!(arrow_cast_widening(&DataType::Float16), Some(DataType::Float32));
+        assert_eq!(
+            arrow_cast_widening(&DataType::Float16),
+            Some(DataType::Float32)
+        );
     }
 
     #[test]
@@ -310,7 +340,10 @@ mod tests {
         let ns = DataType::Timestamp(TimeUnit::Nanosecond, Some(Arc::from("UTC")));
         assert_eq!(
             arrow_cast_widening(&ns),
-            Some(DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("UTC"))))
+            Some(DataType::Timestamp(
+                TimeUnit::Microsecond,
+                Some(Arc::from("UTC"))
+            ))
         );
         let us_no_tz = DataType::Timestamp(TimeUnit::Microsecond, None);
         assert_eq!(arrow_cast_widening(&us_no_tz), None);

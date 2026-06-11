@@ -29,13 +29,13 @@ import org.apache.spark.sql.connector.expressions.Transform;
  * via {@link FfiProviderFactory#reportPartitioning(byte[])}, the connector surfaces a {@link
  * org.apache.spark.sql.connector.read.partitioning.KeyGroupedPartitioning} from {@link
  * org.apache.spark.sql.connector.read.SupportsReportPartitioning#outputPartitioning()} — Spark's
- * optimizer can then skip the shuffle ahead of joins/aggregations whose grouping keys line up
- * with these transforms.
+ * optimizer can then skip the shuffle ahead of joins/aggregations whose grouping keys line up with
+ * these transforms.
  *
  * <p>Contract: for any partition reported by {@link FfiProviderFactory#listPartitions(byte[])},
  * every row produced by that partition must evaluate to the same tuple of key values under these
- * transforms. Different partitions <i>may</i> share key values (Spark will fuse them); they
- * <b>must not</b> straddle key values.
+ * transforms. Different partitions <i>may</i> share key values (Spark will fuse them); they <b>must
+ * not</b> straddle key values.
  *
  * <p>The partition count Spark sees is {@code listPartitions(...).length}; it is not carried here
  * to keep a single source of truth.
@@ -57,8 +57,8 @@ public final class ReportedPartitioning {
   }
 
   /**
-   * Convenience: declare identity partitioning on one or more columns (a row in partition P has
-   * the same {@code (col1, col2, …)} values as every other row in P).
+   * Convenience: declare identity partitioning on one or more columns (a row in partition P has the
+   * same {@code (col1, col2, …)} values as every other row in P).
    */
   public static ReportedPartitioning identity(String... columns) {
     if (columns == null || columns.length == 0) {

@@ -38,8 +38,16 @@ class DatafusionPartitionReaderFactory(val readSchema: StructType) extends Parti
       "DatafusionPartitionReaderFactory: row-based read not supported; consumers must opt into columnar"
     )
 
-  override def createColumnarReader(partition: InputPartition): PartitionReader[ColumnarBatch] = {
-    val p = partition.asInstanceOf[DatafusionInputPartition]
-    new DatafusionColumnarPartitionReader(p, readSchema)
-  }
+  override def createColumnarReader(partition: InputPartition): PartitionReader[ColumnarBatch] =
+    partition match {
+      case p: DatafusionInputPartition =>
+        new DatafusionColumnarPartitionReader(p, readSchema)
+      case p: DatafusionKeyedInputPartition =>
+        new DatafusionColumnarPartitionReader(p.base, readSchema)
+      case p: DatafusionSharedScanPartition =>
+        new SharedScanPartitionReader(p, SharedScanCache.global)
+      case other =>
+        throw new IllegalArgumentException(
+          s"unexpected InputPartition type: ${other.getClass.getName}")
+    }
 }

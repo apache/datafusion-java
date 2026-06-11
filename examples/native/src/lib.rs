@@ -31,11 +31,16 @@
 //!
 //! ```text
 //! [u32 name_prefix_len][name_prefix UTF-8 bytes][u32 num_rows][u32 num_batches]
+//!     [u32 num_partitions][u8 shared_scan]    <- optional trailing fields
 //! ```
 //!
 //! Empty/`null` bytes decode as all defaults: `name_prefix="row"`, `num_rows=4`,
-//! `num_batches=1`. Real bridges use a real proto schema here; this example
-//! hand-rolls the encoding to keep the wire layer obvious.
+//! `num_batches=1`, `num_partitions=1`, `shared_scan=false`. The trailing
+//! fields are optional so blobs from older encoders keep decoding. The
+//! `shared_scan` flag is consumed JVM-side (`ExampleFfiProviderFactory.sharedScan`);
+//! this decoder carries it only so one blob format serves both sides. Real
+//! bridges use a real proto schema here; this example hand-rolls the encoding
+//! to keep the wire layer obvious.
 
 use std::sync::Arc;
 
@@ -75,6 +80,7 @@ struct Options {
     name_prefix: String,
     num_rows: u32,
     num_batches: u32,
+    num_partitions: u32,
 }
 
 impl Default for Options {
@@ -83,13 +89,12 @@ impl Default for Options {
             name_prefix: "row".to_string(),
             num_rows: 4,
             num_batches: 1,
+            num_partitions: 1,
         }
     }
 }
 
-fn decode_options(
-    bytes: &[u8],
-) -> Result<Options, Box<dyn std::error::Error + Send + Sync>> {
+fn decode_options(bytes: &[u8]) -> Result<Options, Box<dyn std::error::Error + Send + Sync>> {
     if bytes.is_empty() {
         return Ok(Options::default());
     }
@@ -105,15 +110,25 @@ fn decode_options(
         .map_err(|e| format!("name_prefix is not valid UTF-8: {e}"))?
         .to_string();
     let num_rows = u32::from_le_bytes(bytes[name_end..name_end + 4].try_into().unwrap());
-    let num_batches =
-        u32::from_le_bytes(bytes[name_end + 4..name_end + 8].try_into().unwrap());
+    let num_batches = u32::from_le_bytes(bytes[name_end + 4..name_end + 8].try_into().unwrap());
     if num_rows == 0 || num_batches == 0 {
         return Err("num_rows and num_batches must both be > 0".into());
+    }
+    // Optional trailing fields (older encoders omit them): num_partitions,
+    // then the shared_scan flag byte, which only the JVM side interprets.
+    let num_partitions = if bytes.len() >= name_end + 12 {
+        u32::from_le_bytes(bytes[name_end + 8..name_end + 12].try_into().unwrap())
+    } else {
+        1
+    };
+    if num_partitions == 0 {
+        return Err("num_partitions must be > 0".into());
     }
     Ok(Options {
         name_prefix,
         num_rows,
         num_batches,
+        num_partitions,
     })
 }
 
@@ -139,7 +154,11 @@ fn build_mem_table(
             let id = (b as i64) * (opts.num_rows as i64) + (r as i64);
             ids.push(id);
             names.push(Some(format!("{}{}", opts.name_prefix, id)));
-            values.push(if id % 4 == 3 { None } else { Some(id as f64 * 1.5) });
+            values.push(if id % 4 == 3 {
+                None
+            } else {
+                Some(id as f64 * 1.5)
+            });
         }
         let batch = RecordBatch::try_new(
             Arc::clone(&schema),
@@ -152,10 +171,16 @@ fn build_mem_table(
         batches.push(batch);
     }
 
-    // Wrap all batches inside a single MemTable partition so the example stays
-    // single-partition end-to-end; configuring DataFusion-level partitions
-    // would need separate plumbing in the Spark connector to surface them.
-    Ok(Arc::new(MemTable::try_new(schema, vec![batches])?))
+    // Distribute the batches round-robin across `num_partitions` MemTable
+    // partitions. With num_partitions=1 the example stays single-partition;
+    // larger values give the Spark connector's shared-scan mode real
+    // DataFusion-native partitions to map tasks onto. Partitions beyond the
+    // batch count stay empty — DataFusion handles empty partitions fine.
+    let mut partitions: Vec<Vec<RecordBatch>> = vec![Vec::new(); opts.num_partitions as usize];
+    for (i, batch) in batches.into_iter().enumerate() {
+        partitions[i % opts.num_partitions as usize].push(batch);
+    }
+    Ok(Arc::new(MemTable::try_new(schema, partitions)?))
 }
 
 /// JNI entry point: decode the options blob, build a `MemTable` accordingly,
@@ -164,7 +189,9 @@ fn build_mem_table(
 /// `Box::from_raw` is performed by `SessionContext.registerFfiTable` on the
 /// consumer side.
 #[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_createMemTableProvider<'local>(
+pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_createMemTableProvider<
+    'local,
+>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     options_bytes: JByteArray<'local>,
@@ -208,7 +235,9 @@ pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExamp
 /// pointer to `registerFfiTable` must NOT also call this; ownership has
 /// already transferred.
 #[no_mangle]
-pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_dropProvider<'local>(
+pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_dropProvider<
+    'local,
+>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
     ffi_ptr: jlong,
@@ -224,26 +253,72 @@ pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExamp
 mod tests {
     use super::*;
 
+    fn encode(prefix: &str, num_rows: u32, num_batches: u32) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&(prefix.len() as u32).to_le_bytes());
+        buf.extend_from_slice(prefix.as_bytes());
+        buf.extend_from_slice(&num_rows.to_le_bytes());
+        buf.extend_from_slice(&num_batches.to_le_bytes());
+        buf
+    }
+
     #[test]
     fn empty_bytes_decodes_to_defaults() {
         let o = decode_options(&[]).unwrap();
         assert_eq!(o.name_prefix, "row");
         assert_eq!(o.num_rows, 4);
         assert_eq!(o.num_batches, 1);
+        assert_eq!(o.num_partitions, 1);
     }
 
     #[test]
     fn roundtrip_decodes_options() {
-        let prefix = "user";
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&(prefix.len() as u32).to_le_bytes());
-        buf.extend_from_slice(prefix.as_bytes());
-        buf.extend_from_slice(&5u32.to_le_bytes());
-        buf.extend_from_slice(&3u32.to_le_bytes());
-        let o = decode_options(&buf).unwrap();
+        let o = decode_options(&encode("user", 5, 3)).unwrap();
         assert_eq!(o.name_prefix, "user");
         assert_eq!(o.num_rows, 5);
         assert_eq!(o.num_batches, 3);
+    }
+
+    #[test]
+    fn old_blob_without_trailing_fields_defaults_partitions_to_one() {
+        let o = decode_options(&encode("user", 5, 3)).unwrap();
+        assert_eq!(o.num_partitions, 1);
+    }
+
+    #[test]
+    fn trailing_fields_decode_num_partitions_and_ignore_flag_byte() {
+        let mut buf = encode("user", 5, 8);
+        buf.extend_from_slice(&4u32.to_le_bytes());
+        buf.push(1); // shared_scan flag: JVM-side only
+        let o = decode_options(&buf).unwrap();
+        assert_eq!(o.num_partitions, 4);
+    }
+
+    #[test]
+    fn zero_partitions_rejected() {
+        let mut buf = encode("user", 5, 8);
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.push(0);
+        assert!(decode_options(&buf).is_err());
+    }
+
+    #[test]
+    fn batches_distribute_round_robin_across_partitions() {
+        let opts = Options {
+            name_prefix: "u".to_string(),
+            num_rows: 2,
+            num_batches: 5,
+            num_partitions: 3,
+        };
+        let table = build_mem_table(&opts).unwrap();
+        // MemTable has no partition accessor; verify via scan output partitioning.
+        use datafusion::catalog::TableProvider;
+        let ctx = SessionContext::new();
+        let rt = Runtime::new().unwrap();
+        let plan = rt
+            .block_on(async { table.scan(&ctx.state(), None, &[], None).await })
+            .unwrap();
+        assert_eq!(plan.properties().output_partitioning().partition_count(), 3);
     }
 
     #[test]
@@ -252,6 +327,7 @@ mod tests {
             name_prefix: "user".to_string(),
             num_rows: 5,
             num_batches: 3,
+            num_partitions: 1,
         };
         let table = build_mem_table(&opts).unwrap();
         let schema = table.schema();

@@ -25,6 +25,7 @@ mod jni_util;
 mod json;
 mod memory;
 mod object_store;
+mod partitioned_execution;
 mod proto;
 mod runtime_metrics;
 mod schema;
@@ -295,9 +296,9 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
 /// the Java `ArrowReader`) consumes. Each call to `next()` drives one
 /// `runtime().block_on(stream.next())`, so memory pressure stays bounded by the
 /// executor pipeline plus a single in-flight batch.
-struct StreamingReader {
-    schema: SchemaRef,
-    stream: SendableRecordBatchStream,
+pub(crate) struct StreamingReader {
+    pub(crate) schema: SchemaRef,
+    pub(crate) stream: SendableRecordBatchStream,
 }
 
 impl Iterator for StreamingReader {

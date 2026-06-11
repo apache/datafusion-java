@@ -19,10 +19,17 @@
 
 package io.datafusion.spark
 
-import org.apache.spark.sql.connector.read.InputPartition
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition}
 
 /**
- * Per-task payload shipped from driver to executor via Java serialization.
+ * Marker for the connector's task payloads, shipped driver → executor via Java serialization.
+ * [[DatafusionPartitionReaderFactory]] dispatches on the concrete type.
+ */
+sealed trait DatafusionPartition extends InputPartition
+
+/**
+ * Per-task payload for the per-partition payload (legacy) read path.
  *
  *  - `factoryFqcn`: fully-qualified class name of the bridge's `FfiProviderFactory`. The
  *    executor reflectively instantiates this and calls `createProvider(optionsProtoBytes,
@@ -46,7 +53,63 @@ final case class DatafusionInputPartition(
     partitionId: String,
     partitionBytes: Array[Byte],
     preferredLocs: Array[String]
-) extends InputPartition {
+) extends DatafusionPartition {
 
   override def preferredLocations(): Array[String] = preferredLocs
+}
+
+/**
+ * Legacy-path payload that additionally carries this partition's key values, precomputed
+ * driver-side into an [[InternalRow]]. Emitted by [[DatafusionBatch]] when the bridge reported a
+ * partitioning AND every `PartitionInfo` carries `partitionKeyValues` — implementing
+ * [[HasPartitionKey]] is what makes the reported `KeyGroupedPartitioning` visible to Spark 3.3+
+ * (`DataSourceV2ScanExecBase.groupPartitions` ignores it otherwise).
+ */
+final case class DatafusionKeyedInputPartition(
+    base: DatafusionInputPartition,
+    keyRow: InternalRow
+) extends DatafusionPartition
+    with HasPartitionKey {
+
+  override def preferredLocations(): Array[String] = base.preferredLocations()
+
+  override def partitionKey(): InternalRow = keyRow
+}
+
+/**
+ * Per-task payload for shared-scan mode: task `partitionIndex` streams that DataFusion plan
+ * partition from the executor's cached entry (see [[SharedScanCache]]).
+ *
+ *  - `scanId`: driver-minted UUID identifying this scan; the executor cache key.
+ *  - `partitionIndex`: DataFusion output partition this task drives.
+ *  - `numPartitions`: the driver probe's partition count; executors fail fast when their re-plan
+ *    diverges (determinism guard).
+ *  - `pinnedConfig`: DataFusion session knobs resolved once on the driver and replicated on
+ *    every executor so both plan identically.
+ *  - `idleTtlMs`: cache-entry idle eviction window, resolved from driver conf.
+ *
+ * No preferred locations: the shared plan materialises the whole dataset on whichever executors
+ * Spark picks; there is no per-slice host mapping in this mode.
+ */
+final case class DatafusionSharedScanPartition(
+    factoryFqcn: String,
+    optionsProtoBytes: Array[Byte],
+    projectionColumnNames: Array[String],
+    filterProtoBytes: Array[Array[Byte]],
+    scanId: String,
+    partitionIndex: Int,
+    numPartitions: Int,
+    pinnedConfig: PinnedSessionConfig,
+    idleTtlMs: Long
+) extends DatafusionPartition {
+
+  def toSpec: SharedScanSpec =
+    SharedScanSpec(
+      scanId = scanId,
+      factoryFqcn = factoryFqcn,
+      optionsProtoBytes = optionsProtoBytes,
+      projectionColumnNames = projectionColumnNames,
+      filterProtoBytes = filterProtoBytes,
+      pinnedConfig = pinnedConfig
+    )
 }

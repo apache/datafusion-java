@@ -114,6 +114,23 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
+   * Plan this DataFrame once and return a {@link PartitionedExecution} that can stream each
+   * physical-plan output partition independently (and concurrently from multiple threads).
+   *
+   * <p>Consumes this DataFrame with the same lifecycle rules as {@link
+   * #executeStream(BufferAllocator)}: the logical plan is released into the planned execution, and
+   * the caller owns (and must close) the returned handle.
+   */
+  public PartitionedExecution toPartitionedExecution() {
+    if (nativeHandle == 0) {
+      throw new IllegalStateException("DataFrame is closed or already collected");
+    }
+    long handle = nativeHandle;
+    nativeHandle = 0;
+    return new PartitionedExecution(createPartitionedExecution(handle));
+  }
+
+  /**
    * Return the Arrow {@link Schema} of this DataFrame's output. Non-consuming: the receiver remains
    * usable and must still be closed independently. Schema inspection does not execute the plan.
    *
@@ -805,6 +822,8 @@ public final class DataFrame implements AutoCloseable {
   private static native void collectDataFrame(long handle, long ffiStreamAddr);
 
   private static native void executeStreamDataFrame(long handle, long ffiStreamAddr);
+
+  private static native long createPartitionedExecution(long handle);
 
   private static native void closeDataFrame(long handle);
 

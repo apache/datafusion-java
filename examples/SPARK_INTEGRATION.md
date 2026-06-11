@@ -178,11 +178,92 @@ df = (spark.read.format("my_format")
 | Phase                       | Where     | Path |
 | --------------------------- | --------- | ---- |
 | `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → widen → `registerFfiTable` → `ctx.tableSchema` |
-| `ScanBuilder.build`         | Driver    | `factory.listPartitions(optionsBytes)` (cached on Scan) + `factory.reportPartitioning(optionsBytes)` (cached on Scan) |
+| `ScanBuilder.build`         | Driver    | `factory.listPartitions(optionsBytes, filterBytes)` (filter-aware overload — bridges can prune partitions; cached on Scan) + `factory.reportPartitioning(optionsBytes)` (cached on Scan) |
 | `outputPartitioning`        | Driver    | `KeyGroupedPartitioning(reported.keys, partitions.length)` when bridge declared one; `UnknownPartitioning(partitions.length)` otherwise. Spark may elide shuffles when keys line up with downstream join/agg grouping. |
 | `planInputPartitions`       | Driver    | Reuses the cached `PartitionInfo[]`; one task per entry with that entry's `partitionBytes` + `preferredLocations` |
 | Predicate translation       | Driver    | `SparkPredicateTranslator.translate(Predicate)` → `LogicalExprNode` proto bytes (each pushed predicate is independent) |
 | Per-task scan               | Executor  | Same factory → `createProvider(opts, partitionBytes)` → widen → `registerFfiTable` → `ctx.sql("SELECT proj FROM t")` → fold `DataFrame.filterFromProto(bytes)` over pushed predicates → `executeStream` |
+
+## Partition key values (`HasPartitionKey`)
+
+Declaring `reportPartitioning` alone is NOT enough on Spark 3.3+: Spark's
+`DataSourceV2ScanExecBase.groupPartitions` only consumes the declared
+`KeyGroupedPartitioning` when every input partition also implements
+`HasPartitionKey`. To activate it, return the key values per partition via
+`PartitionInfo`'s 4-argument constructor:
+
+```java
+new PartitionInfo(slice.id(), slice.payload(), slice.hosts(),
+                  new Object[] {slice.segmentId()});  // matches identity("segment_id")
+```
+
+Rules: all partitions carry keys or none (mixed state fails the scan
+driver-side); array arity must equal the declared key count; values must be
+`CatalystTypeConverters`-convertible Java types (`String`, `Long`,
+`java.time.Instant`, `java.time.LocalDate`, `java.math.BigDecimal`, ...).
+Storage-partitioned joins additionally require
+`spark.sql.sources.v2.bucketing.enabled=true`.
+
+## Shared-scan mode
+
+The default model above builds one provider per Spark task. For datasets with
+thousands of small partitions — or providers whose construction is expensive
+(remote metadata, connection setup) — the per-task fixed cost dominates.
+Shared-scan mode flips the mapping: the bridge's provider is built ONCE per
+(executor JVM × query) with empty `partitionBytes`, planned once, and Spark
+runs one task per *DataFusion-native* output partition; task `i` streams plan
+partition `i` from the cached plan.
+
+Opt in per dataset from the factory:
+
+```java
+@Override
+public boolean sharedScan(byte[] optionsProtoBytes) {
+    return MyBridgeOptions.fromProtoBytes(optionsProtoBytes).useSharedScan();
+}
+```
+
+What changes:
+
+| Phase                  | Where    | Path |
+| ---------------------- | -------- | ---- |
+| `ScanBuilder.build`    | Driver   | mint `scanId` (UUID) + pin session config → probe build (same code path as executors) → physical plan partition count `N` → `N` tasks |
+| `outputPartitioning`   | Driver   | always `UnknownPartitioning(N)` — DataFusion partitions carry no key contract; `listPartitions` / `reportPartitioning` are not called |
+| Per-task scan          | Executor | `SharedScanCache.acquire(scanId)` → (first task only) `createProvider(opts, EMPTY)` → widen → `registerFfiTable` on a pinned-config `SessionContext` → SQL + filters → plan once → every task `executeStream(partitionIndex)` → release |
+
+Cache semantics: entries are keyed by `scanId` (per query — separate actions
+build separate entries), refcounted by open readers, and evicted after an idle
+TTL. Build failures are not cached; eviction between task waves just rebuilds.
+
+Spark conf (all read driver-side at planning time and shipped to executors):
+
+- `spark.datafusion.sharedScan.targetPartitions` (default 8) — pinned
+  DataFusion `target_partitions`. Any constant works; it must merely be the
+  same everywhere, which shipping guarantees.
+- `spark.datafusion.sharedScan.batchSize` (default 8192)
+- `spark.datafusion.sharedScan.idleTtlMs` (default 120000) — cache idle
+  eviction window.
+
+**Determinism contract** (the price of admission — see
+`FfiProviderFactory.sharedScan` Javadoc): the provider's schema, partitioning,
+and per-partition contents must be a pure function of `optionsProtoBytes`.
+Remote sources must pin a snapshot (version/timestamp) inside the options.
+The connector fails tasks when an executor's partition count diverges from the
+driver's, but equal counts with different contents are undetectable. The
+provider's `ExecutionPlan` must also tolerate `execute(i)` being called more
+than once per plan instance (task retry / speculative execution).
+
+Choosing a model:
+
+- **Per-partition payload (default)** — slices have host affinity
+  (`preferredLocations`), per-slice provider construction is cheap, or you
+  want `KeyGroupedPartitioning` + `HasPartitionKey` semantics. Bin-pack many
+  small slices into fewer `PartitionInfo` entries via `partitionBytes` (it is
+  opaque — encode a list of slice ids) before reaching for shared-scan.
+- **Shared-scan** — thousands of small partitions, expensive
+  `createProvider`, no locality story, scan+filter+projection workloads.
+  Provider builds drop from one-per-task to one-per-executor (plus one driver
+  probe per query).
 
 ## Caveats
 

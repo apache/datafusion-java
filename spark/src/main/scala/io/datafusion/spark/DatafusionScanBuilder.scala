@@ -19,8 +19,11 @@
 
 package io.datafusion.spark
 
+import java.util.UUID
+
 import org.apache.spark.sql.connector.expressions.filter.Predicate
 import org.apache.spark.sql.connector.read.{Scan, ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownV2Filters}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -31,11 +34,14 @@ import org.apache.spark.sql.types.StructType
  * translator (see [[SparkPredicateTranslator]]) only emits proto for predicates it can encode
  * losslessly — anything else returns `None` and lands in residuals.
  *
- * `build()` is also where we resolve driver-side facts that the optimizer needs *before* it
- * starts asking the [[DatafusionScan]] about its output partitioning: the partition list
- * (`listPartitions`) and the bridge's optional [[ReportedPartitioning]]. Resolving both here once
- * and threading them onto the Scan keeps `DatafusionBatch.planInputPartitions` shuffle-free and
- * lets `outputPartitioning()` answer without an extra factory call per query.
+ * `build()` resolves the driver-side facts the optimizer needs *before* it starts asking the
+ * [[DatafusionScan]] about its output partitioning. Spark guarantees `pushPredicates` and
+ * `pruneColumns` run first, so both paths see the final projection + filters:
+ *   - per-partition payload mode: `listPartitions(opts, filters)` (filter-aware overload — the
+ *     bridge can prune whole partitions) + the optional [[ReportedPartitioning]];
+ *   - shared-scan mode: a probe build of the provider + plan (via the same code path executors
+ *     use) to count DataFusion output partitions, plus a freshly minted scanId and the pinned
+ *     session config that makes executor re-plans comparable.
  */
 class DatafusionScanBuilder(
     factoryFqcn: String,
@@ -79,13 +85,9 @@ class DatafusionScanBuilder(
 
   override def build(): Scan = {
     val factory = instantiateFactory(factoryFqcn)
-    val partitions: Array[PartitionInfo] = factory.listPartitions(optionsProtoBytes)
-    if (partitions == null || partitions.isEmpty) {
-      throw new IllegalStateException(
-        s"FfiProviderFactory '$factoryFqcn' returned no partitions to scan"
-      )
-    }
-    val reported: ReportedPartitioning = factory.reportPartitioning(optionsProtoBytes)
+    val mode: DatafusionScanMode =
+      if (factory.sharedScan(optionsProtoBytes)) buildSharedScanMode()
+      else buildLegacyMode(factory)
     new DatafusionScan(
       factoryFqcn,
       optionsProtoBytes,
@@ -93,9 +95,53 @@ class DatafusionScanBuilder(
       pruned,
       pushed,
       pushedBytes,
-      partitions,
-      reported
+      mode
     )
+  }
+
+  private def buildLegacyMode(factory: FfiProviderFactory): LegacyMode = {
+    val partitions: Array[PartitionInfo] =
+      factory.listPartitions(optionsProtoBytes, pushedBytes)
+    if (partitions == null || partitions.isEmpty) {
+      throw new IllegalStateException(
+        s"FfiProviderFactory '$factoryFqcn' returned no partitions to scan"
+      )
+    }
+    LegacyMode(partitions, factory.reportPartitioning(optionsProtoBytes))
+  }
+
+  /**
+   * Driver plan probe: build the provider + plan exactly as executors will (same widening, SQL,
+   * filters, pinned config — one code path in [[NativeSharedScanResources]]) and read the
+   * physical plan's output partition count. All Spark conf is resolved here, driver-side;
+   * executors only see the shipped copies.
+   */
+  private def buildSharedScanMode(): SharedScanMode = {
+    val conf = SQLConf.get
+    val pinned = PinnedSessionConfig.fromConf(conf)
+    val idleTtlMs = PinnedSessionConfig.idleTtlMs(conf)
+    val scanId = UUID.randomUUID().toString
+
+    val probeSpec = SharedScanSpec(
+      scanId = scanId,
+      factoryFqcn = factoryFqcn,
+      optionsProtoBytes = optionsProtoBytes,
+      projectionColumnNames = pruned.fieldNames,
+      filterProtoBytes = pushedBytes,
+      pinnedConfig = pinned
+    )
+    val probe = NativeSharedScanResources.build(probeSpec)
+    val numPartitions =
+      try {
+        probe.partitionCount
+      } finally {
+        probe.close()
+      }
+    if (numPartitions <= 0) {
+      throw new IllegalStateException(
+        s"shared-scan probe for factory '$factoryFqcn' produced a plan with no partitions")
+    }
+    SharedScanMode(scanId, numPartitions, pinned, idleTtlMs)
   }
 
   private def instantiateFactory(fqcn: String): FfiProviderFactory = {

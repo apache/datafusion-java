@@ -19,14 +19,17 @@
 
 package io.datafusion.spark
 
+import org.apache.spark.sql.catalyst.CatalystTypeConverters
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
 import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionReaderFactory}
 
 /**
- * Spark `Batch` for a DataFusion-backed scan. Owns:
- *   - partition planning (driver-side: reuses the `PartitionInfo[]` already resolved by
- *     [[DatafusionScanBuilder]] — one task per entry; each task receives that entry's
- *     `partitionBytes` + `preferredLocations`)
- *   - per-task reader factory ([[DatafusionPartitionReaderFactory]])
+ * Spark `Batch` for a DataFusion-backed scan. Driver-side partition planning:
+ *   - [[LegacyMode]]: one task per `PartitionInfo` (resolved by [[DatafusionScanBuilder]]); when
+ *     the bridge reported a partitioning and every entry carries key values, tasks implement
+ *     `HasPartitionKey` so Spark can actually use the `KeyGroupedPartitioning`.
+ *   - [[SharedScanMode]]: one task per DataFusion plan partition index.
  */
 class DatafusionBatch(val scan: DatafusionScan) extends Batch {
 
@@ -34,19 +37,91 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
     val projection = scan.prunedSchema.fieldNames
     val filterBytes: Array[Array[Byte]] = scan.pushedPredicateBytes
 
-    scan.partitions.iterator.map { p =>
-      DatafusionInputPartition(
-        factoryFqcn = scan.factoryFqcn,
-        optionsProtoBytes = scan.optionsProtoBytes,
-        projectionColumnNames = projection,
-        filterProtoBytes = filterBytes,
-        partitionId = p.id,
-        partitionBytes = p.partitionBytes,
-        preferredLocs = p.preferredLocations
-      ).asInstanceOf[InputPartition]
-    }.toArray
+    scan.mode match {
+      case LegacyMode(partitions, reported) =>
+        val keyed = DatafusionBatch.validateKeyedState(scan.factoryFqcn, partitions, reported)
+        partitions.iterator.map { p =>
+          val base = DatafusionInputPartition(
+            factoryFqcn = scan.factoryFqcn,
+            optionsProtoBytes = scan.optionsProtoBytes,
+            projectionColumnNames = projection,
+            filterProtoBytes = filterBytes,
+            partitionId = p.id,
+            partitionBytes = p.partitionBytes,
+            preferredLocs = p.preferredLocations
+          )
+          val out: DatafusionPartition =
+            if (keyed) {
+              DatafusionKeyedInputPartition(
+                base,
+                DatafusionBatch.toKeyRow(p.id, p.partitionKeyValues, reported))
+            } else base
+          out.asInstanceOf[InputPartition]
+        }.toArray
+
+      case SharedScanMode(scanId, numPartitions, pinnedConfig, idleTtlMs) =>
+        Array.tabulate[InputPartition](numPartitions) { i =>
+          DatafusionSharedScanPartition(
+            factoryFqcn = scan.factoryFqcn,
+            optionsProtoBytes = scan.optionsProtoBytes,
+            projectionColumnNames = projection,
+            filterProtoBytes = filterBytes,
+            scanId = scanId,
+            partitionIndex = i,
+            numPartitions = numPartitions,
+            pinnedConfig = pinnedConfig,
+            idleTtlMs = idleTtlMs
+          )
+        }
+    }
   }
 
   override def createReaderFactory(): PartitionReaderFactory =
     new DatafusionPartitionReaderFactory(scan.prunedSchema)
+}
+
+private[spark] object DatafusionBatch {
+
+  /**
+   * Keyed partitions require a reported partitioning AND key values on EVERY partition. A mixed
+   * state means the bridge violated its own contract; failing driver-side beats Spark silently
+   * planning without the declared grouping.
+   */
+  def validateKeyedState(
+      factoryFqcn: String,
+      partitions: Array[PartitionInfo],
+      reported: ReportedPartitioning): Boolean = {
+    if (reported == null) {
+      return false
+    }
+    val withKeys = partitions.count(_.partitionKeyValues != null)
+    if (withKeys == 0) {
+      return false
+    }
+    if (withKeys != partitions.length) {
+      throw new IllegalStateException(
+        s"FfiProviderFactory '$factoryFqcn' reported a partitioning but only $withKeys of " +
+          s"${partitions.length} PartitionInfo entries carry partitionKeyValues; either all " +
+          "partitions must carry key values or none")
+    }
+    true
+  }
+
+  /**
+   * Convert a bridge-supplied `Object[]` of key values into Spark's internal row representation
+   * (String → UTF8String, Instant → micros, LocalDate → days, BigDecimal → Decimal, ...).
+   */
+  def toKeyRow(
+      partitionId: String,
+      values: Array[AnyRef],
+      reported: ReportedPartitioning): InternalRow = {
+    val keyCount = reported.keys().length
+    if (values.length != keyCount) {
+      throw new IllegalStateException(
+        s"PartitionInfo '$partitionId' carries ${values.length} partitionKeyValues but the " +
+          s"reported partitioning declares $keyCount key(s)")
+    }
+    val converted = values.map(v => CatalystTypeConverters.convertToCatalyst(v))
+    new GenericInternalRow(converted)
+  }
 }
