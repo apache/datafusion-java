@@ -380,7 +380,8 @@ Shared-scan operational details:
 - **Schema inference** — your provider's Arrow schema, widened, becomes the
   Spark schema. Driver-side, one probe build with empty `partitionBytes`.
 - **Type widening** — Spark's columnar readers reject several Arrow types
-  DataFusion happily produces. The connector cdylib transparently casts
+  DataFusion happily produces. The SDK (inside your bridge's cdylib)
+  transparently casts
   unsigned ints → wider signed, `Float16` → `Float32`, `Time*` → wider ints,
   any-unit/tz `Timestamp` → microsecond, recursively through
   `List`/`LargeList`/`FixedSizeList` (see

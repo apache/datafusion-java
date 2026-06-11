@@ -110,16 +110,16 @@ root
 +---+-----+
 ```
 
-Filter row count drops from 4 → 2 because the predicate is pushed across the
-FFI boundary as a `LogicalExprNode` proto and applied inside DataFusion before
-Arrow batches cross back to Spark.
+Filter row count drops from 4 → 2 because the predicate is pushed into the
+bridge cdylib as a `LogicalExprNode` proto and applied inside DataFusion
+before Arrow batches cross back to Spark.
 
 ## Notes
 
 - `master("local[2]")` keeps driver + executor in one JVM so the example
-  cdylib loads once. Cluster mode would need the cdylib pre-staged on every
-  worker (the widening lib is bundled in `datafusion-java-spark`; only the
-  per-bridge example lib is not).
+  cdylib loads once. In cluster mode nothing extra is needed: the bridge
+  cdylib travels inside the examples jar and `NativeLibraryLoader` extracts
+  it on every worker.
 - `extraClassPath` (not `--packages` / `userClassPathFirst`) is used because
   the Spark distro ships Arrow 12, flatbuffers 1.12, and protobuf 2.5, all
   of which we need to override; userClassPathFirst splits Netty across two

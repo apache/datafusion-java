@@ -35,9 +35,10 @@ import org.apache.spark.sql.types._
  * Null. No unsigned-int or Time accessor exists; we surface a clear error at schema discovery
  * for those — the alternative is silent corruption.
  *
- * The widening cdylib (connector-core/native/) inserts a `WideningTableProvider` upstream of the
- * Spark reader that casts unsupported types kernel-side (UInt*→signed wider, Float16→Float32,
- * non-µs Timestamp→µs Timestamp, Time→Int) so Spark only ever sees compatible Arrow types.
+ * The widening layer (datafusion-spark-bridge, compiled into every bridge cdylib) inserts a
+ * `WideningTableProvider` upstream of the Spark reader that casts unsupported types kernel-side
+ * (UInt*→signed wider, Float16→Float32, non-µs Timestamp→µs Timestamp, Time→Int) so Spark only
+ * ever sees compatible Arrow types.
  */
 object ArrowToSparkSchema {
 
@@ -67,7 +68,7 @@ object ArrowToSparkSchema {
           unsupported(
             f,
             s"unsigned integer UInt$bits (Spark ArrowColumnVector has no unsigned accessor; " +
-              "widening cdylib casts these before Spark sees them — this branch indicates the " +
+              "widening layer casts these before Spark sees them — this branch indicates the " +
               "WideningTableProvider was bypassed)"
           )
         case (bits, signed) => unsupported(f, s"Int(bits=$bits, signed=$signed)")
@@ -76,7 +77,7 @@ object ArrowToSparkSchema {
     case t: ArrowType.FloatingPoint =>
       t.getPrecision match {
         case FloatingPointPrecision.HALF =>
-          unsupported(f, "Float16 (widening cdylib must cast to Float32 before Spark)")
+          unsupported(f, "Float16 (widening layer must cast to Float32 before Spark)")
         case FloatingPointPrecision.SINGLE => FloatType
         case FloatingPointPrecision.DOUBLE => DoubleType
         case other => unsupported(f, s"FloatingPoint($other)")

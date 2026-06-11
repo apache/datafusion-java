@@ -82,8 +82,8 @@ pub(crate) fn jvm() -> &'static JavaVM {
 
 pub(crate) fn runtime() -> &'static Runtime {
     // The singleton itself lives in datafusion-jni-common (shared with the
-    // Spark helper cdylib; each cdylib statically links its own copy, so the
-    // runtime stays per-library). The init hook eagerly installs the
+    // datafusion-spark-bridge SDK; each cdylib statically links its own
+    // copy, so the runtime stays per-library). The init hook eagerly installs the
     // runtime-metrics accumulator (no-op when the `runtime-metrics` Cargo
     // feature is off). Initialising here -- not lazily on the first
     // `runtimeStats()` call -- means the RuntimeMonitor's sampling baseline

@@ -75,7 +75,7 @@ pub(crate) fn runtime_handle() -> &'static Handle {
     datafusion_jni_common::runtime().handle()
 }
 
-/// Generate the JNI entry points for a static bridge cdylib.
+/// Generate the JNI entry points for a bridge cdylib.
 ///
 /// `jni_class` is the **underscore-mangled** binary name of the Java class
 /// declaring the matching `native` methods: dots become underscores

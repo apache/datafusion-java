@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! JNI plumbing shared by this workspace's cdylibs (`datafusion-jni` and the
-//! Spark connector helper): the error-to-Java-exception mapping, the
-//! per-cdylib Tokio runtime singleton, and the async-stream-to-
-//! `FFI_ArrowArrayStream` bridge.
+//! JNI plumbing shared by this workspace's native crates (`datafusion-jni`
+//! and `datafusion-spark-bridge`, and through the latter every bridge
+//! cdylib): the error-to-Java-exception mapping, the per-cdylib Tokio
+//! runtime singleton, and the async-stream-to-`FFI_ArrowArrayStream`
+//! bridge.
 //!
 //! Each cdylib statically links its own copy of this rlib, so [`runtime`] is
 //! a per-cdylib singleton -- exactly the behaviour each crate had when this
