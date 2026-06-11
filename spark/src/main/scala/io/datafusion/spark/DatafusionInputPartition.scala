@@ -29,7 +29,7 @@ import org.apache.spark.sql.connector.read.{HasPartitionKey, InputPartition}
 sealed trait DatafusionPartition extends InputPartition
 
 /**
- * Per-task payload for the per-partition payload (legacy) read path.
+ * Per-task payload for the per-partition read path.
  *
  *  - `factoryFqcn`: fully-qualified class name of the bridge's `BridgeProviderFactory`. The
  *    executor reflectively instantiates this and calls
@@ -59,7 +59,7 @@ final case class DatafusionInputPartition(
 }
 
 /**
- * Legacy-path payload that additionally carries this partition's key values, precomputed
+ * Per-partition payload that additionally carries this partition's key values, precomputed
  * driver-side into an [[InternalRow]]. Emitted by [[DatafusionBatch]] when the bridge reported a
  * partitioning AND every `PartitionInfo` carries `partitionKeyValues` — implementing
  * [[HasPartitionKey]] is what makes the reported `KeyGroupedPartitioning` visible to Spark 3.3+

@@ -87,7 +87,7 @@ class DatafusionScanBuilder(
     val factory = instantiateFactory(factoryFqcn)
     val mode: DatafusionScanMode =
       if (factory.sharedScan(optionsBytes)) buildSharedScanMode()
-      else buildLegacyMode(factory)
+      else buildPerPartitionMode(factory)
     new DatafusionScan(
       factoryFqcn,
       optionsBytes,
@@ -99,7 +99,7 @@ class DatafusionScanBuilder(
     )
   }
 
-  private def buildLegacyMode(factory: BridgeProviderFactory): LegacyMode = {
+  private def buildPerPartitionMode(factory: BridgeProviderFactory): PerPartitionMode = {
     val partitions: Array[PartitionInfo] =
       factory.listPartitions(optionsBytes, pushedBytes)
     if (partitions == null || partitions.isEmpty) {
@@ -107,7 +107,7 @@ class DatafusionScanBuilder(
         s"BridgeProviderFactory '$factoryFqcn' returned no partitions to scan"
       )
     }
-    LegacyMode(partitions, factory.reportPartitioning(optionsBytes))
+    PerPartitionMode(partitions, factory.reportPartitioning(optionsBytes))
   }
 
   /**

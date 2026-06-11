@@ -39,7 +39,7 @@ sealed trait DatafusionScanMode extends Serializable
  * from that entry's `partitionBytes`. `reported` is the bridge's optional partitioning
  * declaration (may be null).
  */
-final case class LegacyMode(
+final case class PerPartitionMode(
     partitions: Array[PartitionInfo],
     reported: ReportedPartitioning
 ) extends DatafusionScanMode
@@ -62,7 +62,7 @@ final case class SharedScanMode(
  * executor applies natively via `ScanBackend.createScan`, and the driver-resolved
  * [[DatafusionScanMode]].
  *
- * Legacy mode with a bridge-declared [[ReportedPartitioning]] surfaces `KeyGroupedPartitioning`
+ * Per-partition mode with a bridge-declared [[ReportedPartitioning]] surfaces `KeyGroupedPartitioning`
  * via `SupportsReportPartitioning`; note Spark 3.3+ only consumes it when the input partitions
  * also implement `HasPartitionKey` (see [[DatafusionBatch]]). Shared-scan mode always reports
  * `UnknownPartitioning` — DataFusion-native partitions carry no key contract.
@@ -82,7 +82,7 @@ class DatafusionScan(
 
   override def description(): String = {
     val modeDesc = mode match {
-      case LegacyMode(partitions, reported) =>
+      case PerPartitionMode(partitions, reported) =>
         s"mode=per-partition, partitions=${partitions.length}," +
           s" reportedPartitioning=${if (reported == null) "unknown" else "key-grouped"}"
       case SharedScanMode(scanId, n, _, _) =>
@@ -95,7 +95,7 @@ class DatafusionScan(
   override def toBatch: Batch = new DatafusionBatch(this)
 
   override def outputPartitioning(): Partitioning = mode match {
-    case LegacyMode(partitions, reported) =>
+    case PerPartitionMode(partitions, reported) =>
       if (reported == null) new UnknownPartitioning(partitions.length)
       else new KeyGroupedPartitioning(reported.keys().toArray, partitions.length)
     case SharedScanMode(_, numPartitions, _, _) =>

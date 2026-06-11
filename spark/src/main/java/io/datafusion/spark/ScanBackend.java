@@ -70,7 +70,7 @@ public interface ScanBackend {
 
   /**
    * Stream the WHOLE plan (all partitions coalesced) into the caller-allocated {@code
-   * FFI_ArrowArrayStream} at {@code ffiStreamAddr}. Used by legacy per-partition payload mode.
+   * FFI_ArrowArrayStream} at {@code ffiStreamAddr}. Used by per-partition mode.
    */
   void executeStream(long scanHandle, long ffiStreamAddr);
 

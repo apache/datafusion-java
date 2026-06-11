@@ -26,7 +26,7 @@ import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionRead
 
 /**
  * Spark `Batch` for a DataFusion-backed scan. Driver-side partition planning:
- *   - [[LegacyMode]]: one task per `PartitionInfo` (resolved by [[DatafusionScanBuilder]]); when
+ *   - [[PerPartitionMode]]: one task per `PartitionInfo` (resolved by [[DatafusionScanBuilder]]); when
  *     the bridge reported a partitioning and every entry carries key values, tasks implement
  *     `HasPartitionKey` so Spark can actually use the `KeyGroupedPartitioning`.
  *   - [[SharedScanMode]]: one task per DataFusion plan partition index.
@@ -38,7 +38,7 @@ class DatafusionBatch(val scan: DatafusionScan) extends Batch {
     val filterBytes: Array[Array[Byte]] = scan.pushedPredicateBytes
 
     scan.mode match {
-      case LegacyMode(partitions, reported) =>
+      case PerPartitionMode(partitions, reported) =>
         val keyed = DatafusionBatch.validateKeyedState(scan.factoryFqcn, partitions, reported)
         partitions.iterator.map { p =>
           val base = DatafusionInputPartition(

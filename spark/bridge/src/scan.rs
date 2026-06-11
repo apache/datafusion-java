@@ -38,9 +38,8 @@
 //!     succeeds when every operator in that partition's pipeline supports
 //!     repeated `execute()` — stateless scans do, `RepartitionExec`
 //!     pipelines do not;
-//!   - [`execute_stream`] — the whole plan as one stream (legacy
-//!     per-partition payload mode, where the provider itself is the task's
-//!     slice);
+//!   - [`execute_stream`] — the whole plan as one stream (per-partition
+//!     mode, where the provider itself is the task's slice);
 //!   - [`close_scan`] — drop the plan. The single unsafe interleaving is
 //!     closing a handle that still has an in-flight call; the Java consumer
 //!     (the shared-scan cache) prevents it with a refcount covering every
@@ -282,7 +281,7 @@ pub fn execute_stream_partition(
     })
 }
 
-/// Whole-plan stream for legacy per-partition payload mode (the provider
+/// Whole-plan stream for per-partition mode (the provider
 /// itself is the task's slice, so all plan partitions merge into one reader).
 pub fn execute_stream(env: &mut JNIEnv, handle: jlong, ffi_stream_addr: jlong) {
     try_unwrap_or_throw(env, (), |_env| -> JniResult<()> {

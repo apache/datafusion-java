@@ -26,7 +26,7 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
- * Per-task columnar reader for the per-partition payload (legacy) path. Lifecycle:
+ * Per-task columnar reader for the per-partition path. Lifecycle:
  *
  *   1. Reflectively instantiate the bridge's `BridgeProviderFactory` (no-arg) and take its
  *      [[ScanBackend]].
