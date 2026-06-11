@@ -24,6 +24,7 @@ fn main() {
         "../proto/avro_read_options.proto",
         "../proto/csv_read_options.proto",
         "../proto/csv_write_options.proto",
+        "../proto/executed_plan.proto",
         "../proto/json_read_options.proto",
         "../proto/json_write_options.proto",
         "../proto/object_store_options.proto",

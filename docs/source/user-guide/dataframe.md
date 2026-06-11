@@ -82,6 +82,38 @@ To get the schema of a registered table without running a query:
 org.apache.arrow.vector.types.pojo.Schema schema = ctx.tableSchema("orders");
 ```
 
+## Inspecting the executed plan
+
+After a `DataFrame` has been run via `collect(allocator)` or
+`executeStream(allocator)`, `df.executedPlan()` returns a typed
+`ExecutedPlan` tree describing the physical plan that ran, with
+per-operator metrics attached. Call it before execution and it throws
+`IllegalStateException` directing you to `collect()` first.
+
+```java
+try (DataFrame df = ctx.sql("SELECT count(*) FROM events")) {
+    try (ArrowReader reader = df.collect(allocator)) {
+        while (reader.loadNextBatch()) {
+            // drain
+        }
+    }
+    ExecutedPlan plan = df.executedPlan();
+    System.out.println(plan.name());                       // e.g. "AggregateExec"
+    long rows = plan.metrics().outputRows().orElse(-1L);   // populated counter
+}
+```
+
+`ExecutedPlan` carries `name`, `displayDetails`, `children`, and
+`OperatorMetrics`. `OperatorMetrics` exposes `OptionalLong` fields for
+the well-known metric variants (`outputRows`, `elapsedComputeNanos`,
+`outputBytes`, `outputBatches`, `spillCount`, `spilledBytes`,
+`spilledRows`, `currentMemoryUsage`) plus a `Map<String, Long>
+customCounters` for any custom counters DataFusion operators emit.
+Counts are summed across partitions, matching upstream's
+`MetricsSet::aggregate_by_name`.
+
+`executedPlan()` is idempotent — repeated calls return the same tree.
+
 ## Plan input
 
 A DataFusion logical plan can be deserialized from `datafusion-proto`
