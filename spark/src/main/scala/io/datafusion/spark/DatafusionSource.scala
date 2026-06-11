@@ -19,9 +19,12 @@
 
 package io.datafusion.spark
 
+import java.io.ByteArrayInputStream
+import java.nio.channels.Channels
 import java.util
 
-import org.apache.datafusion.SessionContext
+import org.apache.arrow.vector.ipc.ReadChannel
+import org.apache.arrow.vector.ipc.message.MessageSerializer
 import org.apache.spark.sql.connector.catalog.{Table, TableProvider}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.sources.DataSourceRegister
@@ -33,11 +36,11 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
  *   - Subclass and override [[shortName]] + [[factoryFqcn]] (the rerun-connector pattern), or
  *   - Use this class directly with `option("df.factory", "fully.qualified.FactoryClass")`.
  *
- * Schema discovery happens driver-side via a transient SessionContext: the factory's
- * `FFI_TableProvider` is built, wrapped with the widening cdylib, registered on the context, and
- * its Arrow schema read via `tableSchema(name)`. The same `optionsProtoBytes` (and the factory
- * FQCN) is then carried verbatim through `DatafusionInputPartition`, so each executor task
- * repeats the same factory → wrapWithWidening → registerFfiTable pipeline locally.
+ * Schema discovery happens driver-side inside the connector cdylib: the factory's
+ * `FFI_TableProvider` is built and handed to `FfiHelperNative.providerSchemaIpc`, which widens it
+ * and returns its Arrow schema as IPC bytes. The same `optionsProtoBytes` (and the factory FQCN)
+ * is then carried verbatim through `DatafusionInputPartition`, so each executor task repeats the
+ * same factory → createScan pipeline locally.
  */
 class DatafusionSource extends TableProvider with DataSourceRegister {
 
@@ -64,17 +67,12 @@ class DatafusionSource extends TableProvider with DataSourceRegister {
     val fqcn = factoryFqcn(options)
     val factory = instantiateFactory(fqcn)
     val optionsBytes = factory.encodeOptions(options.asCaseSensitiveMap())
-    val arrowSchema = {
-      val ctx = new SessionContext()
-      try {
-        // Schema probe: pass empty partitionBytes — bridges are required to honour an empty
-        // payload for the driver-side probe (schema must not depend on per-partition state).
-        val rawPtr = factory.createProvider(optionsBytes, Array.emptyByteArray)
-        val widenedPtr = FfiHelperNative.wrapWithWidening(rawPtr)
-        ctx.registerFfiTable("__df_schema_probe__", widenedPtr)
-        ctx.tableSchema("__df_schema_probe__")
-      } finally ctx.close()
-    }
+    // Schema probe: pass empty partitionBytes — bridges are required to honour an empty
+    // payload for the driver-side probe (schema must not depend on per-partition state).
+    val rawPtr = factory.createProvider(optionsBytes, Array.emptyByteArray)
+    val ipcBytes = FfiHelperNative.providerSchemaIpc(rawPtr)
+    val arrowSchema = MessageSerializer.deserializeSchema(
+      new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))))
     ArrowToSparkSchema.toSparkSchema(arrowSchema)
   }
 

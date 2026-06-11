@@ -114,23 +114,6 @@ public final class DataFrame implements AutoCloseable {
   }
 
   /**
-   * Plan this DataFrame once and return a {@link PartitionedExecution} that can stream each
-   * physical-plan output partition independently (and concurrently from multiple threads).
-   *
-   * <p>Consumes this DataFrame with the same lifecycle rules as {@link
-   * #executeStream(BufferAllocator)}: the logical plan is released into the planned execution, and
-   * the caller owns (and must close) the returned handle.
-   */
-  public PartitionedExecution toPartitionedExecution() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
-    long handle = nativeHandle;
-    nativeHandle = 0;
-    return new PartitionedExecution(createPartitionedExecution(handle));
-  }
-
-  /**
    * Return the Arrow {@link Schema} of this DataFrame's output. Non-consuming: the receiver remains
    * usable and must still be closed independently. Schema inspection does not execute the plan.
    *
@@ -245,27 +228,6 @@ public final class DataFrame implements AutoCloseable {
       throw new IllegalStateException("DataFrame is closed or already collected");
     }
     return new DataFrame(filterRows(nativeHandle, predicate));
-  }
-
-  /**
-   * Apply a DataFusion-proto {@code LogicalExprNode} as a filter to this DataFrame. The bytes must
-   * be a serialized {@code datafusion.LogicalExprNode} (see {@code
-   * org.apache.datafusion.protobuf.LogicalExprNode}). Used by the Spark connector to push V2 {@code
-   * Predicate}s as proto-encoded expressions (sibling of {@link #filter(String)} for the structured
-   * wire path).
-   *
-   * @throws IllegalStateException if this context is closed.
-   * @throws RuntimeException if the bytes are not a valid {@code LogicalExprNode}, the expression
-   *     references unknown columns/UDFs, or filter construction fails.
-   */
-  public DataFrame filterFromProto(byte[] exprProtoBytes) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
-    if (exprProtoBytes == null) {
-      throw new IllegalArgumentException("filterFromProto exprProtoBytes must be non-null");
-    }
-    return new DataFrame(filterFromProto(nativeHandle, exprProtoBytes));
   }
 
   /**
@@ -823,8 +785,6 @@ public final class DataFrame implements AutoCloseable {
 
   private static native void executeStreamDataFrame(long handle, long ffiStreamAddr);
 
-  private static native long createPartitionedExecution(long handle);
-
   private static native void closeDataFrame(long handle);
 
   private static native long countRows(long handle);
@@ -844,8 +804,6 @@ public final class DataFrame implements AutoCloseable {
   private static native long selectColumns(long handle, String[] columnNames);
 
   private static native long filterRows(long handle, String predicate);
-
-  private static native long filterFromProto(long handle, byte[] exprProtoBytes);
 
   private static native long limitRows(long handle, int skip, int fetch);
 

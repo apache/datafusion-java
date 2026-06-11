@@ -38,7 +38,7 @@ sealed trait DatafusionPartition extends InputPartition
  *    Opaque to connector-core. Same bytes ride along on every partition.
  *  - `projectionColumnNames`: pruned column list (post-`pruneColumns`).
  *  - `filterProtoBytes`: V2 `Predicate` → DataFusion `LogicalExprNode` proto bytes; each one is
- *    applied via `DataFrame.filterFromProto`.
+ *    applied natively via `FfiHelperNative.createScan`.
  *  - `partitionId`: stable identifier (e.g. Rerun segment id) — surfaces in Spark UI/logs/errors.
  *  - `partitionBytes`: opaque per-partition payload from `PartitionInfo.partitionBytes`. Passed
  *    back into `createProvider` so the bridge materialises *this* slice.

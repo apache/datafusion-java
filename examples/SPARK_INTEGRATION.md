@@ -1,12 +1,12 @@
 # Using an FFI TableProvider as a Spark Data Source
 
-The [`FfiTableProviderExample`](src/main/java/org/apache/datafusion/examples/FfiTableProviderExample.java)
-shows the JVM side of the FFI handover: Rust builds an `FFI_TableProvider`,
-hands the raw pointer to the JVM, and the JVM calls
-`SessionContext.registerFfiTable(name, ptr)` to make it queryable through
-DataFusion-Java.
+The FFI handover is simple: Rust builds an `FFI_TableProvider`, hands the raw
+pointer to the JVM, and the JVM passes it to the connector cdylib
+(`FfiHelperNative.createScan`), which does everything DataFusion-side in
+process — widening, session construction, projection, pushed filters,
+planning, and partition streams.
 
-That same flow plugs into Apache Spark as a DataSource V2 by way of the
+That flow plugs into Apache Spark as a DataSource V2 by way of the
 [`connector-core`](https://github.com/rerun-io/rerun-spark-connector) module
 (generic Spark plumbing donated upstream-ready). Below is the recipe for
 wiring a domain bridge — e.g. an in-house format or a custom catalog — into
@@ -25,27 +25,23 @@ Spark via this pattern.
                                                        |
                                                        v
 +--------------------------+                +------------------------------+
-| connector-core cdylib    |  jlong (wide)  | connector-core JVM           |
+| connector-core cdylib    |   jlong ptr    | connector-core JVM           |
 |  - WideningTableProvider | <------------- |  - DatafusionSource (DSv2)   |
 |    over arrow::cast      |                |  - SparkPredicateTranslator  |
-+--------------------------+                |  - ColumnarPartitionReader   |
-                                            +------------------------------+
-                                                       |
-                                                       v
-                                            +------------------------------+
-                                            | datafusion-java              |
-                                            |  - SessionContext            |
-                                            |  - registerFfiTable(name,ptr)|
-                                            |  - DataFrame.filterFromProto |
-                                            +------------------------------+
+|  - createScan: session,  |  FFI_Arrow-    |  - ColumnarPartitionReader   |
+|    projection, filters,  |  ArrayStream   |  - SharedScanCache           |
+|    plan, exec partitions | -------------> |                              |
++--------------------------+                +------------------------------+
 ```
 
 Key invariants:
 
-- Only the opaque `FFI_TableProvider` pointer crosses the cdylib boundary.
-  No `SessionContext` is ever shared.
-- The widening cdylib (connector-core) sits between your bridge and
-  `registerFfiTable`. It casts Spark-incompatible Arrow types (UInt*, Float16,
+- Only the opaque `FFI_TableProvider` pointer crosses the cdylib boundary
+  (and `FFI_ArrowArrayStream` on the way back). No `SessionContext` is ever
+  shared, and none exists JVM-side — planning and execution live entirely in
+  the connector cdylib.
+- The connector cdylib widens between your bridge's provider and the scan:
+  it casts Spark-incompatible Arrow types (UInt*, Float16,
   Time*, non-µs Timestamp, recursive List/LargeList/FixedSizeList) using
   kernel-level `arrow::compute::cast`. No SQL, no view rewrites.
 - Predicate pushdown crosses the FFI boundary as a `LogicalExprNode` proto
@@ -177,12 +173,12 @@ df = (spark.read.format("my_format")
 
 | Phase                       | Where     | Path |
 | --------------------------- | --------- | ---- |
-| `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → widen → `registerFfiTable` → `ctx.tableSchema` |
+| `inferSchema`               | Driver    | `factory.encodeOptions` → `factory.createProvider(opts, EMPTY)` → `FfiHelperNative.providerSchemaIpc` (widens, returns Arrow IPC schema) |
 | `ScanBuilder.build`         | Driver    | `factory.listPartitions(optionsBytes, filterBytes)` (filter-aware overload — bridges can prune partitions; cached on Scan) + `factory.reportPartitioning(optionsBytes)` (cached on Scan) |
 | `outputPartitioning`        | Driver    | `KeyGroupedPartitioning(reported.keys, partitions.length)` when bridge declared one; `UnknownPartitioning(partitions.length)` otherwise. Spark may elide shuffles when keys line up with downstream join/agg grouping. |
 | `planInputPartitions`       | Driver    | Reuses the cached `PartitionInfo[]`; one task per entry with that entry's `partitionBytes` + `preferredLocations` |
 | Predicate translation       | Driver    | `SparkPredicateTranslator.translate(Predicate)` → `LogicalExprNode` proto bytes (each pushed predicate is independent) |
-| Per-task scan               | Executor  | Same factory → `createProvider(opts, partitionBytes)` → widen → `registerFfiTable` → `ctx.sql("SELECT proj FROM t")` → fold `DataFrame.filterFromProto(bytes)` over pushed predicates → `executeStream` |
+| Per-task scan               | Executor  | Same factory → `createProvider(opts, partitionBytes)` → `FfiHelperNative.createScan` (widen, projection, pushed proto filters, plan) → `executeStream` |
 
 ## Partition key values (`HasPartitionKey`)
 
@@ -229,7 +225,7 @@ What changes:
 | ---------------------- | -------- | ---- |
 | `ScanBuilder.build`    | Driver   | mint `scanId` (UUID) + pin session config → probe build (same code path as executors) → physical plan partition count `N` → `N` tasks |
 | `outputPartitioning`   | Driver   | always `UnknownPartitioning(N)` — DataFusion partitions carry no key contract; `listPartitions` / `reportPartitioning` are not called |
-| Per-task scan          | Executor | `SharedScanCache.acquire(scanId)` → (first task only) `createProvider(opts, EMPTY)` → widen → `registerFfiTable` on a pinned-config `SessionContext` → SQL + filters → plan once → every task `executeStream(partitionIndex)` → release |
+| Per-task scan          | Executor | `SharedScanCache.acquire(scanId)` → (first task only) `createProvider(opts, EMPTY)` → `FfiHelperNative.createScan` with the pinned config (widen, projection, filters, plan once) → every task `executeStreamPartition(partitionIndex)` → release |
 
 Cache semantics: entries are keyed by `scanId` (per query — separate actions
 build separate entries), refcounted by open readers, and evicted after an idle

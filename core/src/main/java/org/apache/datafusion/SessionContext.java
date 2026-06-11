@@ -571,36 +571,6 @@ public final class SessionContext implements AutoCloseable {
    *     context is closed.
    * @throws RuntimeException if native registration fails.
    */
-  /**
-   * Register a TableProvider produced as an {@code FFI_TableProvider} pointer by Rust code on the
-   * far side of the FFI boundary.
-   *
-   * <p>The pointer is the raw boxed address ({@code Box::into_raw(Box::new(FFI_TableProvider))})
-   * returned by another cdylib's JNI entry point — typically a domain bridge (e.g. Rerun's
-   * createFfiProvider) followed by the connector-core widening helper. Ownership transfers in; the
-   * pointer must not be reused after this call.
-   *
-   * <p>Predicate pushdown and projection cross the FFI boundary as part of the standard
-   * datafusion-ffi protocol; no JVM-side TableProvider implementation runs.
-   *
-   * @throws IllegalStateException if this context is closed.
-   * @throws IllegalArgumentException if {@code name} is empty or {@code ffiTableProviderPtr} is 0.
-   * @throws RuntimeException if native registration fails.
-   */
-  public void registerFfiTable(String name, long ffiTableProviderPtr) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
-    }
-    if (name == null || name.isEmpty()) {
-      throw new IllegalArgumentException("registerFfiTable name must be non-empty");
-    }
-    if (ffiTableProviderPtr == 0) {
-      throw new IllegalArgumentException(
-          "registerFfiTable ffiTableProviderPtr must be a non-null FFI_TableProvider pointer");
-    }
-    registerFfiTableNative(nativeHandle, name, ffiTableProviderPtr);
-  }
-
   public void registerTable(String name, TableProvider provider) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("SessionContext is closed");
@@ -695,7 +665,4 @@ public final class SessionContext implements AutoCloseable {
 
   private static native void registerTableNative(
       long handle, String name, byte[] schemaIpcBytes, TableProvider provider);
-
-  private static native void registerFfiTableNative(
-      long handle, String name, long ffiTableProviderPtr);
 }

@@ -19,7 +19,6 @@
 
 package io.datafusion.spark
 
-import org.apache.datafusion.SessionContext
 import org.apache.spark.sql.internal.SQLConf
 
 /**
@@ -30,8 +29,8 @@ import org.apache.spark.sql.internal.SQLConf
  * so a plan that yields N partitions on the driver could yield M ≠ N on a differently-sized
  * executor — and partition-indexed execution would silently drop or duplicate data. The driver
  * resolves these values once in `DatafusionScanBuilder.build()`, ships them inside every
- * [[DatafusionSharedScanPartition]], and both the driver probe and the executors construct their
- * `SessionContext` exclusively through [[buildContext]].
+ * [[DatafusionSharedScanPartition]], and both the driver probe and the executors hand the same
+ * values to `FfiHelperNative.createScan`, which builds the native `SessionContext` from them.
  *
  * `options` additionally disables the optimizer's plan-reshaping repartition passes so the
  * physical partitioning is exactly what the provider's `scan()` reports, on every machine.
@@ -40,17 +39,7 @@ final case class PinnedSessionConfig(
     targetPartitions: Int,
     batchSize: Int,
     options: Vector[(String, String)]
-) extends Serializable {
-
-  def buildContext(): SessionContext = {
-    val builder = SessionContext
-      .builder()
-      .targetPartitions(targetPartitions)
-      .batchSize(batchSize)
-    options.foreach { case (k, v) => builder.setOption(k, v) }
-    builder.build()
-  }
-}
+) extends Serializable
 
 object PinnedSessionConfig {
 

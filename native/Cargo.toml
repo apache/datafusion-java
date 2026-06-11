@@ -23,8 +23,8 @@ publish = false
 
 [lib]
 # `rlib` alongside `cdylib` so `cargo test` has a Rust-level harness for
-# native-only invariants (e.g. error-classification routing through wrapped
-# DataFusionError chains). The `cdylib` is still the artifact the JVM loads.
+# native-only invariants (the error-classification tests now live in
+# `datafusion-jni-common`). The `cdylib` is still the artifact the JVM loads.
 crate-type = ["cdylib", "rlib"]
 
 [features]
@@ -72,7 +72,10 @@ runtime-metrics = ["dep:tokio-metrics"]
 arrow = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true, features = ["avro"] }
-datafusion-ffi = { workspace = true }
+# Shared JNI plumbing (error->exception mapping, runtime singleton,
+# StreamingReader). `avro` keeps the classifier's AvroError->IoException arm
+# in sync with the `avro` feature on `datafusion` above.
+datafusion-jni-common = { path = "../native-common", features = ["avro"] }
 datafusion-proto = { workspace = true }
 datafusion-substrait = { workspace = true, optional = true }
 futures = { workspace = true }

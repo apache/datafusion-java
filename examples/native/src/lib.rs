@@ -17,12 +17,13 @@
 
 //! Example cdylib that produces a small DataFusion `MemTable` wrapped as an
 //! `FFI_TableProvider`, returned to the JVM as a `jlong` (the raw boxed
-//! pointer). The JVM example uses `SessionContext.registerFfiTable(name, ptr)`
-//! to install the provider on a DataFusion session and runs SQL against it.
+//! pointer). The Spark connector consumes the pointer via
+//! `FfiHelperNative.createScan` / `providerSchemaIpc`, which widen the
+//! provider and plan/execute the scan inside the connector cdylib.
 //!
 //! The same pattern is what domain bridges (Rerun, HDF5, custom Iceberg) use
-//! to expose their TableProviders to DataFusion-Java — and, transitively, to
-//! Spark via the connector-core DataSource V2 plumbing.
+//! to expose their TableProviders to Spark via the connector-core DataSource
+//! V2 plumbing.
 //!
 //! ## Options wire format
 //!
@@ -186,8 +187,8 @@ fn build_mem_table(
 /// JNI entry point: decode the options blob, build a `MemTable` accordingly,
 /// wrap it in an `FFI_TableProvider`, return the raw boxed pointer as a `jlong`.
 /// Ownership of the boxed FFI transfers to the caller — the matching
-/// `Box::from_raw` is performed by `SessionContext.registerFfiTable` on the
-/// consumer side.
+/// `Box::from_raw` is performed by the consumer (the Spark connector's
+/// `FfiHelperNative.createScan` / `providerSchemaIpc`).
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_createMemTableProvider<
     'local,
@@ -231,9 +232,9 @@ pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExamp
 }
 
 /// Drop a previously-created FFI_TableProvider whose pointer was NOT handed
-/// off to `registerFfiTable`. Exposed for symmetry — callers that pass the
-/// pointer to `registerFfiTable` must NOT also call this; ownership has
-/// already transferred.
+/// off to a consumer. Exposed for the error path — callers that pass the
+/// pointer to `createScan` / `providerSchemaIpc` must NOT also call this;
+/// ownership has already transferred.
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_examples_FfiTableProviderExampleNative_dropProvider<
     'local,

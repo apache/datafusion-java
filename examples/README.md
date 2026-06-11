@@ -32,11 +32,11 @@ add `-Dmaven.repo.local=/path/to/repo` to BOTH invocations.)
 | `JdbcExample`                    | Pull from an H2 JDBC source into Arrow, register it, query.                                   |
 | `AddOneExample`                  | Implement a Scalar UDF in Java and register it on the session.                                |
 | `NestedTypeUdfExample`           | Scalar UDF over `List<Int64>` — input + output nested arrow types.                            |
-| `FfiTableProviderExample`        | Build an `FFI_TableProvider` in Rust (a `MemTable`), hand the raw pointer to the JVM, register it via `SessionContext.registerFfiTable`, run SQL. **See also: [SPARK_INTEGRATION.md](SPARK_INTEGRATION.md).** |
+| `ExampleFfiProviderFactory`      | Build an `FFI_TableProvider` in Rust (a `MemTable`) and expose it to Spark through the connector's `FfiProviderFactory` interface. **See: [SPARK_INTEGRATION.md](SPARK_INTEGRATION.md) and the pyspark demo under [`python/`](python/).** |
 
 ## Building the FFI example's cdylib
 
-The `FfiTableProviderExample` relies on a small Rust cdylib under
+The FFI provider examples rely on a small Rust cdylib under
 [`native/`](native/). It is a member of the repo-root Cargo workspace, so
 build it by name from anywhere in the tree:
 

@@ -20,14 +20,17 @@
 package io.datafusion.spark;
 
 /**
- * JNI hooks into the connector-core widening cdylib ({@code
- * libdatafusion_spark_helper.{so,dylib}}).
+ * JNI surface of the connector cdylib ({@code libdatafusion_spark_helper.{so,dylib}}).
  *
- * <p>The widening cdylib unwraps an FFI_TableProvider pointer produced by a bridge, wraps it in a
- * {@code WideningTableProvider} that applies kernel-level {@code arrow::compute::cast} on incoming
- * RecordBatches for any Spark-incompatible Arrow type (unsigned ints, Float16, Time,
- * non-microsecond Timestamp, recursive List), and re-FFIs it for the consumer (datafusion-java's
- * cdylib via {@code SessionContext.registerFfiTable}).
+ * <p>The cdylib owns the whole DataFusion side of a scan: it takes an {@code FFI_TableProvider}
+ * pointer produced by a bridge, wraps the provider in a {@code WideningTableProvider} (kernel-level
+ * {@code arrow::compute::cast} for Spark-incompatible Arrow types), registers it on a private
+ * {@code SessionContext} built from the driver-pinned config, applies the pruned projection and the
+ * proto-encoded pushed filters, plans once, and streams plan partitions back over {@code
+ * FFI_ArrowArrayStream}.
+ *
+ * <p>Errors throw the typed {@code org.apache.datafusion.*} exception hierarchy (from the
+ * datafusion-java core jar, a compile dependency of this module).
  *
  * <p>The native library is loaded once per JVM via {@link NativeLibraryLoader}. The library payload
  * lives inside this jar under {@code io/datafusion/spark/<os>/<arch>/} and is extracted to a temp
@@ -42,11 +45,52 @@ public final class FfiHelperNative {
   }
 
   /**
-   * Take ownership of an {@code FFI_TableProvider} pointer produced by a bridge cdylib, wrap it in
-   * a {@code WideningTableProvider}, and re-wrap the result as a fresh {@code FFI_TableProvider}.
-   * Returns the new raw pointer; the caller owns it.
+   * Driver-side schema probe: the widened Arrow schema of the provider, serialized as Arrow IPC
+   * bytes (deserialize with {@code MessageSerializer.deserializeSchema}).
    *
-   * <p>The input pointer must not be reused after this call returns: ownership transfers.
+   * <p>Takes ownership of {@code ffiProviderRawPtr}; the provider is dropped before returning and
+   * the pointer must not be reused.
    */
-  public static native long wrapWithWidening(long ffiProviderRawPtr);
+  public static native byte[] providerSchemaIpc(long ffiProviderRawPtr);
+
+  /**
+   * Build a planned scan over the provider and return its handle.
+   *
+   * <p>Takes ownership of {@code ffiProviderRawPtr}. {@code targetPartitions} / {@code batchSize}
+   * {@code <= 0} leave the DataFusion defaults; {@code optionKeys}/{@code optionValues} are
+   * parallel arrays of DataFusion config overrides; an empty {@code projectionColumns} selects all
+   * columns; each element of {@code filterProtos} is a serialized {@code datafusion.LogicalExprNode}
+   * applied as a filter.
+   *
+   * <p>The caller owns the returned handle and must pair it with {@link #closeScan(long)}. Closing
+   * while a stream opened from this handle is still in flight is undefined behaviour — the
+   * shared-scan cache's refcount enforces this; any other caller must serialize close itself.
+   */
+  public static native long createScan(
+      long ffiProviderRawPtr,
+      int targetPartitions,
+      int batchSize,
+      String[] optionKeys,
+      String[] optionValues,
+      String[] projectionColumns,
+      byte[][] filterProtos);
+
+  /** Output partition count of the planned physical plan. */
+  public static native int partitionCount(long scanHandle);
+
+  /**
+   * Open an independent stream over ONE plan partition, writing an {@code FFI_ArrowArrayStream}
+   * into the caller-allocated struct at {@code ffiStreamAddr}. Concurrent-safe across JVM threads.
+   */
+  public static native void executeStreamPartition(long scanHandle, int partition, long ffiStreamAddr);
+
+  /**
+   * Stream the WHOLE plan (all partitions coalesced) into the caller-allocated {@code
+   * FFI_ArrowArrayStream} at {@code ffiStreamAddr}. Used by legacy per-partition payload mode,
+   * where the provider itself already represents the task's slice.
+   */
+  public static native void executeStream(long scanHandle, long ffiStreamAddr);
+
+  /** Drop the planned scan. See {@link #createScan} for the close-vs-in-flight-stream contract. */
+  public static native void closeScan(long scanHandle);
 }

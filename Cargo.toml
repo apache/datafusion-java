@@ -19,6 +19,7 @@
 resolver = "2"
 members = [
     "native",
+    "native-common",
     "examples/native",
     "spark/native",
 ]

@@ -19,23 +19,26 @@
 
 package io.datafusion.spark
 
-/** Shared SQL construction for the per-task (legacy) and shared-scan read paths. */
-private[spark] object DatafusionSqlBuilder {
+import org.apache.arrow.c.{ArrowArrayStream, Data}
+import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.vector.ipc.ArrowReader
 
-  /** Registration name for the per-task provider in legacy mode. */
-  val PartitionTableName = "df_spark_partition"
+/**
+ * Arrow C-data import of a native-produced `FFI_ArrowArrayStream`: allocate the empty struct,
+ * let the native side write into it, then hand it to Arrow Java. On any failure the struct is
+ * released so a half-written stream can't leak.
+ */
+private[spark] object FfiStream {
 
-  /** Registration name for the per-executor provider in shared-scan mode. */
-  val SharedTableName = "df_spark_shared"
-
-  /** `SELECT <quoted projection or *> FROM "<table>"`. */
-  def buildSql(projectionColumnNames: Array[String], tableName: String): String = {
-    val cols =
-      if (projectionColumnNames.isEmpty) "*"
-      else
-        projectionColumnNames
-          .map(c => "\"" + c.replace("\"", "\"\"") + "\"")
-          .mkString(", ")
-    s"""SELECT $cols FROM "$tableName""""
+  def importReader(allocator: BufferAllocator)(writeStream: Long => Unit): ArrowReader = {
+    val stream = ArrowArrayStream.allocateNew(allocator)
+    try {
+      writeStream(stream.memoryAddress())
+      Data.importArrayStream(allocator, stream)
+    } catch {
+      case t: Throwable =>
+        stream.close()
+        throw t
+    }
   }
 }

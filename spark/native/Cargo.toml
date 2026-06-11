@@ -24,6 +24,12 @@ arrow = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-ffi = { workspace = true }
+# Shared JNI plumbing: error->Java-exception mapping and the per-cdylib Tokio
+# runtime singleton. The thrown classes (org.apache.datafusion.*) come from
+# the datafusion-java core jar, which the Spark module already depends on.
+datafusion-jni-common = { path = "../../native-common" }
+datafusion-proto = { workspace = true }
 futures = { workspace = true }
 jni = { workspace = true }
+prost = { workspace = true }
 tokio = { workspace = true }

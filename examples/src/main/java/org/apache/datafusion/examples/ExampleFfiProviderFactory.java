@@ -73,8 +73,8 @@ import io.datafusion.spark.PartitionInfo;
  * <p>In the default mode a single partition (id {@code "p0"}, empty {@code partitionBytes}, no
  * preferred host) is reported so Spark spawns one task; the executor calls {@link
  * #createProvider(byte[], byte[])} to obtain a fresh {@code FFI_TableProvider} pointer, hands it to
- * {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)}, and streams the
- * resulting Arrow record batches back into the Spark scan.
+ * {@code FfiHelperNative.createScan}, and streams the resulting Arrow record batches back into the
+ * Spark scan.
  */
 public final class ExampleFfiProviderFactory implements FfiProviderFactory {
 

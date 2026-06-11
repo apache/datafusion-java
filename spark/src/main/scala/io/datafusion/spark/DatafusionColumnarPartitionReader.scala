@@ -21,7 +21,6 @@ package io.datafusion.spark
 
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.ipc.ArrowReader
-import org.apache.datafusion.{DataFrame, SessionContext}
 import org.apache.spark.sql.connector.read.PartitionReader
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -33,14 +32,10 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  *   2. `createProvider(optionsProtoBytes, partitionBytes)` — bridge builds an `Arc<dyn
  *      TableProvider>` materialising the slice described by `partitionBytes`, wraps it in an
  *      `FFI_TableProvider`, returns the raw pointer.
- *   3. Hand that pointer to connector-core's widening cdylib via `FfiHelperNative.wrapWithWidening`.
- *      The cdylib wraps the inner provider in a `WideningTableProvider` (kernel-level
- *      `arrow::compute::cast` for Spark-incompatible Arrow types) and re-FFIs it.
- *   4. Register the widened pointer on a fresh `SessionContext` via `registerFfiTable`.
- *   5. Build a `SELECT projection FROM <table>` DataFrame; apply pushed filters via
- *      `DataFrame.filterFromProto`, closing each intermediate frame.
- *   6. `executeStream` returns an `ArrowReader`; batches surface through
- *      [[ArrowColumnarBatchIteration]].
+ *   3. `FfiHelperNative.createScan` does the rest natively: widening wrap, private
+ *      `SessionContext`, projection, pushed proto filters, physical plan.
+ *   4. `executeStream` streams the whole plan (the provider already IS the task's slice);
+ *      batches surface through [[ArrowColumnarBatchIteration]].
  */
 class DatafusionColumnarPartitionReader(
     partition: DatafusionInputPartition,
@@ -49,26 +44,41 @@ class DatafusionColumnarPartitionReader(
     with ArrowColumnarBatchIteration {
 
   private val allocator = new RootAllocator(Long.MaxValue)
-  private val ctx: SessionContext = new SessionContext()
 
   private val factory: FfiProviderFactory = instantiateFactory(partition.factoryFqcn)
 
-  override protected val arrowReader: ArrowReader = {
-    val rawPtr = factory.createProvider(partition.optionsProtoBytes, partition.partitionBytes)
-    val widenedPtr = FfiHelperNative.wrapWithWidening(rawPtr)
-    ctx.registerFfiTable(DatafusionSqlBuilder.PartitionTableName, widenedPtr)
-    var df: DataFrame = ctx.sql(
-      DatafusionSqlBuilder
-        .buildSql(partition.projectionColumnNames, DatafusionSqlBuilder.PartitionTableName))
-    var i = 0
-    while (i < partition.filterProtoBytes.length) {
-      val filtered = df.filterFromProto(partition.filterProtoBytes(i))
-      df.close()
-      df = filtered
-      i += 1
+  private val scanHandle: Long =
+    try {
+      val rawPtr = factory.createProvider(partition.optionsProtoBytes, partition.partitionBytes)
+      FfiHelperNative.createScan(
+        rawPtr,
+        /* targetPartitions = */ -1,
+        /* batchSize = */ -1,
+        Array.empty[String],
+        Array.empty[String],
+        partition.projectionColumnNames,
+        partition.filterProtoBytes
+      )
+    } catch {
+      case t: Throwable =>
+        try allocator.close()
+        catch { case suppressed: Throwable => t.addSuppressed(suppressed) }
+        throw t
     }
-    df.executeStream(allocator)
-  }
+
+  override protected val arrowReader: ArrowReader =
+    try {
+      FfiStream.importReader(allocator) { addr =>
+        FfiHelperNative.executeStream(scanHandle, addr)
+      }
+    } catch {
+      case t: Throwable =>
+        try FfiHelperNative.closeScan(scanHandle)
+        catch { case suppressed: Throwable => t.addSuppressed(suppressed) }
+        try allocator.close()
+        catch { case suppressed: Throwable => t.addSuppressed(suppressed) }
+        throw t
+    }
 
   override def close(): Unit = {
     var first: Throwable = null
@@ -76,7 +86,7 @@ class DatafusionColumnarPartitionReader(
       try f
       catch { case t: Throwable => if (first == null) first = t else first.addSuppressed(t) }
     safe(arrowReader.close())
-    safe(ctx.close())
+    safe(FfiHelperNative.closeScan(scanHandle))
     safe(allocator.close())
     if (first != null) throw first
   }

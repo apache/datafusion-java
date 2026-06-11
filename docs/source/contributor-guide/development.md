@@ -88,7 +88,9 @@ The repository is a multi-module Maven build:
 - `examples/` — `datafusion-java-examples` module containing runnable
   examples that depend on the library; built alongside the library so they
   cannot fall out of sync with the API. Includes `examples/native/`, a
-  small FFI table-provider cdylib used by `FfiTableProviderExample`.
+  small FFI table-provider cdylib used by the Spark connector demo
+  (`ExampleFfiProviderFactory` + the pyspark script under
+  `examples/python/`).
 - `native/` — `datafusion-jni` Rust crate (JNI + Arrow C Data Interface).
 - `proto/` — Protobuf definitions shared between Java and Rust.
 - `Makefile` — top-level build orchestration (`make test`, `make format`,

@@ -26,12 +26,12 @@ use jni::sys::jlong;
 use jni::JNIEnv;
 use prost::Message;
 
-use crate::errors::{try_unwrap_or_throw, JniResult};
 use crate::proto_gen::{
     CsvReadOptionsProto, CsvWriteOptionsProto, FileCompressionType as ProtoFileCompressionType,
 };
 use crate::runtime;
 use crate::schema::decode_optional_schema;
+use datafusion_jni_common::errors::{try_unwrap_or_throw, JniResult};
 
 fn with_csv_options<R>(
     env: &mut JNIEnv,

@@ -38,7 +38,7 @@
 //!   10 totalOverflowCount
 
 #[cfg(not(feature = "runtime-metrics"))]
-use crate::errors::JniResult;
+use datafusion_jni_common::errors::JniResult;
 
 /// Number of i64 values in the snapshot array; kept here so the Java side and
 /// the feature-off stub agree on the layout.
@@ -51,7 +51,7 @@ mod imp {
     use tokio_metrics::{RuntimeIntervals, RuntimeMonitor};
 
     use super::STATS_FIELD_COUNT;
-    use crate::errors::JniResult;
+    use datafusion_jni_common::errors::JniResult;
 
     /// `RuntimeMonitor::intervals().next()` returns *delta* metrics covering
     /// the period since the previous call (or, on the very first call, since

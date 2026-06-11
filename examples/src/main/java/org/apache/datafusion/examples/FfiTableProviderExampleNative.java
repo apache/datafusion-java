@@ -26,9 +26,8 @@ import java.util.Locale;
 
 /**
  * JNI bindings into the example cdylib at {@code examples/native}. The cdylib produces a small
- * {@code MemTable}-backed {@code FFI_TableProvider} that the JVM example registers on a {@link
- * org.apache.datafusion.SessionContext} via {@link
- * org.apache.datafusion.SessionContext#registerFfiTable(String, long)}.
+ * {@code MemTable}-backed {@code FFI_TableProvider} that {@link ExampleFfiProviderFactory} hands to
+ * the Spark connector ({@code FfiHelperNative.createScan}).
  *
  * <p>The library is located in this order:
  *
@@ -56,7 +55,7 @@ final class FfiTableProviderExampleNative {
   /**
    * Build a {@code MemTable} on the Rust side, wrap it in an {@code FFI_TableProvider}, and return
    * the raw boxed pointer as a {@code long}. Ownership transfers to the caller; passing the pointer
-   * to {@link org.apache.datafusion.SessionContext#registerFfiTable(String, long)} discharges it.
+   * to a consumer such as {@code FfiHelperNative.createScan} discharges it.
    *
    * <p>{@code optionsBytes} is the length-prefixed binary blob produced by {@link
    * ExampleFfiProviderFactory#encodeOptions(java.util.Map)}. An empty or {@code null} array decodes
@@ -65,9 +64,9 @@ final class FfiTableProviderExampleNative {
   static native long createMemTableProvider(byte[] optionsBytes);
 
   /**
-   * Drop an FFI_TableProvider pointer that was NEVER handed to {@code
-   * SessionContext.registerFfiTable}. Call this only on the error path before registration; once
-   * {@code registerFfiTable} accepts the pointer it owns the box.
+   * Drop an FFI_TableProvider pointer that was NEVER handed to a consumer. Call this only on the
+   * error path before handover; once {@code FfiHelperNative.createScan} (or {@code
+   * providerSchemaIpc}) accepts the pointer it owns the box.
    */
   static native void dropProvider(long ffiTableProviderPtr);
 

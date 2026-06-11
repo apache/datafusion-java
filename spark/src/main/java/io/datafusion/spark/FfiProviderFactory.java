@@ -73,7 +73,7 @@ public interface FfiProviderFactory {
   /**
    * Filter-aware variant of {@link #listPartitions(byte[])}. The connector calls this overload with
    * the pushed-down predicates ({@code LogicalExprNode} proto bytes, one array per predicate, same
-   * encoding the executor later replays via {@code DataFrame.filterFromProto}). Bridges that can
+   * encoding the executor later replays via {@code FfiHelperNative.createScan}). Bridges that can
    * map predicates onto their partition layout (e.g. {@code segment_id = 'x'}) should prune
    * partitions that cannot match — pruning here eliminates whole Spark tasks, whereas the per-task
    * filter only reduces rows inside a task.
