@@ -1,0 +1,21 @@
+[package]
+name = "__CRATE__-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone crate: the empty [workspace] table stops cargo from adopting
+# this crate into any workspace found in a parent directory.
+[workspace]
+
+[lib]
+name = "__LIB__"
+crate-type = ["cdylib"]
+
+[dependencies]
+# TODO: replace the path with a git or crates.io dependency once you build
+# outside a local datafusion-java checkout.
+datafusion-spark-bridge = { path = "__BRIDGE_SDK_PATH__" }
+
+[profile.release]
+strip = "debuginfo"

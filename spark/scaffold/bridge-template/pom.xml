@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>__PKG__</groupId>
+    <artifactId>__CRATE__</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>__PREFIX__ Spark Bridge</name>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <scala.compat.version>2.13</scala.compat.version>
+        <spark.version>3.5.7</spark.version>
+        <datafusion.java.version>__DF_JAVA_VERSION__</datafusion.java.version>
+        <!-- Cargo profile directory the bundled cdylib is copied from.
+             Override with -Dnative.profile=release. -->
+        <native.profile>debug</native.profile>
+    </properties>
+
+    <dependencies>
+        <!-- Pulls datafusion-java (typed exceptions, proto classes) and the
+             Arrow Java stack transitively; all of it lands in the shaded jar. -->
+        <dependency>
+            <groupId>org.apache.datafusion</groupId>
+            <artifactId>datafusion-java-spark_${scala.compat.version}</artifactId>
+            <version>${datafusion.java.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_${scala.compat.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Bundle this bridge's cdylib inside the jar where
+                 NativeLibraryLoader expects it. For a multi-platform jar,
+                 build the cdylib per platform in CI and copy each into its
+                 own <os>/<arch>/ directory before packaging. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-bridge-cdylib</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <property name="bridge.lib.source"
+                                          value="${project.basedir}/native/target/${native.profile}/${bridge.lib.filename}"/>
+                                <fail message="Bridge cdylib not found at ${bridge.lib.source}. Run 'cargo build --manifest-path native/Cargo.toml' (add --release and -Dnative.profile=release for release builds) first.">
+                                    <condition><not><available file="${bridge.lib.source}"/></not></condition>
+                                </fail>
+                                <mkdir dir="${project.build.outputDirectory}/__PKG_PATH__/${bridge.lib.os}/${bridge.lib.arch}"/>
+                                <copy file="${bridge.lib.source}"
+                                      tofile="${project.build.outputDirectory}/__PKG_PATH__/${bridge.lib.os}/${bridge.lib.arch}/${bridge.lib.filename}"
+                                      preservelastmodified="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- One shaded fat jar = the only artifact end users touch.
+                 NO <relocations>: JNI binds native methods by class FQCN, so
+                 relocating io.datafusion.spark, org.apache.arrow, or this
+                 bridge's classes breaks symbol lookup at runtime. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <excludes>
+                                    <!-- The cluster supplies Scala. -->
+                                    <exclude>org.scala-lang:scala-library</exclude>
+                                </excludes>
+                            </artifactSet>
+                            <transformers>
+                                <!-- Merges DataSourceRegister entries so
+                                     format("__FORMAT__") survives shading. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Per-host properties for the bundled cdylib; layout matches
+             NativeLibraryLoader's <prefix>/<os>/<arch>/<mapped name> lookup. -->
+        <profile>
+            <id>native-linux-amd64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <bridge.lib.os>linux</bridge.lib.os>
+                <bridge.lib.arch>x86_64</bridge.lib.arch>
+                <bridge.lib.filename>lib__LIB__.so</bridge.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-x86_64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <bridge.lib.os>linux</bridge.lib.os>
+                <bridge.lib.arch>x86_64</bridge.lib.arch>
+                <bridge.lib.filename>lib__LIB__.so</bridge.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-aarch64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <bridge.lib.os>linux</bridge.lib.os>
+                <bridge.lib.arch>aarch64</bridge.lib.arch>
+                <bridge.lib.filename>lib__LIB__.so</bridge.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-x86_64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <bridge.lib.os>darwin</bridge.lib.os>
+                <bridge.lib.arch>x86_64</bridge.lib.arch>
+                <bridge.lib.filename>lib__LIB__.dylib</bridge.lib.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-aarch64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <bridge.lib.os>darwin</bridge.lib.os>
+                <bridge.lib.arch>aarch64</bridge.lib.arch>
+                <bridge.lib.filename>lib__LIB__.dylib</bridge.lib.filename>
+            </properties>
+        </profile>
+    </profiles>
+</project>
