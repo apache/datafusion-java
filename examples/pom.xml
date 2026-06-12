@@ -37,12 +37,24 @@ under the License.
     <properties>
         <maven.install.skip>true</maven.install.skip>
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- Cargo profile directory the bundled example cdylib is copied from.
+             Override with -Ddatafusion.native.profile=release. -->
+        <datafusion.native.profile>debug</datafusion.native.profile>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.datafusion</groupId>
             <artifactId>datafusion-java</artifactId>
+        </dependency>
+        <!-- Provides io.datafusion.spark.BridgeProviderFactory for ExampleBridgeProviderFactory.
+             Compile-only: the example factory does not pull Spark itself onto the classpath;
+             the pyspark demo supplies Spark at runtime. -->
+        <dependency>
+            <groupId>org.apache.datafusion</groupId>
+            <artifactId>datafusion-java-spark_2.13</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
@@ -82,6 +94,97 @@ under the License.
                     </arguments>
                 </configuration>
             </plugin>
+            <!-- Bundle the example bridge cdylib inside the jar, mirroring the
+                 connector's own native-bundling pattern. NativeLibraryLoader
+                 extracts it from org/apache/datafusion/examples/<os>/<arch>/
+                 at runtime — this pom block plus that one loader call is the
+                 whole packaging recipe a real bridge copies. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-example-bridge-cdylib</id>
+                        <phase>process-classes</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <property name="example.ffi.lib.source"
+                                          value="${maven.multiModuleProjectDirectory}/rust-target/${datafusion.native.profile}/${example.ffi.filename}"/>
+                                <fail message="Example bridge cdylib not found at ${example.ffi.lib.source}. Run 'cargo build -p datafusion-java-example-bridge' (or '--release' for the release profile) before building the JAR.">
+                                    <condition><not><available file="${example.ffi.lib.source}"/></not></condition>
+                                </fail>
+                                <mkdir dir="${project.build.outputDirectory}/org/apache/datafusion/examples/${example.ffi.os}/${example.ffi.arch}"/>
+                                <copy file="${example.ffi.lib.source}"
+                                      tofile="${project.build.outputDirectory}/org/apache/datafusion/examples/${example.ffi.os}/${example.ffi.arch}/${example.ffi.filename}"
+                                      preservelastmodified="true"
+                                      verbose="true"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Per-host properties for the bundled example cdylib; layout matches
+             NativeLibraryLoader's <prefix>/<os>/<arch>/<mapped name> lookup. -->
+        <profile>
+            <id>native-linux-amd64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>amd64</arch></os>
+            </activation>
+            <properties>
+                <example.ffi.os>linux</example.ffi.os>
+                <example.ffi.arch>x86_64</example.ffi.arch>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-x86_64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <example.ffi.os>linux</example.ffi.os>
+                <example.ffi.arch>x86_64</example.ffi.arch>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-linux-aarch64</id>
+            <activation>
+                <os><family>unix</family><name>linux</name><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <example.ffi.os>linux</example.ffi.os>
+                <example.ffi.arch>aarch64</example.ffi.arch>
+                <example.ffi.filename>libdatafusion_example_bridge.so</example.ffi.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-x86_64</id>
+            <activation>
+                <os><family>mac</family><arch>x86_64</arch></os>
+            </activation>
+            <properties>
+                <example.ffi.os>darwin</example.ffi.os>
+                <example.ffi.arch>x86_64</example.ffi.arch>
+                <example.ffi.filename>libdatafusion_example_bridge.dylib</example.ffi.filename>
+            </properties>
+        </profile>
+        <profile>
+            <id>native-mac-aarch64</id>
+            <activation>
+                <os><family>mac</family><arch>aarch64</arch></os>
+            </activation>
+            <properties>
+                <example.ffi.os>darwin</example.ffi.os>
+                <example.ffi.arch>aarch64</example.ffi.arch>
+                <example.ffi.filename>libdatafusion_example_bridge.dylib</example.ffi.filename>
+            </properties>
+        </profile>
+    </profiles>
 </project>
