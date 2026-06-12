@@ -20,6 +20,7 @@ resolver = "2"
 members = [
     "native",
     "native-common",
+    "spark/bridge",
 ]
 
 # Every dependency used by any workspace member is declared here so version

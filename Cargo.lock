@@ -1300,16 +1300,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datafusion-java-example-bridge"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "datafusion",
- "datafusion-spark-bridge",
- "tokio",
-]
-
-[[package]]
 name = "datafusion-jni"
 version = "0.1.0"
 dependencies = [
