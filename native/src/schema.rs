@@ -20,7 +20,7 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use jni::objects::JByteArray;
 use jni::JNIEnv;
 
-use crate::errors::JniResult;
+use datafusion_jni_common::errors::JniResult;
 
 /// Decode an optional Arrow-IPC schema byte array passed in from Java.
 /// Returns `None` if the byte-array reference is null.

@@ -97,6 +97,11 @@ under the License.
             <plugins>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.2</version>
                 </plugin>
@@ -159,6 +164,7 @@ under the License.
                         <exclude>README.md</exclude>
                         <exclude>CONTRIBUTING.md</exclude>
                         <exclude>docs/**</exclude>
+                        <exclude>**/*.md</exclude>
                         <!-- VCS and editor metadata -->
                         <exclude>.gitignore</exclude>
                         <exclude>.idea/**</exclude>
@@ -173,12 +179,17 @@ under the License.
                         <exclude>.mvn/**</exclude>
                         <!-- Build outputs and generated test data -->
                         <exclude>**/target/**</exclude>
-                        <exclude>native/target/**</exclude>
+                        <exclude>rust-target/**</exclude>
                         <exclude>tpch-data/**</exclude>
-                        <!-- Rust lockfile -->
-                        <exclude>native/Cargo.lock</exclude>
+                        <!-- Rust lockfile (single workspace lock) -->
+                        <exclude>Cargo.lock</exclude>
+                        <!-- Spark DataSource SPI registration file (line-delimited FQCN list, no header) -->
+                        <exclude>**/META-INF/services/**</exclude>
                         <!-- Source-tarball exclude list (data file consumed by check-rat-report.py) -->
                         <exclude>dev/release/rat_exclude_files.txt</exclude>
+                        <!-- Bridge scaffold templates: stamped into USER projects by
+                             spark/scaffold/new_bridge.py, which must not impose ASF headers on them -->
+                        <exclude>spark/scaffold/bridge-template/**</exclude>
                     </excludes>
                 </configuration>
             </plugin>

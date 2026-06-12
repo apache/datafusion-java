@@ -1,4 +1,5 @@
 target/
+rust-target/
 *.class
 .idea/
 .vscode/

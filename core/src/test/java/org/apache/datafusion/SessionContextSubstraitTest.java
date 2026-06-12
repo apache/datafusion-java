@@ -50,7 +50,7 @@ import io.substrait.proto.Version;
  *
  * <p>The {@code substrait} Cargo feature is off by default in {@code native/Cargo.toml}; if the
  * native crate was built without it, every test here is skipped (see {@link #checkFeatureEnabled}).
- * Run {@code (cd native && cargo build --features substrait)} before {@code ./mvnw test} to
+ * Run {@code cargo build -p datafusion-jni --features substrait} before {@code ./mvnw test} to
  * exercise this class.
  */
 class SessionContextSubstraitTest {

@@ -113,10 +113,11 @@ public final class SessionContext implements AutoCloseable {
    * other Substrait-emitting tool — and hand them to DataFusion without round-tripping through SQL.
    *
    * <p>Substrait support is gated behind the {@code substrait} Cargo feature on the native crate
-   * and is <strong>off by default</strong>. Rebuild the native crate with {@code cargo build
-   * --features substrait} (or {@code cargo build --features substrait,protoc} for hermetic builds
-   * that vendor {@code protoc} via {@code cmake}) to enable it. If invoked against a native binary
-   * built without the feature, this method throws {@link RuntimeException} pointing at the flag.
+   * and is <strong>off by default</strong>. Rebuild the native crate with {@code cargo build -p
+   * datafusion-jni --features substrait} (or {@code ... --features substrait,protoc} for hermetic
+   * builds that vendor {@code protoc} via {@code cmake}) to enable it. If invoked against a native
+   * binary built without the feature, this method throws {@link RuntimeException} pointing at the
+   * flag.
    *
    * @throws IllegalArgumentException if {@code planBytes} is {@code null}.
    * @throws IllegalStateException if this context is closed.
@@ -183,7 +184,7 @@ public final class SessionContext implements AutoCloseable {
    * Rebuild with:
    *
    * <pre>{@code
-   * RUSTFLAGS="--cfg tokio_unstable" cargo build --features runtime-metrics
+   * RUSTFLAGS="--cfg tokio_unstable" cargo build -p datafusion-jni --features runtime-metrics
    * }</pre>
    *
    * <p>If invoked against a native binary built without the feature, this method throws {@link

@@ -96,8 +96,11 @@ fn classify(err: &DataFusionError) -> &'static str {
         }
         DataFusionError::IoError(_)
         | DataFusionError::ObjectStore(_)
-        | DataFusionError::ParquetError(_)
-        | DataFusionError::AvroError(_) => "org/apache/datafusion/IoException",
+        | DataFusionError::ParquetError(_) => "org/apache/datafusion/IoException",
+        // The AvroError variant only exists when DataFusion is built with its
+        // `avro` feature, forwarded by this crate's own `avro` feature.
+        #[cfg(feature = "avro")]
+        DataFusionError::AvroError(_) => "org/apache/datafusion/IoException",
         // ArrowError is a 21-variant grab bag -- only some of those variants
         // are actually IO-shaped. DivideByZero / ArithmeticOverflow / Compute
         // / Cast / InvalidArgument / Memory etc. are execution-time failures
