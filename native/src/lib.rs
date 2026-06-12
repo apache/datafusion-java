@@ -19,7 +19,6 @@ mod arrow;
 mod avro;
 mod cache_manager;
 mod csv;
-mod errors;
 mod jni_util;
 mod json;
 mod memory;
@@ -34,16 +33,13 @@ pub(crate) mod proto_gen {
     include!(concat!(env!("OUT_DIR"), "/datafusion_java.rs"));
 }
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
-use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::ipc::writer::StreamWriter;
-use datafusion::arrow::record_batch::{RecordBatchIterator, RecordBatchReader};
+use datafusion::arrow::record_batch::RecordBatchIterator;
 use datafusion::common::{JoinType, UnnestOptions};
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
@@ -51,11 +47,9 @@ use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::error::DataFusionError;
 use datafusion::execution::disk_manager::{DiskManagerBuilder, DiskManagerMode};
 use datafusion::execution::runtime_env::{RuntimeEnv, RuntimeEnvBuilder};
-use datafusion::execution::SendableRecordBatchStream;
 use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::{col, Partitioning, ScalarUDF, Signature, SortExpr};
 use datafusion::prelude::{ParquetReadOptions, SessionConfig, SessionContext};
-use futures::StreamExt;
 use jni::objects::{JBooleanArray, JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jbyte, jbyteArray, jint, jlong};
 use jni::JNIEnv;
@@ -63,7 +57,10 @@ use jni::JavaVM;
 use prost::Message;
 use tokio::runtime::Runtime;
 
-use crate::errors::{try_unwrap_or_throw, JniResult};
+use datafusion_jni_common::errors::{try_unwrap_or_throw, JniResult};
+// Re-exported so sibling modules keep their crate-local `crate::StreamingReader` path.
+pub(crate) use datafusion_jni_common::StreamingReader;
+
 use crate::proto_gen::ParquetReadOptionsProto;
 use crate::proto_gen::SessionOptions;
 use crate::schema::decode_optional_schema;
@@ -84,18 +81,15 @@ pub(crate) fn jvm() -> &'static JavaVM {
 }
 
 pub(crate) fn runtime() -> &'static Runtime {
-    static RT: OnceLock<Runtime> = OnceLock::new();
-    RT.get_or_init(|| {
-        let rt = Runtime::new().expect("failed to create Tokio runtime");
-        // Eagerly install the runtime-metrics accumulator (no-op when the
-        // `runtime-metrics` Cargo feature is off). Initialising here -- not
-        // lazily on the first `runtimeStats()` call -- means the
-        // RuntimeMonitor's sampling baseline coincides with runtime start, so
-        // poll/park/busy totals reflect activity from the first query onward
-        // rather than from the first observation.
-        crate::runtime_metrics::init(rt.handle());
-        rt
-    })
+    // The singleton itself lives in datafusion-jni-common (shared with the
+    // datafusion-spark-bridge SDK; each cdylib statically links its own
+    // copy, so the runtime stays per-library). The init hook eagerly installs the
+    // runtime-metrics accumulator (no-op when the `runtime-metrics` Cargo
+    // feature is off). Initialising here -- not lazily on the first
+    // `runtimeStats()` call -- means the RuntimeMonitor's sampling baseline
+    // coincides with runtime start, so poll/park/busy totals reflect activity
+    // from the first query onward rather than from the first observation.
+    datafusion_jni_common::runtime_with_init(crate::runtime_metrics::init)
 }
 
 /// Wrap the (already-built) `RuntimeEnvBuilder`'s memory pool with a
@@ -322,50 +316,6 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
         }
         Ok(())
     })
-}
-
-/// Bridges DataFusion's async [`SendableRecordBatchStream`] to the synchronous
-/// [`RecordBatchReader`] interface that `FFI_ArrowArrayStream` (and therefore
-/// the Java `ArrowReader`) consumes. Each call to `next()` drives one
-/// `runtime().block_on(stream.next())`, so memory pressure stays bounded by the
-/// executor pipeline plus a single in-flight batch.
-struct StreamingReader {
-    schema: SchemaRef,
-    stream: SendableRecordBatchStream,
-}
-
-impl Iterator for StreamingReader {
-    type Item = Result<RecordBatch, ArrowError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Arrow's C ABI invokes this iterator through FFI_ArrowArrayStream's
-        // vtable, outside the JNI handler's try_unwrap_or_throw guard. A panic
-        // here (buggy UDF, arrow cast that panics, runtime poison) would
-        // unwind across C/FFI -- undefined behaviour. Catch it and surface as
-        // an ArrowError so the Java side sees a normal exception instead.
-        let next = catch_unwind(AssertUnwindSafe(|| runtime().block_on(self.stream.next())));
-        match next {
-            Ok(item) => item.map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e)))),
-            Err(panic) => {
-                let msg = if let Some(s) = panic.downcast_ref::<String>() {
-                    s.clone()
-                } else if let Some(s) = panic.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else {
-                    "rust panic with non-string payload".to_string()
-                };
-                Some(Err(ArrowError::ExternalError(
-                    format!("panic in DataFrame stream: {msg}").into(),
-                )))
-            }
-        }
-    }
-}
-
-impl RecordBatchReader for StreamingReader {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
 }
 
 #[no_mangle]

@@ -83,8 +83,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            native/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('native/Cargo.lock') }}
+            rust-target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build native and run tests

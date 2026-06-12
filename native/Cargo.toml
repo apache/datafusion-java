@@ -17,14 +17,17 @@
 
 [package]
 name = "datafusion-jni"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# cdylib JNI artifact loaded by the JVM, not a crates.io library.
 publish = false
 
 [lib]
 # `rlib` alongside `cdylib` so `cargo test` has a Rust-level harness for
-# native-only invariants (e.g. error-classification routing through wrapped
-# DataFusionError chains). The `cdylib` is still the artifact the JVM loads.
+# native-only invariants (the error-classification tests now live in
+# `datafusion-jni-common`). The `cdylib` is still the artifact the JVM loads.
 crate-type = ["cdylib", "rlib"]
 
 [features]
@@ -75,28 +78,27 @@ runtime-metrics = ["dep:tokio-metrics"]
 spark = ["dep:datafusion-spark"]
 
 [dependencies]
-arrow = { version = "58", features = ["ffi"] }
-async-trait = "0.1"
-datafusion = { version = "53.1.0", features = ["avro"] }
-datafusion-proto = "53.1.0"
+arrow = { workspace = true }
+async-trait = { workspace = true }
+datafusion = { workspace = true, features = ["avro"] }
+# Shared JNI plumbing (error->exception mapping, runtime singleton,
+# StreamingReader). `avro` keeps the classifier's AvroError->IoException arm
+# in sync with the `avro` feature on `datafusion` above.
+datafusion-jni-common = { path = "../native-common", features = ["avro"] }
+datafusion-proto = { workspace = true }
 # Apache Spark-compatible functions + expression planners. Optional and
 # gated behind the `spark` feature (in the default set). The `core` feature
 # of the crate is what exposes `SessionStateBuilderSpark`.
-datafusion-spark = { version = "53.1.0", features = ["core"], optional = true }
-datafusion-substrait = { version = "53.1.0", optional = true }
-futures = "0.3"
-jni = "0.21"
-# Pin to the same major as DataFusion 53.1 pulls in transitively (0.13.x)
-# so we share the same `dyn ObjectStore` vtable and don't double-link.
-object_store = { version = "0.13", default-features = false }
-prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread"] }
-# Tokio runtime metrics. Optional + cfg-gated: this crate's API surface lives
-# behind `--cfg tokio_unstable`, so enabling the `runtime-metrics` feature also
-# requires the caller to set `RUSTFLAGS="--cfg tokio_unstable"` at build time.
-tokio-metrics = { version = "0.5", optional = true }
-url = "2"
+datafusion-spark = { workspace = true, features = ["core"], optional = true }
+datafusion-substrait = { workspace = true, optional = true }
+futures = { workspace = true }
+jni = { workspace = true }
+object_store = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true }
+tokio-metrics = { workspace = true, optional = true }
+url = { workspace = true }
 
 [build-dependencies]
-prost-build = "0.14"
-protoc-bin-vendored = "3"
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }

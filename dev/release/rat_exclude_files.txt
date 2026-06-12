@@ -7,7 +7,7 @@
 .mvn/wrapper/maven-wrapper.properties
 mvnw
 mvnw.cmd
-native/Cargo.lock
+Cargo.lock
 dev/release/rat_exclude_files.txt
 docs/source/_static/**
 docs/source/conf.py

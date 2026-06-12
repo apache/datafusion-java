@@ -28,9 +28,9 @@ use std::sync::Arc;
 use datafusion::prelude::SessionContext;
 use url::Url;
 
-use crate::errors::JniResult;
 use crate::proto_gen::object_store_registration::Backend;
 use crate::proto_gen::ObjectStoreRegistration;
+use datafusion_jni_common::errors::JniResult;
 
 #[cfg(feature = "object-store-gcp")]
 use crate::proto_gen::GcsOptions;

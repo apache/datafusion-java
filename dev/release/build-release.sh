@@ -135,26 +135,28 @@ JVM_TARGET_DIR="$PROJECT_HOME/core/target/classes/org/apache/datafusion"
 
 mkdir -p "$JVM_TARGET_DIR/linux/amd64"
 docker cp \
-    "$CONTAINER_AMD64:/opt/datafusion-java-rm/datafusion-java/native/target/release/libdatafusion_jni.so" \
+    "$CONTAINER_AMD64:/opt/datafusion-java-rm/datafusion-java/rust-target/release/libdatafusion_jni.so" \
     "$JVM_TARGET_DIR/linux/amd64/"
 
 mkdir -p "$JVM_TARGET_DIR/linux/aarch64"
 docker cp \
-    "$CONTAINER_ARM64:/opt/datafusion-java-rm/datafusion-java/native/target/release/libdatafusion_jni.so" \
+    "$CONTAINER_ARM64:/opt/datafusion-java-rm/datafusion-java/rust-target/release/libdatafusion_jni.so" \
     "$JVM_TARGET_DIR/linux/aarch64/"
 
 echo "Building macOS native libs on the host (host=$HOST_ARCH)"
 rustup target add "$OTHER_DARWIN_TARGET"
 
-(cd "$PROJECT_HOME/native" && cargo build --release)
-(cd "$PROJECT_HOME/native" && cargo build --release --target "$OTHER_DARWIN_TARGET")
+# Cargo writes to the workspace `rust-target/` dir (set in .cargo/config.toml),
+# not the per-crate `native/target/`, so build from the repo root.
+(cd "$PROJECT_HOME" && cargo build --release -p datafusion-jni)
+(cd "$PROJECT_HOME" && cargo build --release -p datafusion-jni --target "$OTHER_DARWIN_TARGET")
 
 mkdir -p "$JVM_TARGET_DIR/darwin/$HOST_DARWIN_DIR"
-cp "$PROJECT_HOME/native/target/release/libdatafusion_jni.dylib" \
+cp "$PROJECT_HOME/rust-target/release/libdatafusion_jni.dylib" \
    "$JVM_TARGET_DIR/darwin/$HOST_DARWIN_DIR/"
 
 mkdir -p "$JVM_TARGET_DIR/darwin/$OTHER_DARWIN_DIR"
-cp "$PROJECT_HOME/native/target/$OTHER_DARWIN_TARGET/release/libdatafusion_jni.dylib" \
+cp "$PROJECT_HOME/rust-target/$OTHER_DARWIN_TARGET/release/libdatafusion_jni.dylib" \
    "$JVM_TARGET_DIR/darwin/$OTHER_DARWIN_DIR/"
 
 echo "Installing JAR into local Maven repo"

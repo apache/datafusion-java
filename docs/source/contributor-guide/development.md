@@ -42,7 +42,7 @@ This builds the native Rust crate and runs the JUnit tests. The steps can
 be run individually:
 
 ```sh
-cd native && cargo build
+cargo build --workspace
 ./mvnw test
 ```
 
@@ -74,6 +74,11 @@ disk space.
 
 The repository is a multi-module Maven build:
 
+- `Cargo.toml` — Rust workspace root declaring the crate members
+  (`native`, `native-common`) and `[workspace.dependencies]` that pin
+  shared versions in one place. Cargo writes artifacts to `rust-target/`
+  (overridden in `.cargo/config.toml`) so `mvn clean` at the repo root does
+  not nuke the Rust build cache.
 - `pom.xml` — parent POM declaring the `core` and `examples` modules and
   shared plugin/dependency versions.
 - `core/` — `datafusion-java` library module (Java sources, tests, and
@@ -81,7 +86,10 @@ The repository is a multi-module Maven build:
 - `examples/` — `datafusion-java-examples` module containing runnable
   examples that depend on the library; built alongside the library so they
   cannot fall out of sync with the API.
-- `native/` — Rust crate (JNI + Arrow C Data Interface).
+- `native/` — `datafusion-jni` Rust crate (JNI + Arrow C Data Interface).
+- `native-common/` — `datafusion-jni-common` Rust crate: JNI plumbing
+  shared across native crates (error→exception mapping, the per-cdylib
+  Tokio runtime singleton, the async-stream→`FFI_ArrowArrayStream` bridge).
 - `proto/` — Protobuf definitions shared between Java and Rust.
 - `Makefile` — top-level build orchestration (`make test`, `make format`,
   `make tpch-data`).

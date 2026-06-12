@@ -34,8 +34,8 @@ use datafusion::execution::cache::cache_unit::{
 };
 use datafusion::execution::cache::DefaultListFilesCache;
 
-use crate::errors::JniResult;
 use crate::proto_gen::CacheManagerOptionsProto;
+use datafusion_jni_common::errors::JniResult;
 
 /// Build a [`CacheManagerConfig`] from the proto. Returns `Ok(None)` if the
 /// caller did not set any cache-manager field, so the JNI layer can skip the

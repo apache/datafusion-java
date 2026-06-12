@@ -28,8 +28,8 @@ use jni::sys::{jbyteArray, jlong};
 use jni::JNIEnv;
 use prost::Message;
 
-use crate::errors::{try_unwrap_or_throw, JniResult};
 use crate::runtime;
+use datafusion_jni_common::errors::{try_unwrap_or_throw, JniResult};
 
 #[no_mangle]
 pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrameFromProto<

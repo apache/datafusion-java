@@ -96,8 +96,11 @@ fn classify(err: &DataFusionError) -> &'static str {
         }
         DataFusionError::IoError(_)
         | DataFusionError::ObjectStore(_)
-        | DataFusionError::ParquetError(_)
-        | DataFusionError::AvroError(_) => "org/apache/datafusion/IoException",
+        | DataFusionError::ParquetError(_) => "org/apache/datafusion/IoException",
+        // The AvroError variant only exists when DataFusion is built with its
+        // `avro` feature, forwarded by this crate's own `avro` feature.
+        #[cfg(feature = "avro")]
+        DataFusionError::AvroError(_) => "org/apache/datafusion/IoException",
         // ArrowError is a 21-variant grab bag -- only some of those variants
         // are actually IO-shaped. DivideByZero / ArithmeticOverflow / Compute
         // / Cast / InvalidArgument / Memory etc. are execution-time failures
@@ -161,7 +164,10 @@ fn throw(env: &mut JNIEnv, class: &str, message: &str) {
     let _ = env.throw_new(class, message);
 }
 
-fn panic_message(panic: &Box<dyn Any + Send>) -> String {
+/// Best-effort extraction of a panic payload's message. `catch_unwind` hands
+/// back a `Box<dyn Any>`; the payload is a `String` or `&str` for ordinary
+/// `panic!`/`unwrap` sites, anything else is opaque.
+pub fn panic_message(panic: &Box<dyn Any + Send>) -> String {
     if let Some(s) = panic.downcast_ref::<String>() {
         s.clone()
     } else if let Some(s) = panic.downcast_ref::<&str>() {

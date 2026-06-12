@@ -54,7 +54,7 @@ jobs:
         run: ./mvnw -q spotless:check
 
       - name: Check Rust formatting
-        run: cd native && cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
@@ -81,9 +81,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            native/target
-          key: ${{ runner.os }}-clippy-${{ hashFiles('native/Cargo.lock') }}
+            rust-target
+          key: ${{ runner.os }}-clippy-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-clippy-
 
       - name: Run clippy
-        run: cd native && cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
