@@ -38,7 +38,7 @@
 //!   10 totalOverflowCount
 
 #[cfg(not(feature = "runtime-metrics"))]
-use crate::errors::JniResult;
+use datafusion_jni_common::errors::JniResult;
 
 /// Number of i64 values in the snapshot array; kept here so the Java side and
 /// the feature-off stub agree on the layout.
@@ -51,7 +51,7 @@ mod imp {
     use tokio_metrics::{RuntimeIntervals, RuntimeMonitor};
 
     use super::STATS_FIELD_COUNT;
-    use crate::errors::JniResult;
+    use datafusion_jni_common::errors::JniResult;
 
     /// `RuntimeMonitor::intervals().next()` returns *delta* metrics covering
     /// the period since the previous call (or, on the very first call, since
@@ -196,7 +196,7 @@ pub fn runtime_stats() -> JniResult<[i64; STATS_FIELD_COUNT]> {
     Err(
         "datafusion-jni was built without the `runtime-metrics` Cargo feature; \
          rebuild the native crate with \
-         `RUSTFLAGS=\"--cfg tokio_unstable\" cargo build --features runtime-metrics` \
+         `RUSTFLAGS=\"--cfg tokio_unstable\" cargo build -p datafusion-jni --features runtime-metrics` \
          to enable SessionContext.runtimeStats"
             .into(),
     )

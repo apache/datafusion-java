@@ -42,7 +42,7 @@ This builds the native Rust crate and runs the JUnit tests. The steps can
 be run individually:
 
 ```sh
-cd native && cargo build
+cargo build --workspace
 ./mvnw test
 ```
 
@@ -74,14 +74,25 @@ disk space.
 
 The repository is a multi-module Maven build:
 
-- `pom.xml` — parent POM declaring the `core` and `examples` modules and
-  shared plugin/dependency versions.
+- `Cargo.toml` — Rust workspace root declaring the three crate members
+  (`native`, `native-common`, `examples/native`, `spark/bridge`) and `[workspace.dependencies]`
+  that pin shared versions in one place. Cargo writes artifacts to
+  `rust-target/` (overridden in `.cargo/config.toml`) so `mvn clean` at the
+  repo root does not nuke the Rust build cache.
+- `pom.xml` — parent POM declaring the `core`, `spark`, and `examples`
+  modules and shared plugin/dependency versions.
 - `core/` — `datafusion-java` library module (Java sources, tests, and
   generated protobuf classes).
+- `spark/` — `datafusion-java-spark` Spark DataSource V2 connector
+  (Scala + Java, pure JVM) and its `spark/bridge/` Rust SDK crate
+  (`datafusion-spark-bridge`: widening, scan machinery, `export_bridge!`).
 - `examples/` — `datafusion-java-examples` module containing runnable
   examples that depend on the library; built alongside the library so they
-  cannot fall out of sync with the API.
-- `native/` — Rust crate (JNI + Arrow C Data Interface).
+  cannot fall out of sync with the API. Includes `examples/native/`, a
+  small `export_bridge!` cdylib used by the Spark connector demo
+  (`ExampleBridgeProviderFactory` + the pyspark script under
+  `examples/python/`).
+- `native/` — `datafusion-jni` Rust crate (JNI + Arrow C Data Interface).
 - `proto/` — Protobuf definitions shared between Java and Rust.
 - `Makefile` — top-level build orchestration (`make test`, `make format`,
   `make tpch-data`).
