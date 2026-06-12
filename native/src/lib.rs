@@ -18,6 +18,7 @@
 mod arrow;
 mod avro;
 mod cache_manager;
+mod cancellation;
 mod csv;
 mod errors;
 mod jni_util;
@@ -63,10 +64,27 @@ use jni::JavaVM;
 use prost::Message;
 use tokio::runtime::Runtime;
 
-use crate::errors::{try_unwrap_or_throw, JniResult};
+use crate::cancellation::token_arc;
+use crate::errors::{try_unwrap_or_throw, JniResult, CANCELLED_MESSAGE};
 use crate::proto_gen::ParquetReadOptionsProto;
 use crate::proto_gen::SessionOptions;
 use crate::schema::decode_optional_schema;
+
+/// Resolve a `jlong` cancellation-token handle into an optional `Arc`. A zero
+/// handle means "no token" and yields `Ok(None)`. A non-zero but already-closed
+/// handle yields `Err`, matching the Java overload's contract that a closed
+/// token is rejected (rather than silently treated as no token).
+fn resolve_token(
+    token_handle: jlong,
+) -> JniResult<Option<Arc<tokio_util::sync::CancellationToken>>> {
+    if token_handle == 0 {
+        return Ok(None);
+    }
+    match token_arc(token_handle) {
+        Some(t) => Ok(Some(t)),
+        None => Err("CancellationToken is closed".into()),
+    }
+}
 
 static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
 
@@ -300,6 +318,7 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
     _class: JClass<'local>,
     handle: jlong,
     ffi_stream_addr: jlong,
+    token_handle: jlong,
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
         if handle == 0 {
@@ -309,10 +328,19 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
             return Err("ffi stream address is null".into());
         }
         let df = unsafe { *Box::from_raw(handle as *mut DataFrame) };
+        let token = resolve_token(token_handle)?;
 
         let ffi: FFI_ArrowArrayStream = runtime().block_on(async {
             let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
-            let batches = df.collect().await?;
+            let collect_fut = df.collect();
+            let batches = match &token {
+                Some(t) => tokio::select! {
+                    biased;
+                    _ = t.cancelled() => Err(DataFusionError::Execution(CANCELLED_MESSAGE.into())),
+                    r = collect_fut => r,
+                },
+                None => collect_fut.await,
+            }?;
             let iter = RecordBatchIterator::new(batches.into_iter().map(Ok), schema);
             Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(iter)))
         })?;
@@ -328,10 +356,13 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_collectDataFrame<'lo
 /// [`RecordBatchReader`] interface that `FFI_ArrowArrayStream` (and therefore
 /// the Java `ArrowReader`) consumes. Each call to `next()` drives one
 /// `runtime().block_on(stream.next())`, so memory pressure stays bounded by the
-/// executor pipeline plus a single in-flight batch.
+/// executor pipeline plus a single in-flight batch. When a cancellation token
+/// is attached, each batch poll races against `token.cancelled()` so a cancel
+/// from another thread aborts on the next `loadNextBatch`.
 struct StreamingReader {
     schema: SchemaRef,
     stream: SendableRecordBatchStream,
+    token: Option<Arc<tokio_util::sync::CancellationToken>>,
 }
 
 impl Iterator for StreamingReader {
@@ -343,7 +374,20 @@ impl Iterator for StreamingReader {
         // here (buggy UDF, arrow cast that panics, runtime poison) would
         // unwind across C/FFI -- undefined behaviour. Catch it and surface as
         // an ArrowError so the Java side sees a normal exception instead.
-        let next = catch_unwind(AssertUnwindSafe(|| runtime().block_on(self.stream.next())));
+        let next = catch_unwind(AssertUnwindSafe(|| {
+            runtime().block_on(async {
+                match &self.token {
+                    Some(t) => tokio::select! {
+                        biased;
+                        _ = t.cancelled() => Some(Err(datafusion::error::DataFusionError::Execution(
+                            CANCELLED_MESSAGE.into(),
+                        ))),
+                        r = self.stream.next() => r,
+                    },
+                    None => self.stream.next().await,
+                }
+            })
+        }));
         match next {
             Ok(item) => item.map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e)))),
             Err(panic) => {
@@ -374,6 +418,7 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_executeStreamDataFra
     _class: JClass<'local>,
     handle: jlong,
     ffi_stream_addr: jlong,
+    token_handle: jlong,
 ) {
     try_unwrap_or_throw(&mut env, (), |_env| -> JniResult<()> {
         if handle == 0 {
@@ -383,11 +428,24 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_executeStreamDataFra
             return Err("ffi stream address is null".into());
         }
         let df = unsafe { *Box::from_raw(handle as *mut DataFrame) };
+        let token = resolve_token(token_handle)?;
 
         let ffi: FFI_ArrowArrayStream = runtime().block_on(async {
             let schema: SchemaRef = Arc::new(df.schema().as_arrow().clone());
-            let stream = df.execute_stream().await?;
-            let reader = StreamingReader { schema, stream };
+            let stream_fut = df.execute_stream();
+            let stream = match &token {
+                Some(t) => tokio::select! {
+                    biased;
+                    _ = t.cancelled() => Err(DataFusionError::Execution(CANCELLED_MESSAGE.into())),
+                    r = stream_fut => r,
+                },
+                None => stream_fut.await,
+            }?;
+            let reader = StreamingReader {
+                schema,
+                stream,
+                token: token.clone(),
+            };
             Ok::<_, DataFusionError>(FFI_ArrowArrayStream::new(Box::new(reader)))
         })?;
 

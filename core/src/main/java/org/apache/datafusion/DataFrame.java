@@ -68,14 +68,29 @@ public final class DataFrame implements AutoCloseable {
    * {@link #executeStream(BufferAllocator)} for analytics-scale queries.
    */
   public ArrowReader collect(BufferAllocator allocator) {
+    return collect(allocator, null);
+  }
+
+  /**
+   * Execute the plan with cooperative cancellation. Identical to {@link #collect(BufferAllocator)}
+   * except that {@link CancellationToken#cancel()} on {@code token} from another thread aborts the
+   * call with a {@link java.util.concurrent.CancellationException} at the next poll point.
+   *
+   * <p>{@code token} may be {@code null}, in which case this overload behaves exactly like the
+   * single-argument form.
+   *
+   * @throws java.util.concurrent.CancellationException if the token is fired during the call.
+   */
+  public ArrowReader collect(BufferAllocator allocator, CancellationToken token) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("DataFrame is closed or already collected");
     }
+    long tokenHandle = resolveTokenHandle(token);
     ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
     long handle = nativeHandle;
     nativeHandle = 0;
     try {
-      collectDataFrame(handle, stream.memoryAddress());
+      collectDataFrame(handle, stream.memoryAddress(), tokenHandle);
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -98,19 +113,68 @@ public final class DataFrame implements AutoCloseable {
    * use this method.
    */
   public ArrowReader executeStream(BufferAllocator allocator) {
+    return executeStream(allocator, null);
+  }
+
+  /**
+   * Execute the plan as a streaming reader with cooperative cancellation. Identical to {@link
+   * #executeStream(BufferAllocator)} except that the returned reader holds the supplied {@code
+   * token} for its full lifetime: firing the token from another thread aborts the next {@link
+   * ArrowReader#loadNextBatch} call.
+   *
+   * <p>{@code token} may be {@code null}, in which case this overload behaves exactly like the
+   * single-argument form.
+   *
+   * <p><b>Cancellation surface (read carefully).</b> The exception type depends on <em>when</em>
+   * the cancel fires, because the Arrow C-data stream layer wraps any underlying error before it
+   * reaches Java:
+   *
+   * <ul>
+   *   <li>If the token is fired <b>before</b> the stream is established (e.g., the token was
+   *       already cancelled at call time, or fires during plan compilation), this method throws
+   *       {@link java.util.concurrent.CancellationException}.
+   *   <li>If the token fires <b>after</b> {@code executeStream} returns, the next {@link
+   *       ArrowReader#loadNextBatch} throws {@link java.io.IOException} whose message contains the
+   *       string {@code "query cancelled"}. Callers that need to distinguish cancellation from real
+   *       I/O failures must match on the message until a typed surface lands as a follow-up.
+   * </ul>
+   *
+   * @throws java.util.concurrent.CancellationException if the token fires before the stream is
+   *     established.
+   */
+  public ArrowReader executeStream(BufferAllocator allocator, CancellationToken token) {
     if (nativeHandle == 0) {
       throw new IllegalStateException("DataFrame is closed or already collected");
     }
+    long tokenHandle = resolveTokenHandle(token);
     ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
     long handle = nativeHandle;
     nativeHandle = 0;
     try {
-      executeStreamDataFrame(handle, stream.memoryAddress());
+      executeStreamDataFrame(handle, stream.memoryAddress(), tokenHandle);
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
       throw e;
     }
+  }
+
+  /**
+   * A {@code null} token disables cancellation; a non-null but already-closed token is rejected
+   * with {@link IllegalStateException}, matching how {@link CancellationToken#cancel()} and {@link
+   * CancellationToken#isCancelled()} behave on a closed token. Without this check, premature {@code
+   * close()} on a token would silently fall back to an uncancellable call, which is hard to
+   * diagnose.
+   */
+  private static long resolveTokenHandle(CancellationToken token) {
+    if (token == null) {
+      return 0L;
+    }
+    long handle = token.handle();
+    if (handle == 0L) {
+      throw new IllegalStateException("CancellationToken is closed");
+    }
+    return handle;
   }
 
   /**
@@ -781,9 +845,10 @@ public final class DataFrame implements AutoCloseable {
     }
   }
 
-  private static native void collectDataFrame(long handle, long ffiStreamAddr);
+  private static native void collectDataFrame(long handle, long ffiStreamAddr, long tokenHandle);
 
-  private static native void executeStreamDataFrame(long handle, long ffiStreamAddr);
+  private static native void executeStreamDataFrame(
+      long handle, long ffiStreamAddr, long tokenHandle);
 
   private static native void closeDataFrame(long handle);
 

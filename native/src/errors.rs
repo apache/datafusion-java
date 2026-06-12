@@ -25,12 +25,22 @@ use jni::JNIEnv;
 
 pub type JniResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// Error message used to round-trip a query-cancellation signal from a JNI
+/// handler to the Java side. `try_unwrap_or_throw` matches on this string
+/// (anywhere in the error chain) and throws a
+/// `java.util.concurrent.CancellationException` instead of the variant-derived
+/// typed exception. Keep this stable across the codebase so the cancellation
+/// path stays grep-friendly.
+pub const CANCELLED_MESSAGE: &str = "datafusion-java: query cancelled";
+
 /// Run `f`, catching panics and translating its `Err` into the appropriate
-/// Java exception. When the boxed error is a [`DataFusionError`], the variant
-/// drives which Java exception class is thrown -- callers can `catch
-/// (PlanException)` / `catch (ResourcesExhaustedException)` etc. without
-/// scraping message strings. Anything else (including Rust panics) falls
-/// through to the parent [`DataFusionException`] class.
+/// Java exception. A boxed error whose rendered message contains
+/// [`CANCELLED_MESSAGE`] is reported as a `CancellationException`. Otherwise,
+/// when the boxed error is a [`DataFusionError`], the variant drives which
+/// Java exception class is thrown -- callers can `catch (PlanException)` /
+/// `catch (ResourcesExhaustedException)` etc. without scraping message
+/// strings. Anything else (including Rust panics) falls through to the parent
+/// [`DataFusionException`] class.
 pub fn try_unwrap_or_throw<T, F>(env: &mut JNIEnv, default: T, f: F) -> T
 where
     F: FnOnce(&mut JNIEnv) -> JniResult<T>,
@@ -38,6 +48,16 @@ where
     match catch_unwind(AssertUnwindSafe(|| f(env))) {
         Ok(Ok(value)) => value,
         Ok(Err(boxed)) => {
+            // Cancellation gets first priority: a CANCELLED_MESSAGE sentinel
+            // anywhere in the rendered error chain wins over typed-variant
+            // routing so a cancel signal that surfaces wrapped in a
+            // DataFusionError::External(...) still maps to
+            // CancellationException.
+            let rendered = boxed.to_string();
+            if rendered.contains(CANCELLED_MESSAGE) {
+                throw(env, "java/util/concurrent/CancellationException", &rendered);
+                return default;
+            }
             // Try to recover the typed DataFusionError so we can pick a
             // matching Java subclass. If the error came from elsewhere
             // (jni::errors::Error, prost::DecodeError, a stringly-typed
