@@ -45,7 +45,7 @@ concrete provider is linked into the same cdylib as the scan machinery.
 Don't hand-assemble the pieces below — stamp them out:
 
 ```bash
-python3 dev/new_bridge.py --name acme --package com.example.acme
+python3 spark/scaffold/new_bridge.py --name acme --package com.example.acme
 ```
 
 generates a standalone project (Rust cdylib with a working demo provider,

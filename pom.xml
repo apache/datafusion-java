@@ -189,8 +189,8 @@ under the License.
                         <!-- Source-tarball exclude list (data file consumed by check-rat-report.py) -->
                         <exclude>dev/release/rat_exclude_files.txt</exclude>
                         <!-- Bridge scaffold templates: stamped into USER projects by
-                             dev/new_bridge.py, which must not impose ASF headers on them -->
-                        <exclude>dev/bridge-template/**</exclude>
+                             spark/scaffold/new_bridge.py, which must not impose ASF headers on them -->
+                        <exclude>spark/scaffold/bridge-template/**</exclude>
                     </excludes>
                 </configuration>
             </plugin>

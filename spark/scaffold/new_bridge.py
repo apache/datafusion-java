@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Scaffold a new Spark bridge project from dev/bridge-template/.
+"""Scaffold a new Spark bridge project from spark/scaffold/bridge-template/.
 
 Stamps out a standalone project (Maven + Cargo) wired to the
 datafusion-spark-bridge SDK: a Rust cdylib with `export_bridge!` and a demo
@@ -26,7 +26,7 @@ pom that bundles the cdylib, a pyspark smoke test, and a README with the
 build/run commands.
 
 Usage:
-    python3 dev/new_bridge.py --name acme --package com.example.acme \
+    python3 spark/scaffold/new_bridge.py --name acme --package com.example.acme \
         [--output DIR] [--datafusion-java REPO_ROOT]
 
 `--name` is the Spark format short name (spark.read.format("acme")); it also
@@ -79,7 +79,7 @@ def main() -> None:
     prefix = class_prefix(args.name)
     crate = args.name.replace("_", "-") + "-spark-bridge"
     lib = args.name + "_spark_bridge"
-    repo = Path(args.datafusion_java).resolve() if args.datafusion_java else TEMPLATE_DIR.parents[1]
+    repo = Path(args.datafusion_java).resolve() if args.datafusion_java else TEMPLATE_DIR.parents[2]
     sdk_path = repo / "spark" / "bridge"
     if not (sdk_path / "Cargo.toml").is_file():
         sys.exit(f"datafusion-spark-bridge crate not found at {sdk_path}")
