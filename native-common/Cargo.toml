@@ -21,6 +21,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+# Implementation detail of datafusion-java's native crates, not a standalone
+# crates.io library. Matches `publish = false` on the `datafusion-jni` crate.
+publish = false
 readme = "README.md"
 description = "Shared JNI plumbing for DataFusion Java native crates: error-to-exception mapping, the per-cdylib Tokio runtime singleton, and the async-stream-to-FFI_ArrowArrayStream bridge."
 
