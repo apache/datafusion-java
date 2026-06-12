@@ -82,13 +82,7 @@ impl Iterator for StreamingReader {
         match next {
             Ok(item) => item.map(|r| r.map_err(|e| ArrowError::ExternalError(Box::new(e)))),
             Err(panic) => {
-                let msg = if let Some(s) = panic.downcast_ref::<String>() {
-                    s.clone()
-                } else if let Some(s) = panic.downcast_ref::<&str>() {
-                    (*s).to_string()
-                } else {
-                    "rust panic with non-string payload".to_string()
-                };
+                let msg = errors::panic_message(&panic);
                 Some(Err(ArrowError::ExternalError(
                     format!("panic in DataFrame stream: {msg}").into(),
                 )))

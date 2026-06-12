@@ -164,7 +164,10 @@ fn throw(env: &mut JNIEnv, class: &str, message: &str) {
     let _ = env.throw_new(class, message);
 }
 
-fn panic_message(panic: &Box<dyn Any + Send>) -> String {
+/// Best-effort extraction of a panic payload's message. `catch_unwind` hands
+/// back a `Box<dyn Any>`; the payload is a `String` or `&str` for ordinary
+/// `panic!`/`unwrap` sites, anything else is opaque.
+pub fn panic_message(panic: &Box<dyn Any + Send>) -> String {
     if let Some(s) = panic.downcast_ref::<String>() {
         s.clone()
     } else if let Some(s) = panic.downcast_ref::<&str>() {
