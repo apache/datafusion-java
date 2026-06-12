@@ -17,8 +17,11 @@
 
 [package]
 name = "datafusion-jni"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# cdylib JNI artifact loaded by the JVM, not a crates.io library.
 publish = false
 
 [lib]

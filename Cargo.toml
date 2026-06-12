@@ -22,6 +22,15 @@ members = [
     "native-common",
 ]
 
+# Shared package metadata so every crate moves in lock step. Members inherit
+# via `version.workspace = true` / `edition.workspace = true` etc.; a single
+# bump here re-versions the whole workspace.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/apache/datafusion-java"
+
 # Every dependency used by any workspace member is declared here so version
 # bumps live in one place and the resolver picks a single version of each
 # crate across the workspace. Members reference these via `{ workspace = true }`

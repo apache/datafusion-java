@@ -17,9 +17,11 @@
 
 [package]
 name = "datafusion-jni-common"
-version = "0.1.0"
-edition = "2021"
-publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared JNI plumbing for DataFusion Java native crates: error-to-exception mapping, the per-cdylib Tokio runtime singleton, and the async-stream-to-FFI_ArrowArrayStream bridge."
 
 [features]
 # `datafusion-jni` builds DataFusion with `avro`, which adds the
