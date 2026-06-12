@@ -164,7 +164,6 @@ under the License.
                         <exclude>README.md</exclude>
                         <exclude>CONTRIBUTING.md</exclude>
                         <exclude>docs/**</exclude>
-                        <exclude>**/*.md</exclude>
                         <!-- VCS and editor metadata -->
                         <exclude>.gitignore</exclude>
                         <exclude>.idea/**</exclude>
