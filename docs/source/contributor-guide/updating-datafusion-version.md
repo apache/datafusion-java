@@ -21,8 +21,8 @@ under the License.
 
 Three things must move together when bumping DataFusion:
 
-1. `Cargo.toml` (workspace root) — the `datafusion`, `datafusion-ffi`,
-   `datafusion-proto`, and `datafusion-substrait` entries in
+1. `Cargo.toml` (workspace root) — the `datafusion`, `datafusion-proto`,
+   `datafusion-spark`, and `datafusion-substrait` entries in
    `[workspace.dependencies]`. Members inherit from there.
 2. `pom.xml` — the `<datafusion.version>` Maven property. **Must equal
    the Cargo version**; a mismatch means JVM-built protobuf plans won't

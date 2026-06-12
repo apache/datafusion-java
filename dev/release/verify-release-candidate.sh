@@ -150,7 +150,8 @@ test_source_distribution() {
 
   # raises on any formatting errors
   rustup component add rustfmt
-  (cd native && cargo fmt --all -- --check)
+  # Workspace-wide: covers native, native-common, and any future members.
+  cargo fmt --all -- --check
 
   # build native + JVM and run the full test suite
   make test

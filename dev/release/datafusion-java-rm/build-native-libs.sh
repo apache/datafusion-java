@@ -38,8 +38,9 @@ git clone "$REPO" datafusion-java
 cd datafusion-java
 git checkout "$BRANCH"
 
-cd native
-cargo build --release
+# Cargo writes to the workspace `rust-target/` dir (set in .cargo/config.toml),
+# not the per-crate `native/target/`, so build from the repo root.
+cargo build --release -p datafusion-jni
 
-echo "Built $(pwd)/target/release/libdatafusion_jni.so"
-ls -l target/release/libdatafusion_jni.so
+echo "Built $(pwd)/rust-target/release/libdatafusion_jni.so"
+ls -l rust-target/release/libdatafusion_jni.so
