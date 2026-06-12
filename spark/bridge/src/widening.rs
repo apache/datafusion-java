@@ -67,8 +67,16 @@ pub fn arrow_cast_widening(dt: &DataType) -> Option<DataType> {
             .map(|inner| DataType::List(widened_child(field, inner))),
         DataType::LargeList(field) => arrow_cast_widening(field.data_type())
             .map(|inner| DataType::LargeList(widened_child(field, inner))),
-        DataType::FixedSizeList(field, size) => arrow_cast_widening(field.data_type())
-            .map(|inner| DataType::FixedSizeList(widened_child(field, inner), *size)),
+        // Spark 3.5's ArrowColumnVector cannot read FixedSizeList at all, so
+        // always convert it to a (variable) List — which Spark maps to
+        // ArrayType — widening the child element type when needed too.
+        DataType::FixedSizeList(field, _size) => {
+            let child = match arrow_cast_widening(field.data_type()) {
+                Some(inner) => widened_child(field, inner),
+                None => Arc::clone(field),
+            };
+            Some(DataType::List(child))
+        }
         _ => None,
     }
 }
