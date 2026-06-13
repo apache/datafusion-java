@@ -419,7 +419,7 @@ required.</p>
 </div>
 <p>This builds the native Rust crate and runs the JUnit tests. The steps can
 be run individually:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>native<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cargo<span class="w"> </span>build
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>cargo<span class="w"> </span>build<span class="w"> </span>--workspace
 ./mvnw<span class="w"> </span><span class="nb">test</span>
 </pre></div>
 </div>
@@ -447,6 +447,11 @@ disk space.</p>
 <h2>Repository layout<a class="headerlink" href="#repository-layout" title="Link to this heading">#</a></h2>
 <p>The repository is a multi-module Maven build:</p>
 <ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Cargo.toml</span></code> — Rust workspace root declaring the crate members
+(<code class="docutils literal notranslate"><span class="pre">native</span></code>, <code class="docutils literal notranslate"><span class="pre">native-common</span></code>) and <code class="docutils literal notranslate"><span class="pre">[workspace.dependencies]</span></code> that pin
+shared versions in one place. Cargo writes artifacts to <code class="docutils literal notranslate"><span class="pre">rust-target/</span></code>
+(overridden in <code class="docutils literal notranslate"><span class="pre">.cargo/config.toml</span></code>) so <code class="docutils literal notranslate"><span class="pre">mvn</span> <span class="pre">clean</span></code> at the repo root does
+not nuke the Rust build cache.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pom.xml</span></code> — parent POM declaring the <code class="docutils literal notranslate"><span class="pre">core</span></code> and <code class="docutils literal notranslate"><span class="pre">examples</span></code> modules and
 shared plugin/dependency versions.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">core/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-java</span></code> library module (Java sources, tests, and
@@ -454,7 +459,10 @@ generated protobuf classes).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">examples/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-java-examples</span></code> module containing runnable
 examples that depend on the library; built alongside the library so they
 cannot fall out of sync with the API.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">native/</span></code> — Rust crate (JNI + Arrow C Data Interface).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">native/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-jni</span></code> Rust crate (JNI + Arrow C Data Interface).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">native-common/</span></code> — <code class="docutils literal notranslate"><span class="pre">datafusion-jni-common</span></code> Rust crate: JNI plumbing
+shared across native crates (error→exception mapping, the per-cdylib
+Tokio runtime singleton, the async-stream→<code class="docutils literal notranslate"><span class="pre">FFI_ArrowArrayStream</span></code> bridge).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">proto/</span></code> — Protobuf definitions shared between Java and Rust.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — top-level build orchestration (<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">test</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">format</span></code>,
 <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">tpch-data</span></code>).</p></li>

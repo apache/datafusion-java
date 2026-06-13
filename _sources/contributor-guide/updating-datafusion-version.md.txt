@@ -21,7 +21,9 @@ under the License.
 
 Three things must move together when bumping DataFusion:
 
-1. `native/Cargo.toml` — the `datafusion` crate dependency.
+1. `Cargo.toml` (workspace root) — the `datafusion`, `datafusion-proto`,
+   `datafusion-spark`, and `datafusion-substrait` entries in
+   `[workspace.dependencies]`. Members inherit from there.
 2. `pom.xml` — the `<datafusion.version>` Maven property. **Must equal
    the Cargo version**; a mismatch means JVM-built protobuf plans won't
    deserialize on the native side.
@@ -32,9 +34,9 @@ Three things must move together when bumping DataFusion:
 ## Recipe
 
 ```sh
-# 1. Bump the Cargo dep
-$EDITOR native/Cargo.toml             # set datafusion = "<new>"
-(cd native && cargo update -p datafusion)
+# 1. Bump the workspace dep
+$EDITOR Cargo.toml                    # set datafusion = "<new>" in [workspace.dependencies]
+cargo update -p datafusion
 
 # 2. Bump the Maven property to match
 $EDITOR pom.xml                       # set <datafusion.version>

@@ -402,7 +402,9 @@ under the License.
 <h1>Updating the DataFusion / protobuf schema version<a class="headerlink" href="#updating-the-datafusion-protobuf-schema-version" title="Link to this heading">#</a></h1>
 <p>Three things must move together when bumping DataFusion:</p>
 <ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">native/Cargo.toml</span></code> — the <code class="docutils literal notranslate"><span class="pre">datafusion</span></code> crate dependency.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Cargo.toml</span></code> (workspace root) — the <code class="docutils literal notranslate"><span class="pre">datafusion</span></code>, <code class="docutils literal notranslate"><span class="pre">datafusion-proto</span></code>,
+<code class="docutils literal notranslate"><span class="pre">datafusion-spark</span></code>, and <code class="docutils literal notranslate"><span class="pre">datafusion-substrait</span></code> entries in
+<code class="docutils literal notranslate"><span class="pre">[workspace.dependencies]</span></code>. Members inherit from there.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">pom.xml</span></code> — the <code class="docutils literal notranslate"><span class="pre">&lt;datafusion.version&gt;</span></code> Maven property. <strong>Must equal
 the Cargo version</strong>; a mismatch means JVM-built protobuf plans won’t
 deserialize on the native side.</p></li>
@@ -412,9 +414,9 @@ if upstream silently re-tags them, which is the desired behavior.</p></li>
 </ol>
 <section id="recipe">
 <h2>Recipe<a class="headerlink" href="#recipe" title="Link to this heading">#</a></h2>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Bump the Cargo dep</span>
-<span class="nv">$EDITOR</span><span class="w"> </span>native/Cargo.toml<span class="w">             </span><span class="c1"># set datafusion = &quot;&lt;new&gt;&quot;</span>
-<span class="o">(</span><span class="nb">cd</span><span class="w"> </span>native<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cargo<span class="w"> </span>update<span class="w"> </span>-p<span class="w"> </span>datafusion<span class="o">)</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Bump the workspace dep</span>
+<span class="nv">$EDITOR</span><span class="w"> </span>Cargo.toml<span class="w">                    </span><span class="c1"># set datafusion = &quot;&lt;new&gt;&quot; in [workspace.dependencies]</span>
+cargo<span class="w"> </span>update<span class="w"> </span>-p<span class="w"> </span>datafusion
 
 <span class="c1"># 2. Bump the Maven property to match</span>
 <span class="nv">$EDITOR</span><span class="w"> </span>pom.xml<span class="w">                       </span><span class="c1"># set &lt;datafusion.version&gt;</span>
