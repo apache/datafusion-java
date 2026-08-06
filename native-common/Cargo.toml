@@ -27,13 +27,6 @@ publish = false
 readme = "README.md"
 description = "Shared JNI plumbing for DataFusion Java native crates: error-to-exception mapping, the per-cdylib Tokio runtime singleton, and the async-stream-to-FFI_ArrowArrayStream bridge."
 
-[features]
-# `datafusion-jni` builds DataFusion with `avro`, which adds the
-# `DataFusionError::AvroError` variant our classifier maps to IoException.
-# Feature-forwarded so consumers that don't read Avro (the Spark helper)
-# don't pull the apache-avro stack into their cdylib.
-avro = ["datafusion/avro"]
-
 [dependencies]
 datafusion = { workspace = true }
 futures = { workspace = true }

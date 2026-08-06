@@ -21,9 +21,8 @@ package org.apache.datafusion;
 
 /**
  * IO-shaped failure: a local filesystem read failed, an object store request failed, or a parquet /
- * arrow / avro decoder reported a malformed file. Surfaces upstream {@code
- * DataFusionError::IoError}, {@code ObjectStore}, {@code ArrowError}, {@code ParquetError}, and
- * {@code AvroError}.
+ * arrow decoder reported a malformed file. Surfaces upstream {@code DataFusionError::IoError},
+ * {@code ObjectStore}, {@code ParquetError}, and the IO-shaped {@code ArrowError} variants.
  *
  * <p>Note: this is {@code org.apache.datafusion.IoException} (lowercase {@code o}), distinct from
  * {@code java.io.IOException}. The {@code IoException} spelling matches the orthography of the

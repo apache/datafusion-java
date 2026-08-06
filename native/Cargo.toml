@@ -82,9 +82,8 @@ arrow = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true, features = ["avro"] }
 # Shared JNI plumbing (error->exception mapping, runtime singleton,
-# StreamingReader). `avro` keeps the classifier's AvroError->IoException arm
-# in sync with the `avro` feature on `datafusion` above.
-datafusion-jni-common = { path = "../native-common", features = ["avro"] }
+# StreamingReader).
+datafusion-jni-common = { path = "../native-common" }
 datafusion-proto = { workspace = true }
 # Apache Spark-compatible functions + expression planners. Optional and
 # gated behind the `spark` feature (in the default set). The `core` feature

@@ -17,7 +17,6 @@
 
 //! Java-backed scalar UDF support.
 
-use std::any::Any;
 use std::fmt;
 
 use datafusion::arrow::array::{make_array, Array, ArrayRef, StructArray};
@@ -80,10 +79,6 @@ impl std::hash::Hash for JavaScalarUdf {
 }
 
 impl ScalarUDFImpl for JavaScalarUdf {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         &self.name
     }

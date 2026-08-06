@@ -195,7 +195,7 @@ class DataFrameIntrospectionTest {
           }
         }
       }
-      // DataFusion 53.1 reports these seven labels.
+      // DataFusion 54.1 reports these seven labels.
       assertTrue(seen.contains("count"), () -> "labels=" + seen);
       assertTrue(seen.contains("null_count"), () -> "labels=" + seen);
       assertTrue(seen.contains("mean"), () -> "labels=" + seen);
