@@ -22,6 +22,7 @@ package org.apache.datafusion;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
+import java.util.function.LongBinaryOperator;
 
 import org.apache.arrow.c.ArrowArrayStream;
 import org.apache.arrow.c.Data;
@@ -37,23 +38,32 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * {@link #collect} (materializes every batch on the native heap before returning) or {@link
  * #executeStream} (yields one batch at a time as Java drains the reader).
  *
- * <p>Instances are <strong>not thread-safe</strong> and must be closed. Both {@link #collect} and
- * {@link #executeStream} consume the DataFrame: a successfully consumed DataFrame cannot be
- * consumed again by either method (or by other executors such as {@link #count}), and {@link
- * #close()} on an already-consumed instance is a no-op.
+ * <p>Instances must be closed. Both {@link #collect} and {@link #executeStream} consume the
+ * DataFrame: a successfully consumed DataFrame cannot be consumed again by either method (or by
+ * other executors such as {@link #count}), and {@link #close()} on an already-consumed instance is
+ * a no-op.
+ *
+ * <p>Instances are safe to share between threads. This class pins its native handle for the
+ * duration of every call, so a {@link #close} or a consuming operation racing with work on another
+ * thread cannot free the plan out from under it; the call that loses such a race throws {@link
+ * IllegalStateException}. When several threads race to consume the same DataFrame, exactly one
+ * succeeds. {@link #close} and the consuming operations block until calls already in flight have
+ * returned.
  */
 public final class DataFrame implements AutoCloseable {
   static {
     NativeLibraryLoader.loadLibrary();
   }
 
-  private long nativeHandle;
+  private static final String CLOSED = "DataFrame is closed or already collected";
+
+  private final NativeHandle handle;
 
   DataFrame(long nativeHandle) {
     if (nativeHandle == 0) {
       throw new IllegalArgumentException("DataFrame native handle is null");
     }
-    this.nativeHandle = nativeHandle;
+    this.handle = new NativeHandle(nativeHandle, CLOSED);
   }
 
   /**
@@ -68,14 +78,9 @@ public final class DataFrame implements AutoCloseable {
    * {@link #executeStream(BufferAllocator)} for analytics-scale queries.
    */
   public ArrowReader collect(BufferAllocator allocator) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
     ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
-    long handle = nativeHandle;
-    nativeHandle = 0;
     try {
-      collectDataFrame(handle, stream.memoryAddress());
+      collectDataFrame(handle.claim(), stream.memoryAddress());
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -98,14 +103,9 @@ public final class DataFrame implements AutoCloseable {
    * use this method.
    */
   public ArrowReader executeStream(BufferAllocator allocator) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
     ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
-    long handle = nativeHandle;
-    nativeHandle = 0;
     try {
-      executeStreamDataFrame(handle, stream.memoryAddress());
+      executeStreamDataFrame(handle.claim(), stream.memoryAddress());
       return Data.importArrayStream(allocator, stream);
     } catch (Throwable e) {
       stream.close();
@@ -121,10 +121,13 @@ public final class DataFrame implements AutoCloseable {
    * schema carries no buffer data.
    */
   public Schema schema() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    byte[] ipcBytes;
+    long h = handle.acquire();
+    try {
+      ipcBytes = schemaIpc(h);
+    } finally {
+      handle.release();
     }
-    byte[] ipcBytes = schemaIpc(nativeHandle);
     try {
       return MessageSerializer.deserializeSchema(
           new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))));
@@ -143,10 +146,12 @@ public final class DataFrame implements AutoCloseable {
    * #show()} or {@link #collect(BufferAllocator)}.
    */
   public DataFrame explain(boolean verbose, boolean analyze) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(explainPlan(h, verbose, analyze));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(explainPlan(nativeHandle, verbose, analyze));
   }
 
   /**
@@ -160,10 +165,12 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if execution fails.
    */
   public DataFrame cache() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(cachePlan(h));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(cachePlan(nativeHandle));
   }
 
   /**
@@ -178,34 +185,42 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if execution fails.
    */
   public DataFrame describe() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(describePlan(h));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(describePlan(nativeHandle));
   }
 
   /** Execute the plan and return the number of rows. */
   public long count() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return countRows(h);
+    } finally {
+      handle.release();
     }
-    return countRows(nativeHandle);
   }
 
   /** Execute the plan and print formatted batches to native stdout. */
   public void show() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      showDataFrame(h);
+    } finally {
+      handle.release();
     }
-    showDataFrame(nativeHandle);
   }
 
   /** Execute the plan and print the first {@code limit} rows to native stdout. */
   public void show(int limit) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      showDataFrameWithLimit(h, limit);
+    } finally {
+      handle.release();
     }
-    showDataFrameWithLimit(nativeHandle, limit);
   }
 
   /**
@@ -213,10 +228,12 @@ public final class DataFrame implements AutoCloseable {
    * closed independently.
    */
   public DataFrame select(String... columnNames) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(selectColumns(h, columnNames));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(selectColumns(nativeHandle, columnNames));
   }
 
   /**
@@ -224,10 +241,12 @@ public final class DataFrame implements AutoCloseable {
    * DataFrame's own schema. The receiver remains usable and must still be closed independently.
    */
   public DataFrame filter(String predicate) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(filterRows(h, predicate));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(filterRows(nativeHandle, predicate));
   }
 
   /**
@@ -249,10 +268,12 @@ public final class DataFrame implements AutoCloseable {
     if (fetch < 0) {
       throw new IllegalArgumentException("fetch must be non-negative, was " + fetch);
     }
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(limitRows(h, skip, fetch));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(limitRows(nativeHandle, skip, fetch));
   }
 
   /**
@@ -260,10 +281,12 @@ public final class DataFrame implements AutoCloseable {
    * independently.
    */
   public DataFrame distinct() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(distinctRows(h));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(distinctRows(nativeHandle));
   }
 
   /**
@@ -271,18 +294,22 @@ public final class DataFrame implements AutoCloseable {
    * and must still be closed independently.
    */
   public DataFrame dropColumns(String... columnNames) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(dropColumns(h, columnNames));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(dropColumns(nativeHandle, columnNames));
   }
 
   /** Rename a column. The receiver remains usable and must still be closed independently. */
   public DataFrame withColumnRenamed(String oldName, String newName) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(renameColumn(h, oldName, newName));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(renameColumn(nativeHandle, oldName, newName));
   }
 
   /**
@@ -294,16 +321,18 @@ public final class DataFrame implements AutoCloseable {
    * @throws IllegalArgumentException if {@code name} or {@code expr} is {@code null}.
    */
   public DataFrame withColumn(String name, String expr) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("withColumn name must be non-null");
+      }
+      if (expr == null) {
+        throw new IllegalArgumentException("withColumn expr must be non-null");
+      }
+      return new DataFrame(withColumnExpr(h, name, expr));
+    } finally {
+      handle.release();
     }
-    if (name == null) {
-      throw new IllegalArgumentException("withColumn name must be non-null");
-    }
-    if (expr == null) {
-      throw new IllegalArgumentException("withColumn expr must be non-null");
-    }
-    return new DataFrame(withColumnExpr(nativeHandle, name, expr));
   }
 
   /**
@@ -322,16 +351,18 @@ public final class DataFrame implements AutoCloseable {
    * @throws IllegalArgumentException if {@code options} or {@code columns} is {@code null}.
    */
   public DataFrame unnestColumns(UnnestOptions options, String... columns) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      if (options == null) {
+        throw new IllegalArgumentException("unnestColumns options must be non-null");
+      }
+      if (columns == null) {
+        throw new IllegalArgumentException("unnestColumns columns must be non-null");
+      }
+      return new DataFrame(unnestColumns(h, columns, options.preserveNulls()));
+    } finally {
+      handle.release();
     }
-    if (options == null) {
-      throw new IllegalArgumentException("unnestColumns options must be non-null");
-    }
-    if (columns == null) {
-      throw new IllegalArgumentException("unnestColumns columns must be non-null");
-    }
-    return new DataFrame(unnestColumns(nativeHandle, columns, options.preserveNulls()));
   }
 
   // -- Set operations ------------------------------------------------------
@@ -365,7 +396,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame union(DataFrame other) {
-    return new DataFrame(unionRows(nativeHandle, otherHandle("union", other)));
+    return combine("union", other, DataFrame::unionRows);
   }
 
   /**
@@ -377,7 +408,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame unionDistinct(DataFrame other) {
-    return new DataFrame(unionDistinctRows(nativeHandle, otherHandle("unionDistinct", other)));
+    return combine("unionDistinct", other, DataFrame::unionDistinctRows);
   }
 
   /**
@@ -388,7 +419,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if column types disagree on a shared name.
    */
   public DataFrame unionByName(DataFrame other) {
-    return new DataFrame(unionByNameRows(nativeHandle, otherHandle("unionByName", other)));
+    return combine("unionByName", other, DataFrame::unionByNameRows);
   }
 
   /**
@@ -399,8 +430,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if column types disagree on a shared name.
    */
   public DataFrame unionByNameDistinct(DataFrame other) {
-    return new DataFrame(
-        unionByNameDistinctRows(nativeHandle, otherHandle("unionByNameDistinct", other)));
+    return combine("unionByNameDistinct", other, DataFrame::unionByNameDistinctRows);
   }
 
   /**
@@ -420,7 +450,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame intersect(DataFrame other) {
-    return new DataFrame(intersectRows(nativeHandle, otherHandle("intersect", other)));
+    return combine("intersect", other, DataFrame::intersectRows);
   }
 
   /**
@@ -431,8 +461,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame intersectDistinct(DataFrame other) {
-    return new DataFrame(
-        intersectDistinctRows(nativeHandle, otherHandle("intersectDistinct", other)));
+    return combine("intersectDistinct", other, DataFrame::intersectDistinctRows);
   }
 
   /**
@@ -452,7 +481,7 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame except(DataFrame other) {
-    return new DataFrame(exceptRows(nativeHandle, otherHandle("except", other)));
+    return combine("except", other, DataFrame::exceptRows);
   }
 
   /**
@@ -463,24 +492,44 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the schemas are incompatible.
    */
   public DataFrame exceptDistinct(DataFrame other) {
-    return new DataFrame(exceptDistinctRows(nativeHandle, otherHandle("exceptDistinct", other)));
+    return combine("exceptDistinct", other, DataFrame::exceptDistinctRows);
   }
 
   /**
-   * Validate the receiver and the other DataFrame and return {@code other.nativeHandle}. Common
-   * preamble for the eight set-operation methods so the validation logic stays in one place.
+   * Validate the receiver and {@code other}, pin both handles, and apply a two-handle native set
+   * operation. Common body for the eight set-operation methods so the validation and pinning stay
+   * in one place.
+   *
+   * <p>Pinning two handles cannot deadlock: {@link NativeHandle#acquire()} never blocks, so a
+   * thread holding the receiver's pin is never waiting on the other DataFrame's lifetime.
    */
-  private long otherHandle(String op, DataFrame other) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+  private DataFrame combine(String op, DataFrame other, LongBinaryOperator nativeOp) {
+    long left = handle.acquire();
+    try {
+      if (other == null) {
+        throw new IllegalArgumentException(op + " other must be non-null");
+      }
+      long right = other.acquireAsOperand(op + " other DataFrame is closed or already collected");
+      try {
+        return new DataFrame(nativeOp.applyAsLong(left, right));
+      } finally {
+        other.handle.release();
+      }
+    } finally {
+      handle.release();
     }
-    if (other == null) {
-      throw new IllegalArgumentException(op + " other must be non-null");
+  }
+
+  /**
+   * Pin this DataFrame as the non-receiver operand of a binary operation, reporting a closed handle
+   * with {@code message} so the caller can distinguish which side was already gone.
+   */
+  private long acquireAsOperand(String message) {
+    try {
+      return handle.acquire();
+    } catch (IllegalStateException e) {
+      throw new IllegalStateException(message);
     }
-    if (other.nativeHandle == 0) {
-      throw new IllegalStateException(op + " other DataFrame is closed or already collected");
-    }
-    return other.nativeHandle;
   }
 
   /**
@@ -495,25 +544,27 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if a sort column does not exist in this DataFrame's schema.
    */
   public DataFrame sort(SortExpr... exprs) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
-    if (exprs == null) {
-      throw new IllegalArgumentException("sort exprs must be non-null");
-    }
-    String[] columns = new String[exprs.length];
-    boolean[] ascending = new boolean[exprs.length];
-    boolean[] nullsFirst = new boolean[exprs.length];
-    for (int i = 0; i < exprs.length; i++) {
-      SortExpr e = exprs[i];
-      if (e == null) {
-        throw new IllegalArgumentException("sort exprs[" + i + "] must be non-null");
+    long h = handle.acquire();
+    try {
+      if (exprs == null) {
+        throw new IllegalArgumentException("sort exprs must be non-null");
       }
-      columns[i] = e.column();
-      ascending[i] = e.ascending();
-      nullsFirst[i] = e.nullsFirst();
+      String[] columns = new String[exprs.length];
+      boolean[] ascending = new boolean[exprs.length];
+      boolean[] nullsFirst = new boolean[exprs.length];
+      for (int i = 0; i < exprs.length; i++) {
+        SortExpr e = exprs[i];
+        if (e == null) {
+          throw new IllegalArgumentException("sort exprs[" + i + "] must be non-null");
+        }
+        columns[i] = e.column();
+        ascending[i] = e.ascending();
+        nullsFirst[i] = e.nullsFirst();
+      }
+      return new DataFrame(sortRows(h, columns, ascending, nullsFirst));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(sortRows(nativeHandle, columns, ascending, nullsFirst));
   }
 
   /**
@@ -524,13 +575,15 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if the underlying repartition plan rejects the request.
    */
   public DataFrame repartitionRoundRobin(int numPartitions) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      if (numPartitions <= 0) {
+        throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
+      }
+      return new DataFrame(repartitionRoundRobinRows(h, numPartitions));
+    } finally {
+      handle.release();
     }
-    if (numPartitions <= 0) {
-      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
-    }
-    return new DataFrame(repartitionRoundRobinRows(nativeHandle, numPartitions));
   }
 
   /**
@@ -544,24 +597,26 @@ public final class DataFrame implements AutoCloseable {
    * @throws RuntimeException if a partition column does not exist in this DataFrame's schema.
    */
   public DataFrame repartitionHash(int numPartitions, String... columns) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
-    if (numPartitions <= 0) {
-      throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
-    }
-    if (columns == null) {
-      throw new IllegalArgumentException("repartitionHash columns must be non-null");
-    }
-    if (columns.length == 0) {
-      throw new IllegalArgumentException("repartitionHash requires at least one column");
-    }
-    for (int i = 0; i < columns.length; i++) {
-      if (columns[i] == null) {
-        throw new IllegalArgumentException("repartitionHash columns[" + i + "] must be non-null");
+    long h = handle.acquire();
+    try {
+      if (numPartitions <= 0) {
+        throw new IllegalArgumentException("numPartitions must be positive, was " + numPartitions);
       }
+      if (columns == null) {
+        throw new IllegalArgumentException("repartitionHash columns must be non-null");
+      }
+      if (columns.length == 0) {
+        throw new IllegalArgumentException("repartitionHash requires at least one column");
+      }
+      for (int i = 0; i < columns.length; i++) {
+        if (columns[i] == null) {
+          throw new IllegalArgumentException("repartitionHash columns[" + i + "] must be non-null");
+        }
+      }
+      return new DataFrame(repartitionHashRows(h, numPartitions, columns));
+    } finally {
+      handle.release();
     }
-    return new DataFrame(repartitionHashRows(nativeHandle, numPartitions, columns));
   }
 
   /**
@@ -580,8 +635,17 @@ public final class DataFrame implements AutoCloseable {
    */
   public DataFrame join(DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
     checkJoinArgs(right, type, leftCols, rightCols);
-    return new DataFrame(
-        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, null));
+    long l = handle.acquire();
+    try {
+      long r = right.acquireAsOperand("right DataFrame is closed or already collected");
+      try {
+        return new DataFrame(joinDataFrame(l, r, type.code(), leftCols, rightCols, null));
+      } finally {
+        right.handle.release();
+      }
+    } finally {
+      handle.release();
+    }
   }
 
   /**
@@ -601,11 +665,20 @@ public final class DataFrame implements AutoCloseable {
   public DataFrame join(
       DataFrame right, JoinType type, String[] leftCols, String[] rightCols, String filter) {
     checkJoinArgs(right, type, leftCols, rightCols);
-    if (filter == null) {
-      throw new IllegalArgumentException("join filter must be non-null");
+    long l = handle.acquire();
+    try {
+      long r = right.acquireAsOperand("right DataFrame is closed or already collected");
+      try {
+        if (filter == null) {
+          throw new IllegalArgumentException("join filter must be non-null");
+        }
+        return new DataFrame(joinDataFrame(l, r, type.code(), leftCols, rightCols, filter));
+      } finally {
+        right.handle.release();
+      }
+    } finally {
+      handle.release();
     }
-    return new DataFrame(
-        joinDataFrame(nativeHandle, right.nativeHandle, type.code(), leftCols, rightCols, filter));
   }
 
   /**
@@ -640,17 +713,20 @@ public final class DataFrame implements AutoCloseable {
         throw new IllegalArgumentException("joinOn predicates must not contain null");
       }
     }
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long l = handle.acquire();
+    try {
+      long r = right.acquireAsOperand("right DataFrame is closed or already collected");
+      try {
+        return new DataFrame(joinOnDataFrame(l, r, type.code(), predicates));
+      } finally {
+        right.handle.release();
+      }
+    } finally {
+      handle.release();
     }
-    if (right.nativeHandle == 0) {
-      throw new IllegalStateException("right DataFrame is closed or already collected");
-    }
-    return new DataFrame(
-        joinOnDataFrame(nativeHandle, right.nativeHandle, type.code(), predicates));
   }
 
-  private void checkJoinArgs(
+  private static void checkJoinArgs(
       DataFrame right, JoinType type, String[] leftCols, String[] rightCols) {
     if (right == null) {
       throw new IllegalArgumentException("join right must be non-null");
@@ -670,12 +746,6 @@ public final class DataFrame implements AutoCloseable {
               + leftCols.length
               + " and "
               + rightCols.length);
-    }
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
-    }
-    if (right.nativeHandle == 0) {
-      throw new IllegalStateException("right DataFrame is closed or already collected");
     }
   }
 
@@ -698,15 +768,17 @@ public final class DataFrame implements AutoCloseable {
    *     etc.).
    */
   public void writeParquet(String path, ParquetWriteOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      writeParquetWithOptions(
+          h,
+          path,
+          options.compression(),
+          options.singleFileOutput() != null,
+          options.singleFileOutput() != null && options.singleFileOutput());
+    } finally {
+      handle.release();
     }
-    writeParquetWithOptions(
-        nativeHandle,
-        path,
-        options.compression(),
-        options.singleFileOutput() != null,
-        options.singleFileOutput() != null && options.singleFileOutput());
   }
 
   /**
@@ -729,16 +801,18 @@ public final class DataFrame implements AutoCloseable {
    *     etc.).
    */
   public void writeCsv(String path, CsvWriteOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      if (path == null) {
+        throw new IllegalArgumentException("writeCsv path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("writeCsv options must be non-null");
+      }
+      writeCsvWithOptions(h, path, options.toBytes());
+    } finally {
+      handle.release();
     }
-    if (path == null) {
-      throw new IllegalArgumentException("writeCsv path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("writeCsv options must be non-null");
-    }
-    writeCsvWithOptions(nativeHandle, path, options.toBytes());
   }
 
   /**
@@ -761,23 +835,30 @@ public final class DataFrame implements AutoCloseable {
    *     etc.).
    */
   public void writeJson(String path, JsonWriteOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("DataFrame is closed or already collected");
+    long h = handle.acquire();
+    try {
+      if (path == null) {
+        throw new IllegalArgumentException("writeJson path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("writeJson options must be non-null");
+      }
+      writeJsonWithOptions(h, path, options.toBytes());
+    } finally {
+      handle.release();
     }
-    if (path == null) {
-      throw new IllegalArgumentException("writeJson path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("writeJson options must be non-null");
-    }
-    writeJsonWithOptions(nativeHandle, path, options.toBytes());
   }
 
+  /**
+   * Release the native plan. Blocks until calls already in flight on this DataFrame return, so that
+   * no native call can be left dereferencing a freed plan. Idempotent, and a no-op if the DataFrame
+   * was already consumed by {@link #collect} or {@link #executeStream}.
+   */
   @Override
   public void close() {
-    if (nativeHandle != 0) {
-      closeDataFrame(nativeHandle);
-      nativeHandle = 0;
+    long h = handle.claimQuietly();
+    if (h != 0) {
+      closeDataFrame(h);
     }
   }
 

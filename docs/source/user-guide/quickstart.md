@@ -55,8 +55,9 @@ per application) and close it in a `try`-with-resources.
 
 **Session context.** `SessionContext` is the entry point into DataFusion. It
 holds the catalog of registered tables and the query planner. It is
-`AutoCloseable` and **not thread-safe** — use one per thread, or guard
-access externally.
+`AutoCloseable` and safe to share across threads; see
+[SessionContext](sessioncontext.md) for what that does and does not
+guarantee.
 
 **Registering data.** `registerParquet(name, path)` reads the file's footer
 on call and exposes it under the given table name. See

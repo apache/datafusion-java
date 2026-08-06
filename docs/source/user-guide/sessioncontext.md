@@ -36,9 +36,23 @@ on exception.
 
 ## Threading
 
-A `SessionContext` is **not thread-safe**. Do not share one across threads
-without external synchronization. The simplest pattern is one context per
-thread.
+A `SessionContext` is safe to share across threads. Queries and
+registrations may run concurrently, and `close()` is safe to call while
+other threads are still using the context: it waits for calls already in
+flight to return before releasing the native session, and any call that
+arrives after the close throws `IllegalStateException`. Closing more than
+once, or from several threads at once, is a no-op after the first.
+
+This covers the *lifetime* of the native session, not the ordering of
+overlapping operations. Registering a table concurrently with a query that
+reads it still races in the ordinary way — whether the query observes the
+registration is undefined. Sequence those calls yourself when the ordering
+matters.
+
+`DataFrame` carries the same guarantees. Because `collect` and
+`executeStream` consume the DataFrame, threads racing to consume the same
+one resolve cleanly: exactly one succeeds and the rest get
+`IllegalStateException`.
 
 ## Configuration
 
