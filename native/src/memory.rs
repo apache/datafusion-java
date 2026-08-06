@@ -120,7 +120,27 @@ impl TrackingMemoryPool {
     }
 }
 
+/// DataFusion 54 added `Display` as a supertrait of [`MemoryPool`] so pools
+/// can render themselves in resource-exhausted messages. Mirror upstream's
+/// wrapper convention: name the wrapper, then defer to the inner pool for the
+/// limit/usage detail, and add the counters this wrapper exists to expose.
+impl std::fmt::Display for TrackingMemoryPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (current, peak) = self.snapshot();
+        write!(
+            f,
+            "{}(current: {current}, peak: {peak}, inner: {})",
+            self.name(),
+            self.inner
+        )
+    }
+}
+
 impl MemoryPool for TrackingMemoryPool {
+    fn name(&self) -> &str {
+        "tracking"
+    }
+
     fn register(&self, consumer: &datafusion::execution::memory_pool::MemoryConsumer) {
         self.inner.register(consumer);
     }

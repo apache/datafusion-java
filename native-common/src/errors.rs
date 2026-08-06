@@ -97,10 +97,6 @@ fn classify(err: &DataFusionError) -> &'static str {
         DataFusionError::IoError(_)
         | DataFusionError::ObjectStore(_)
         | DataFusionError::ParquetError(_) => "org/apache/datafusion/IoException",
-        // The AvroError variant only exists when DataFusion is built with its
-        // `avro` feature, forwarded by this crate's own `avro` feature.
-        #[cfg(feature = "avro")]
-        DataFusionError::AvroError(_) => "org/apache/datafusion/IoException",
         // ArrowError is a 21-variant grab bag -- only some of those variants
         // are actually IO-shaped. DivideByZero / ArithmeticOverflow / Compute
         // / Cast / InvalidArgument / Memory etc. are execution-time failures
@@ -125,9 +121,15 @@ fn classify(err: &DataFusionError) -> &'static str {
 /// Map an [`ArrowError`] variant onto the Java exception class to throw.
 /// Only the genuinely IO-shaped variants (`IoError`, `IpcError`) land on
 /// `IoException`; everything else is execution-time and routes through
-/// `ExecutionException`. Schema/parse-shaped variants route through
-/// `PlanException` so a malformed IPC schema or a parse error surfaces as a
-/// query problem rather than an execution failure.
+/// `ExecutionException` -- including `AvroError`, which is where Avro decode
+/// failures land now that DataFusion 54 reads Avro through `arrow-avro`
+/// instead of `apache-avro` (the old `DataFusionError::AvroError` variant is
+/// gone). That puts Avro alongside the `CsvError` / `JsonError` decoder
+/// variants, which this arm already classified as execution failures.
+///
+/// Schema/parse-shaped variants route through `PlanException` so a malformed
+/// IPC schema or a parse error surfaces as a query problem rather than an
+/// execution failure.
 ///
 /// Variants without a clean caller-facing category (`CDataInterface`, the
 /// various overflow/index-overflow markers) fall through to the parent.

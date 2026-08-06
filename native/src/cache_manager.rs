@@ -29,10 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::cache::cache_unit::{
-    DefaultFileStatisticsCache, DefaultFilesMetadataCache,
-};
-use datafusion::execution::cache::DefaultListFilesCache;
+use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
+use datafusion::execution::cache::{DefaultFilesMetadataCache, DefaultListFilesCache};
 
 use crate::proto_gen::CacheManagerOptionsProto;
 use datafusion_jni_common::errors::JniResult;
@@ -76,8 +74,20 @@ pub(crate) fn build_config(
         config.list_files_cache_ttl = ttl;
     }
 
-    if opts.file_statistics_cache_enabled.unwrap_or(false) {
-        config.table_files_statistics_cache = Some(Arc::new(DefaultFileStatisticsCache::default()));
+    // DataFusion 54 renamed `table_files_statistics_cache` to
+    // `file_statistics_cache` and made the *limit* the on/off switch:
+    // `CacheManager::try_new` now builds a `DefaultFileStatisticsCache`
+    // whenever `file_statistics_cache_limit > 0`, even when the cache slot is
+    // `None`. The default limit is non-zero, so an explicit `false` from the
+    // Java surface has to zero the limit -- otherwise upstream would install a
+    // stats cache the caller just asked us not to.
+    if let Some(enabled) = opts.file_statistics_cache_enabled {
+        if enabled {
+            config.file_statistics_cache = Some(Arc::new(DefaultFileStatisticsCache::default()));
+        } else {
+            config.file_statistics_cache = None;
+            config.file_statistics_cache_limit = 0;
+        }
     }
 
     Ok(Some(config))

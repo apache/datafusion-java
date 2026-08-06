@@ -22,7 +22,6 @@
 //! `TableProvider` trait; it currently only supports a single-partition, no-pushdown scan,
 //! with future pushdown and partitioning support tracked as follow-ups.
 
-use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
@@ -74,10 +73,6 @@ impl fmt::Debug for JavaTableProvider {
 
 #[async_trait]
 impl TableProvider for JavaTableProvider {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.schema)
     }
@@ -150,10 +145,6 @@ impl DisplayAs for JavaScanExec {
 impl ExecutionPlan for JavaScanExec {
     fn name(&self) -> &str {
         "JavaScanExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     fn properties(&self) -> &Arc<PlanProperties> {

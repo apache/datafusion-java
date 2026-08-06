@@ -73,7 +73,14 @@ class SessionContextSubstraitTest {
 
   /**
    * Build a minimal Substrait {@code Plan} that scans a registered named table {@code tableName}
-   * with two columns {@code (id int32, v int32)} and projects them through unchanged.
+   * with two columns {@code (id int64, v int64)} and projects them through unchanged.
+   *
+   * <p>The columns are declared {@code NULLABILITY_NULLABLE} to match the schema DataFusion infers
+   * for the CSV these tests register — CSV inference always yields nullable fields. DataFusion's
+   * Substrait consumer verifies that a field the plan declares non-nullable really is non-nullable
+   * in the table, and rejects the plan otherwise: a plan built around a "never null" assumption
+   * must not silently run against data that can contain nulls. The enclosing struct stays {@code
+   * REQUIRED} — the row itself is always present.
    */
   private static Plan namedTableScanPlan(String tableName) {
     NamedStruct schema =
@@ -87,13 +94,13 @@ class SessionContextSubstraitTest {
                             .setI64(
                                 Type.I64
                                     .newBuilder()
-                                    .setNullability(Type.Nullability.NULLABILITY_REQUIRED)))
+                                    .setNullability(Type.Nullability.NULLABILITY_NULLABLE)))
                     .addTypes(
                         Type.newBuilder()
                             .setI64(
                                 Type.I64
                                     .newBuilder()
-                                    .setNullability(Type.Nullability.NULLABILITY_REQUIRED)))
+                                    .setNullability(Type.Nullability.NULLABILITY_NULLABLE)))
                     .setNullability(Type.Nullability.NULLABILITY_REQUIRED))
             .build();
     ReadRel read =

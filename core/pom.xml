@@ -129,7 +129,7 @@ under the License.
                             <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto-common/proto/datafusion_common.proto</url>
                             <outputDirectory>${project.build.directory}/proto/datafusion/proto-common/proto</outputDirectory>
                             <outputFileName>datafusion_common.proto</outputFileName>
-                            <sha512>d6f3368372ea277cc23e26f196994b81616d38599357bb374cbd7eb1760e649a789e4c133d86a395ac701049a500348da2ec039d3f978ac5d8112c2876dded1f</sha512>
+                            <sha512>e6a20115badec14f641b9237b0faa3f553162992444208322558ea3fcfaa24ca15334e4945827259dcb7c1de7f9aed659d496974eb8eeb1cfcf54ad4d7f6d20f</sha512>
                         </configuration>
                     </execution>
                     <execution>
@@ -140,7 +140,7 @@ under the License.
                             <url>https://raw.githubusercontent.com/apache/datafusion/${datafusion.version}/datafusion/proto/proto/datafusion.proto</url>
                             <outputDirectory>${project.build.directory}/proto/datafusion/proto/proto</outputDirectory>
                             <outputFileName>datafusion.proto</outputFileName>
-                            <sha512>c3d162b8e2a418e03f74caceaccfd934af89bb95a12ede13d4cc1701d24c734d74b1e96372142b173db05938dab7f965ad60d476363308c441677a63ea5fbcf7</sha512>
+                            <sha512>bdae5361d32b4d4f0418677ce650ee8cc212fddfe9390b2c033ee4ab3bb3c969a6148b7b318b9bb268ee9384f18d4254ebe6e0701f15639059a8f2800d6e7847</sha512>
                         </configuration>
                     </execution>
                 </executions>
