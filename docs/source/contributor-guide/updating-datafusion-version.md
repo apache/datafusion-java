@@ -46,7 +46,7 @@ $EDITOR pom.xml                       # set <datafusion.version>
 #    <sha512> elements in pom.xml.
 NEW=$(grep -m1 -oE '<datafusion.version>[^<]+' pom.xml | cut -d'>' -f2)
 curl -sL "https://raw.githubusercontent.com/apache/datafusion/$NEW/datafusion/proto-common/proto/datafusion_common.proto" | shasum -a 512 | awk '{print $1}'
-curl -sL "https://raw.githubusercontent.com/apache/datafusion/$NEW/datafusion/proto/proto/datafusion.proto" | shasum -a 512 | awk '{print $1}'
+curl -sL "https://raw.githubusercontent.com/apache/datafusion/$NEW/datafusion/proto-models/proto/datafusion.proto" | shasum -a 512 | awk '{print $1}'
 $EDITOR pom.xml                       # paste the two hashes into the <sha512> elements
 
 # Drop the local download cache so the next build re-downloads against
