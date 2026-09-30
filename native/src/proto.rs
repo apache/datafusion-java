@@ -80,7 +80,7 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_createDataFrame
         let bytes: Vec<u8> = env.convert_byte_array(&plan_bytes)?;
 
         let plan = runtime().block_on(async {
-            let substrait_plan = datafusion_substrait::serializer::deserialize_bytes(bytes).await?;
+            let substrait_plan = datafusion_substrait::serializer::deserialize_bytes(&bytes)?;
             datafusion_substrait::logical_plan::consumer::from_substrait_plan(
                 &ctx.state(),
                 &substrait_plan,

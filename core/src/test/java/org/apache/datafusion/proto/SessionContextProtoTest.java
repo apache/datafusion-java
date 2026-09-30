@@ -151,7 +151,11 @@ class SessionContextProtoTest {
                                               .build())
                                       .setParquet(
                                           DatafusionCommon.ParquetFormat.getDefaultInstance())
-                                      .setTargetPartitions(1)
+                                      // No target_partitions: DataFusion 55
+                                      // removed the field from
+                                      // ListingTableScanNode (now
+                                      // `reserved 9`) and takes the partition
+                                      // count from the session config.
                                       .build())
                               .build())
                       .addExpr(

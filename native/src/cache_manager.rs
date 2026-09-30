@@ -20,17 +20,18 @@
 //!
 //! Each of the three caches is independent; an unset proto field leaves the
 //! corresponding upstream default in place (no cache for list-files / stats,
-//! a `DefaultFilesMetadataCache` with the default limit for file metadata).
-//! When a setter *is* present, the JNI layer always installs a fresh
-//! `Default*Cache` impl -- the v1 contract is "configure the built-in
-//! caches", not "swap in a custom one".
+//! a default file-metadata cache with the default limit).
+//!
+//! We only ever set the *limits* (and the list-files TTL), never the cache
+//! slots themselves: `CacheManager::try_new` constructs the built-in
+//! `DefaultCache` for any slot left `None` whose limit is non-zero. That is
+//! the v1 contract -- "configure the built-in caches", not "swap in a custom
+//! one" -- and it keeps us off the concrete cache types, which DataFusion 55
+//! collapsed into a single generic `DefaultCache<K, V>`.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
-use datafusion::execution::cache::{DefaultFilesMetadataCache, DefaultListFilesCache};
 
 use crate::proto_gen::CacheManagerOptionsProto;
 use datafusion_jni_common::errors::JniResult;
@@ -56,9 +57,7 @@ pub(crate) fn build_config(
     let mut config = CacheManagerConfig::default();
 
     if let Some(max_bytes) = opts.file_metadata_cache_max_bytes {
-        let max = max_bytes as usize;
-        config.file_metadata_cache = Some(Arc::new(DefaultFilesMetadataCache::new(max)));
-        config.metadata_cache_limit = max;
+        config.metadata_cache_limit = max_bytes as usize;
     }
 
     if let Some(lfc) = &opts.list_files_cache {
@@ -69,23 +68,19 @@ pub(crate) fn build_config(
         let max = lfc.max_bytes.map(|v| v as usize).unwrap_or(default_limit);
         let ttl = lfc.ttl_millis.map(Duration::from_millis);
 
-        config.list_files_cache = Some(Arc::new(DefaultListFilesCache::new(max, ttl)));
         config.list_files_cache_limit = max;
         config.list_files_cache_ttl = ttl;
     }
 
     // DataFusion 54 renamed `table_files_statistics_cache` to
     // `file_statistics_cache` and made the *limit* the on/off switch:
-    // `CacheManager::try_new` now builds a `DefaultFileStatisticsCache`
-    // whenever `file_statistics_cache_limit > 0`, even when the cache slot is
-    // `None`. The default limit is non-zero, so an explicit `false` from the
-    // Java surface has to zero the limit -- otherwise upstream would install a
+    // `CacheManager::try_new` builds a default file-statistics cache whenever
+    // `file_statistics_cache_limit > 0`, even when the cache slot is `None`.
+    // The default limit is non-zero, so an explicit `false` from the Java
+    // surface has to zero the limit -- otherwise upstream would install a
     // stats cache the caller just asked us not to.
     if let Some(enabled) = opts.file_statistics_cache_enabled {
-        if enabled {
-            config.file_statistics_cache = Some(Arc::new(DefaultFileStatisticsCache::default()));
-        } else {
-            config.file_statistics_cache = None;
+        if !enabled {
             config.file_statistics_cache_limit = 0;
         }
     }
