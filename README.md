@@ -60,7 +60,10 @@ try (var allocator = new RootAllocator();
 }
 ```
 
-`SessionContext` and `DataFrame` are `AutoCloseable` and not thread-safe.
+`SessionContext` and `DataFrame` are `AutoCloseable` and safe to share
+across threads: `close()` waits for calls already in flight to return
+before releasing the native object, and a call that loses the race to a
+`close()` throws `IllegalStateException`.
 
 ## Documentation
 

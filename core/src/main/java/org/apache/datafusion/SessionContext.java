@@ -38,30 +38,41 @@ import org.apache.arrow.vector.types.pojo.Schema;
 /**
  * A DataFusion session context.
  *
- * <p>Instances are <strong>not thread-safe</strong>. Concurrent calls to any of {@link #sql},
- * {@link #registerParquet}, or {@link #close} from different threads can produce a use-after-free
- * on the native side. Callers must externally synchronize, or confine each context to a single
- * thread.
+ * <p>Instances are safe to share between threads. The underlying native session is itself
+ * thread-safe, and this class pins its native handle for the duration of every call, so a {@link
+ * #close} racing with work on another thread cannot free the session out from under it. A call that
+ * loses such a race throws {@link IllegalStateException}.
+ *
+ * <p>{@link #close} blocks until calls already in flight on this context have returned, then
+ * releases the native session. Calling it a second time, concurrently or otherwise, is a no-op.
+ *
+ * <p>Thread safety here covers the handle's lifetime, not the semantics of overlapping operations:
+ * registering a table concurrently with a query that reads it still races in the ordinary way, and
+ * whether the query observes the registration is undefined.
  */
 public final class SessionContext implements AutoCloseable {
   static {
     NativeLibraryLoader.loadLibrary();
   }
 
-  private long nativeHandle;
+  private static final String CLOSED = "SessionContext is closed";
+
+  private final NativeHandle handle;
 
   public SessionContext() {
-    this.nativeHandle = createSessionContext();
-    if (this.nativeHandle == 0) {
+    long nativeHandle = createSessionContext();
+    if (nativeHandle == 0) {
       throw new RuntimeException("Failed to create native SessionContext");
     }
+    this.handle = new NativeHandle(nativeHandle, CLOSED);
   }
 
   SessionContext(byte[] optionsBytes) {
-    this.nativeHandle = createSessionContextWithOptions(optionsBytes);
-    if (this.nativeHandle == 0) {
+    long nativeHandle = createSessionContextWithOptions(optionsBytes);
+    if (nativeHandle == 0) {
       throw new RuntimeException("Failed to create native SessionContext");
     }
+    this.handle = new NativeHandle(nativeHandle, CLOSED);
   }
 
   /** Start configuring a {@link SessionContext}. */
@@ -74,11 +85,12 @@ public final class SessionContext implements AutoCloseable {
    * until {@link DataFrame#collect} is called.
    */
   public DataFrame sql(String query) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(createDataFrame(h, query));
+    } finally {
+      handle.release();
     }
-    long dfHandle = createDataFrame(nativeHandle, query);
-    return new DataFrame(dfHandle);
   }
 
   /**
@@ -92,11 +104,12 @@ public final class SessionContext implements AutoCloseable {
    *     planning fails.
    */
   public DataFrame fromProto(byte[] planBytes) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(createDataFrameFromProto(h, planBytes));
+    } finally {
+      handle.release();
     }
-    long dfHandle = createDataFrameFromProto(nativeHandle, planBytes);
-    return new DataFrame(dfHandle);
   }
 
   /**
@@ -126,14 +139,15 @@ public final class SessionContext implements AutoCloseable {
    *     if the native crate was built without the {@code substrait} feature.
    */
   public DataFrame fromSubstrait(byte[] planBytes) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (planBytes == null) {
+        throw new IllegalArgumentException("fromSubstrait planBytes must be non-null");
+      }
+      return new DataFrame(createDataFrameFromSubstrait(h, planBytes));
+    } finally {
+      handle.release();
     }
-    if (planBytes == null) {
-      throw new IllegalArgumentException("fromSubstrait planBytes must be non-null");
-    }
-    long dfHandle = createDataFrameFromSubstrait(nativeHandle, planBytes);
-    return new DataFrame(dfHandle);
   }
 
   /**
@@ -165,11 +179,13 @@ public final class SessionContext implements AutoCloseable {
    *     (should not happen in practice -- tracker registration is done by the constructor).
    */
   public MemoryUsage memoryUsage() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      long[] values = memoryUsageNative(h);
+      return new MemoryUsage(values[0], values[1]);
+    } finally {
+      handle.release();
     }
-    long[] values = memoryUsageNative(nativeHandle);
-    return new MemoryUsage(values[0], values[1]);
   }
 
   /**
@@ -195,12 +211,14 @@ public final class SessionContext implements AutoCloseable {
    *     feature.
    */
   public RuntimeStats runtimeStats() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      long[] s = runtimeStatsNative(h);
+      return new RuntimeStats(
+          (int) s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10]);
+    } finally {
+      handle.release();
     }
-    long[] s = runtimeStatsNative(nativeHandle);
-    return new RuntimeStats(
-        (int) s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10]);
   }
 
   /**
@@ -210,10 +228,13 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if {@code tableName} is not registered in this context.
    */
   public Schema tableSchema(String tableName) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    byte[] ipcBytes;
+    long h = handle.acquire();
+    try {
+      ipcBytes = tableSchemaIpc(h, tableName);
+    } finally {
+      handle.release();
     }
-    byte[] ipcBytes = tableSchemaIpc(nativeHandle, tableName);
     try {
       return MessageSerializer.deserializeSchema(
           new ReadChannel(Channels.newChannel(new ByteArrayInputStream(ipcBytes))));
@@ -241,13 +262,15 @@ public final class SessionContext implements AutoCloseable {
    * @throws IllegalStateException if this context is closed.
    */
   public String getOption(String key) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (key == null) {
+        throw new IllegalArgumentException("getOption key must be non-null");
+      }
+      return getOptionNative(h, key);
+    } finally {
+      handle.release();
     }
-    if (key == null) {
-      throw new IllegalArgumentException("getOption key must be non-null");
-    }
-    return getOptionNative(nativeHandle, key);
   }
 
   public void registerCsv(String name, String path) {
@@ -261,15 +284,17 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
    */
   public void registerCsv(String name, String path, CsvReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      registerCsvWithOptions(
+          h,
+          name,
+          path,
+          options.toBytes(),
+          options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    } finally {
+      handle.release();
     }
-    registerCsvWithOptions(
-        nativeHandle,
-        name,
-        path,
-        options.toBytes(),
-        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
   /** Read a CSV file as a {@link DataFrame} without registering it. */
@@ -283,16 +308,17 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if the read fails.
    */
   public DataFrame readCsv(String path, CsvReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(
+          readCsvWithOptions(
+              h,
+              path,
+              options.toBytes(),
+              options.schema() != null ? serializeSchemaIpc(options.schema()) : null));
+    } finally {
+      handle.release();
     }
-    long dfHandle =
-        readCsvWithOptions(
-            nativeHandle,
-            path,
-            options.toBytes(),
-            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
-    return new DataFrame(dfHandle);
   }
 
   public void registerJson(String name, String path) {
@@ -306,24 +332,26 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if registration fails (path not found, schema inference error, etc.).
    */
   public void registerJson(String name, String path, NdJsonReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("registerJson name must be non-null");
+      }
+      if (path == null) {
+        throw new IllegalArgumentException("registerJson path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("registerJson options must be non-null");
+      }
+      registerJsonWithOptions(
+          h,
+          name,
+          path,
+          options.toBytes(),
+          options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    } finally {
+      handle.release();
     }
-    if (name == null) {
-      throw new IllegalArgumentException("registerJson name must be non-null");
-    }
-    if (path == null) {
-      throw new IllegalArgumentException("registerJson path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("registerJson options must be non-null");
-    }
-    registerJsonWithOptions(
-        nativeHandle,
-        name,
-        path,
-        options.toBytes(),
-        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
   /** Read a newline-delimited JSON file as a {@link DataFrame} without registering it. */
@@ -338,22 +366,23 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if the read fails.
    */
   public DataFrame readJson(String path, NdJsonReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (path == null) {
+        throw new IllegalArgumentException("readJson path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("readJson options must be non-null");
+      }
+      return new DataFrame(
+          readJsonWithOptions(
+              h,
+              path,
+              options.toBytes(),
+              options.schema() != null ? serializeSchemaIpc(options.schema()) : null));
+    } finally {
+      handle.release();
     }
-    if (path == null) {
-      throw new IllegalArgumentException("readJson path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("readJson options must be non-null");
-    }
-    long dfHandle =
-        readJsonWithOptions(
-            nativeHandle,
-            path,
-            options.toBytes(),
-            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
-    return new DataFrame(dfHandle);
   }
 
   public void registerParquet(String name, String path) {
@@ -366,15 +395,17 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
    */
   public void registerParquet(String name, String path, ParquetReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      registerParquetWithOptions(
+          h,
+          name,
+          path,
+          options.toBytes(),
+          options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    } finally {
+      handle.release();
     }
-    registerParquetWithOptions(
-        nativeHandle,
-        name,
-        path,
-        options.toBytes(),
-        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
   /** Read a parquet file as a {@link DataFrame} without registering it. */
@@ -388,16 +419,17 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if the read fails.
    */
   public DataFrame readParquet(String path, ParquetReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      return new DataFrame(
+          readParquetWithOptions(
+              h,
+              path,
+              options.toBytes(),
+              options.schema() != null ? serializeSchemaIpc(options.schema()) : null));
+    } finally {
+      handle.release();
     }
-    long dfHandle =
-        readParquetWithOptions(
-            nativeHandle,
-            path,
-            options.toBytes(),
-            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
-    return new DataFrame(dfHandle);
   }
 
   /** Register an Arrow IPC file (or directory of Arrow IPC files) as a table. */
@@ -414,24 +446,26 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
    */
   public void registerArrow(String name, String path, ArrowReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("registerArrow name must be non-null");
+      }
+      if (path == null) {
+        throw new IllegalArgumentException("registerArrow path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("registerArrow options must be non-null");
+      }
+      registerArrowWithOptions(
+          h,
+          name,
+          path,
+          options.toBytes(),
+          options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    } finally {
+      handle.release();
     }
-    if (name == null) {
-      throw new IllegalArgumentException("registerArrow name must be non-null");
-    }
-    if (path == null) {
-      throw new IllegalArgumentException("registerArrow path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("registerArrow options must be non-null");
-    }
-    registerArrowWithOptions(
-        nativeHandle,
-        name,
-        path,
-        options.toBytes(),
-        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
   /** Read an Arrow IPC file as a {@link DataFrame} without registering it. */
@@ -446,22 +480,23 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if the read fails.
    */
   public DataFrame readArrow(String path, ArrowReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (path == null) {
+        throw new IllegalArgumentException("readArrow path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("readArrow options must be non-null");
+      }
+      return new DataFrame(
+          readArrowWithOptions(
+              h,
+              path,
+              options.toBytes(),
+              options.schema() != null ? serializeSchemaIpc(options.schema()) : null));
+    } finally {
+      handle.release();
     }
-    if (path == null) {
-      throw new IllegalArgumentException("readArrow path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("readArrow options must be non-null");
-    }
-    long dfHandle =
-        readArrowWithOptions(
-            nativeHandle,
-            path,
-            options.toBytes(),
-            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
-    return new DataFrame(dfHandle);
   }
 
   /** Register an Avro file (or directory of Avro files) as a table. */
@@ -478,24 +513,26 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if registration fails (path not found, schema mismatch, etc.).
    */
   public void registerAvro(String name, String path, AvroReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("registerAvro name must be non-null");
+      }
+      if (path == null) {
+        throw new IllegalArgumentException("registerAvro path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("registerAvro options must be non-null");
+      }
+      registerAvroWithOptions(
+          h,
+          name,
+          path,
+          options.toBytes(),
+          options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
+    } finally {
+      handle.release();
     }
-    if (name == null) {
-      throw new IllegalArgumentException("registerAvro name must be non-null");
-    }
-    if (path == null) {
-      throw new IllegalArgumentException("registerAvro path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("registerAvro options must be non-null");
-    }
-    registerAvroWithOptions(
-        nativeHandle,
-        name,
-        path,
-        options.toBytes(),
-        options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
   }
 
   /** Read an Avro file as a {@link DataFrame} without registering it. */
@@ -510,22 +547,23 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if the read fails.
    */
   public DataFrame readAvro(String path, AvroReadOptions options) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (path == null) {
+        throw new IllegalArgumentException("readAvro path must be non-null");
+      }
+      if (options == null) {
+        throw new IllegalArgumentException("readAvro options must be non-null");
+      }
+      return new DataFrame(
+          readAvroWithOptions(
+              h,
+              path,
+              options.toBytes(),
+              options.schema() != null ? serializeSchemaIpc(options.schema()) : null));
+    } finally {
+      handle.release();
     }
-    if (path == null) {
-      throw new IllegalArgumentException("readAvro path must be non-null");
-    }
-    if (options == null) {
-      throw new IllegalArgumentException("readAvro options must be non-null");
-    }
-    long dfHandle =
-        readAvroWithOptions(
-            nativeHandle,
-            path,
-            options.toBytes(),
-            options.schema() != null ? serializeSchemaIpc(options.schema()) : null);
-    return new DataFrame(dfHandle);
   }
 
   /**
@@ -539,19 +577,21 @@ public final class SessionContext implements AutoCloseable {
    *     incompatible signature, schema serialisation failure).
    */
   public void registerUdf(ScalarUdf udf) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      java.util.Objects.requireNonNull(udf, "udf");
+      ScalarFunction impl = udf.impl();
+      String name = udf.name();
+      Volatility volatility = udf.volatility();
+      List<Field> fields = new ArrayList<>(udf.argFields().size() + 1);
+      fields.add(udf.returnField());
+      fields.addAll(udf.argFields());
+      Schema signatureSchema = new Schema(fields);
+      byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
+      registerScalarUdf(h, name, signatureBytes, volatility.code(), impl);
+    } finally {
+      handle.release();
     }
-    java.util.Objects.requireNonNull(udf, "udf");
-    ScalarFunction impl = udf.impl();
-    String name = udf.name();
-    Volatility volatility = udf.volatility();
-    List<Field> fields = new ArrayList<>(udf.argFields().size() + 1);
-    fields.add(udf.returnField());
-    fields.addAll(udf.argFields());
-    Schema signatureSchema = new Schema(fields);
-    byte[] signatureBytes = serializeSchemaIpc(signatureSchema);
-    registerScalarUdf(nativeHandle, name, signatureBytes, volatility.code(), impl);
   }
 
   /**
@@ -572,21 +612,23 @@ public final class SessionContext implements AutoCloseable {
    * @throws RuntimeException if native registration fails.
    */
   public void registerTable(String name, TableProvider provider) {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("registerTable name must be non-null");
+      }
+      if (provider == null) {
+        throw new IllegalArgumentException("registerTable provider must be non-null");
+      }
+      Schema schema = provider.schema();
+      if (schema == null) {
+        throw new IllegalStateException("TableProvider.schema returned null");
+      }
+      byte[] schemaIpc = serializeSchemaIpc(schema);
+      registerTableNative(h, name, schemaIpc, provider);
+    } finally {
+      handle.release();
     }
-    if (name == null) {
-      throw new IllegalArgumentException("registerTable name must be non-null");
-    }
-    if (provider == null) {
-      throw new IllegalArgumentException("registerTable provider must be non-null");
-    }
-    Schema schema = provider.schema();
-    if (schema == null) {
-      throw new IllegalStateException("TableProvider.schema returned null");
-    }
-    byte[] schemaIpc = serializeSchemaIpc(schema);
-    registerTableNative(nativeHandle, name, schemaIpc, provider);
   }
 
   private static byte[] serializeSchemaIpc(Schema schema) {
@@ -610,11 +652,15 @@ public final class SessionContext implements AutoCloseable {
    * @throws IllegalStateException if this context is closed.
    */
   public boolean tableExists(String name) {
-    checkOpenSessionContext();
-    if (name == null) {
-      throw new IllegalArgumentException("tableExists name must be non-null");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("tableExists name must be non-null");
+      }
+      return tableExists(h, name);
+    } finally {
+      handle.release();
     }
-    return tableExists(nativeHandle, name);
   }
 
   /**
@@ -626,24 +672,28 @@ public final class SessionContext implements AutoCloseable {
    * @throws IllegalStateException if this context is closed.
    */
   public void deregisterTable(String name) {
-    checkOpenSessionContext();
-    if (name == null) {
-      throw new IllegalArgumentException("deregisterTable name must be non-null");
-    }
-    deregisterTable(nativeHandle, name);
-  }
-
-  private void checkOpenSessionContext() {
-    if (nativeHandle == 0) {
-      throw new IllegalStateException("SessionContext is closed");
+    long h = handle.acquire();
+    try {
+      if (name == null) {
+        throw new IllegalArgumentException("deregisterTable name must be non-null");
+      }
+      deregisterTable(h, name);
+    } finally {
+      handle.release();
     }
   }
 
+  /**
+   * Release the native session. Blocks until calls already in flight on this context return, so
+   * that no native call can be left dereferencing a freed session. Idempotent, and safe to call
+   * concurrently with work on other threads: those calls either complete or throw {@link
+   * IllegalStateException}.
+   */
   @Override
   public void close() {
-    if (nativeHandle != 0) {
-      closeSessionContext(nativeHandle);
-      nativeHandle = 0;
+    long h = handle.claimQuietly();
+    if (h != 0) {
+      closeSessionContext(h);
     }
   }
 
