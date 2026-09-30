@@ -454,7 +454,7 @@ context:</p>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">.</span><span class="na">builder</span><span class="p">()</span>
 <span class="w">        </span><span class="p">.</span><span class="na">withSparkFunctions</span><span class="p">()</span>
 <span class="w">        </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
-<span class="w">     </span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">&quot;SELECT crc32(&#39;Spark&#39;)&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">     </span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">"SELECT crc32('Spark')"</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// ...</span>
 <span class="p">}</span>
 </pre></div>

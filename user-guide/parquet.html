@@ -411,9 +411,9 @@ under the License.
 get a <code class="docutils literal notranslate"><span class="pre">DataFrame</span></code> directly.</p>
 <section id="register-a-table">
 <h2>Register a table<a class="headerlink" href="#register-a-table" title="Link to this heading">#</a></h2>
-<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">);</span>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">"orders"</span><span class="p">,</span><span class="w"> </span><span class="s">"/path/to/orders.parquet"</span><span class="p">);</span>
 
-<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">&quot;SELECT * FROM orders LIMIT 10&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">sql</span><span class="p">(</span><span class="s">"SELECT * FROM orders LIMIT 10"</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">df</span><span class="p">.</span><span class="na">show</span><span class="p">();</span>
 <span class="p">}</span>
 </pre></div>
@@ -423,7 +423,7 @@ catalog for the lifetime of the <code class="docutils literal notranslate"><span
 </section>
 <section id="read-a-dataframe-directly">
 <h2>Read a DataFrame directly<a class="headerlink" href="#read-a-dataframe-directly" title="Link to this heading">#</a></h2>
-<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">readParquet</span><span class="p">(</span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">readParquet</span><span class="p">(</span><span class="s">"/path/to/orders.parquet"</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">df</span><span class="p">.</span><span class="na">show</span><span class="p">();</span>
 <span class="p">}</span>
 </pre></div>
@@ -436,11 +436,11 @@ away.</p>
 <p>Both entry points accept a <code class="docutils literal notranslate"><span class="pre">ParquetReadOptions</span></code> to tune the underlying
 read. Construct one directly and chain setters:</p>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">ParquetReadOptions</span><span class="w"> </span><span class="n">opts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ParquetReadOptions</span><span class="p">()</span>
-<span class="w">    </span><span class="p">.</span><span class="na">fileExtension</span><span class="p">(</span><span class="s">&quot;.parquet&quot;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">.</span><span class="na">fileExtension</span><span class="p">(</span><span class="s">".parquet"</span><span class="p">);</span>
 
-<span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">opts</span><span class="p">);</span>
+<span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">"orders"</span><span class="p">,</span><span class="w"> </span><span class="s">"/path/to/orders.parquet"</span><span class="p">,</span><span class="w"> </span><span class="n">opts</span><span class="p">);</span>
 <span class="c1">// or</span>
-<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">readParquet</span><span class="p">(</span><span class="s">&quot;/path/to/orders.parquet&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">opts</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">DataFrame</span><span class="w"> </span><span class="n">df</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">readParquet</span><span class="p">(</span><span class="s">"/path/to/orders.parquet"</span><span class="p">,</span><span class="w"> </span><span class="n">opts</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">df</span><span class="p">.</span><span class="na">show</span><span class="p">();</span>
 <span class="p">}</span>
 </pre></div>

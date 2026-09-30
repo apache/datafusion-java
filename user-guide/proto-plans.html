@@ -482,7 +482,7 @@ Arrow <code class="docutils literal notranslate"><span class="pre">Schema</span>
 <div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.arrow.vector.types.pojo.Schema</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.proto.SchemaConverter</span><span class="p">;</span>
 
-<span class="n">Schema</span><span class="w"> </span><span class="n">arrow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">tableSchema</span><span class="p">(</span><span class="s">&quot;lineitem&quot;</span><span class="p">);</span>
+<span class="n">Schema</span><span class="w"> </span><span class="n">arrow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="na">tableSchema</span><span class="p">(</span><span class="s">"lineitem"</span><span class="p">);</span>
 <span class="n">DatafusionCommon</span><span class="p">.</span><span class="na">Schema</span><span class="w"> </span><span class="n">schemaProto</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SchemaConverter</span><span class="p">.</span><span class="na">toProto</span><span class="p">(</span><span class="n">arrow</span><span class="p">);</span>
 </pre></div>
 </div>
@@ -497,18 +497,18 @@ and fetches the first row. This is equivalent to
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.protobuf.SortNode</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">org.apache.datafusion.protobuf.TableReference</span><span class="p">;</span>
 
-<span class="n">String</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;/path/to/lineitem.parquet&quot;</span><span class="p">;</span>
+<span class="n">String</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">"/path/to/lineitem.parquet"</span><span class="p">;</span>
 
 <span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="kd">var</span><span class="w"> </span><span class="n">allocator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RootAllocator</span><span class="p">();</span>
 <span class="w">     </span><span class="n">SessionContext</span><span class="w"> </span><span class="n">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionContext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
 
-<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">&quot;lineitem&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">);</span>
+<span class="w">    </span><span class="n">ctx</span><span class="p">.</span><span class="na">registerParquet</span><span class="p">(</span><span class="s">"lineitem"</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">);</span>
 <span class="w">    </span><span class="n">DatafusionCommon</span><span class="p">.</span><span class="na">Schema</span><span class="w"> </span><span class="n">schemaProto</span><span class="w"> </span><span class="o">=</span>
-<span class="w">        </span><span class="n">SchemaConverter</span><span class="p">.</span><span class="na">toProto</span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">tableSchema</span><span class="p">(</span><span class="s">&quot;lineitem&quot;</span><span class="p">));</span>
+<span class="w">        </span><span class="n">SchemaConverter</span><span class="p">.</span><span class="na">toProto</span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="na">tableSchema</span><span class="p">(</span><span class="s">"lineitem"</span><span class="p">));</span>
 
 <span class="w">    </span><span class="n">LogicalExprNode</span><span class="w"> </span><span class="n">orderKeyCol</span><span class="w"> </span><span class="o">=</span>
 <span class="w">        </span><span class="n">LogicalExprNode</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
-<span class="w">            </span><span class="p">.</span><span class="na">setColumn</span><span class="p">(</span><span class="n">DatafusionCommon</span><span class="p">.</span><span class="na">Column</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">().</span><span class="na">setName</span><span class="p">(</span><span class="s">&quot;l_orderkey&quot;</span><span class="p">).</span><span class="na">build</span><span class="p">())</span>
+<span class="w">            </span><span class="p">.</span><span class="na">setColumn</span><span class="p">(</span><span class="n">DatafusionCommon</span><span class="p">.</span><span class="na">Column</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">().</span><span class="na">setName</span><span class="p">(</span><span class="s">"l_orderkey"</span><span class="p">).</span><span class="na">build</span><span class="p">())</span>
 <span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
 
 <span class="w">    </span><span class="n">LogicalPlanNode</span><span class="w"> </span><span class="n">plan</span><span class="w"> </span><span class="o">=</span>
@@ -523,15 +523,15 @@ and fetches the first row. This is equivalent to
 <span class="w">                                        </span><span class="n">TableReference</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
 <span class="w">                                            </span><span class="p">.</span><span class="na">setBare</span><span class="p">(</span>
 <span class="w">                                                </span><span class="n">BareTableReference</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
-<span class="w">                                                    </span><span class="p">.</span><span class="na">setTable</span><span class="p">(</span><span class="s">&quot;lineitem&quot;</span><span class="p">)</span>
+<span class="w">                                                    </span><span class="p">.</span><span class="na">setTable</span><span class="p">(</span><span class="s">"lineitem"</span><span class="p">)</span>
 <span class="w">                                                    </span><span class="p">.</span><span class="na">build</span><span class="p">())</span>
 <span class="w">                                            </span><span class="p">.</span><span class="na">build</span><span class="p">())</span>
 <span class="w">                                    </span><span class="p">.</span><span class="na">addPaths</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-<span class="w">                                    </span><span class="p">.</span><span class="na">setFileExtension</span><span class="p">(</span><span class="s">&quot;.parquet&quot;</span><span class="p">)</span>
+<span class="w">                                    </span><span class="p">.</span><span class="na">setFileExtension</span><span class="p">(</span><span class="s">".parquet"</span><span class="p">)</span>
 <span class="w">                                    </span><span class="p">.</span><span class="na">setSchema</span><span class="p">(</span><span class="n">schemaProto</span><span class="p">)</span>
 <span class="w">                                    </span><span class="p">.</span><span class="na">setProjection</span><span class="p">(</span>
 <span class="w">                                        </span><span class="n">ProjectionColumns</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
-<span class="w">                                            </span><span class="p">.</span><span class="na">addColumns</span><span class="p">(</span><span class="s">&quot;l_orderkey&quot;</span><span class="p">)</span>
+<span class="w">                                            </span><span class="p">.</span><span class="na">addColumns</span><span class="p">(</span><span class="s">"l_orderkey"</span><span class="p">)</span>
 <span class="w">                                            </span><span class="p">.</span><span class="na">build</span><span class="p">())</span>
 <span class="w">                                    </span><span class="p">.</span><span class="na">setParquet</span><span class="p">(</span>
 <span class="w">                                        </span><span class="n">DatafusionCommon</span><span class="p">.</span><span class="na">ParquetFormat</span><span class="p">.</span><span class="na">getDefaultInstance</span><span class="p">())</span>
