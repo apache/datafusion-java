@@ -6,6 +6,8 @@ rust-target/
 *.iml
 .DS_Store
 tpch-data/
+# Lockfile for the example ADBC driver crate (a demo cdylib, not a published lib).
+examples/adbc-datafusion-driver/Cargo.lock
 .claude
 docs/superpowers
 docs/build/

@@ -33,6 +33,7 @@ under the License.
     <modules>
         <module>core</module>
         <module>examples</module>
+        <module>spark</module>
     </modules>
 
     <properties>

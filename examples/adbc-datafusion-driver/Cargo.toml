@@ -1,0 +1,57 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[package]
+name = "adbc-datafusion-example-driver"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "End-to-end example: an ADBC driver that exposes a custom DataFusion TableProvider"
+
+# Standalone crate that stands in for a real, separate driver repo. The empty
+# [workspace] table makes it its own workspace root so it is NOT pulled into the
+# parent datafusion-java workspace (whose members are listed explicitly).
+[workspace]
+
+[dependencies]
+# The ready-made ADBC-over-DataFusion driver. We depend on it as a LIBRARY and
+# only customize the SessionContext via its new_with_context_init hook -- no
+# fork, no datafusion-ffi module loading. Pulled from its own repo (git) since
+# that is where it lives.
+adbc-driver-datafusion = { git = "https://github.com/adbc-drivers/datafusion" }
+adbc_core = "0.23"
+adbc_ffi = "0.23"
+datafusion = "53"
+async-trait = "0.1"
+# For building Float16 example data (arrow's half-precision element type).
+half = "2"
+
+# Build both an rlib (so the provider/driver can be unit-tested or embedded) and
+# a cdylib (the artifact the arrow-adbc Java driver manager loads at runtime).
+[lib]
+crate-type = ["cdylib", "lib"]
+
+# Temporary: redirect adbc-driver-datafusion to the PR branch that implements
+# execute_partitions / read_partition plus the shared (database-scoped) plan
+# cache (adbc-drivers/datafusion#32), so we can run a full multi-partition
+# system test before it merges. The crate is not on crates.io, so this patches
+# the git source (not [patch.crates-io]). Pinned to a rev (not the branch) so
+# builds are reproducible and the plan-cache assertion in AdbcSourceTest is
+# stable. Remove once the PR is merged and the canonical dependency carries the
+# change.
+[patch."https://github.com/adbc-drivers/datafusion"]
+adbc-driver-datafusion = { git = "https://github.com/timsaucer/adbc-driver-datafusion", rev = "9b51df2b13d20d81c563ef3ee818db1c02082fac" }
