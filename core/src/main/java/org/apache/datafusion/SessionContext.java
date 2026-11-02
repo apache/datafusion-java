@@ -559,10 +559,14 @@ public final class SessionContext implements AutoCloseable {
    * reference {@code name} call back into {@code provider} to fetch batches.
    *
    * <p>{@link TableProvider#schema()} is called once here, on the calling thread, and cached on the
-   * native side. {@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called once
-   * per query that touches the table, on a Tokio worker thread; it must return a fresh, independent
-   * {@link org.apache.arrow.vector.ipc.ArrowReader} on every call, with its buffers allocated from
-   * the {@link org.apache.arrow.memory.BufferAllocator} the framework supplies.
+   * native side. For base providers, {@link
+   * TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called once per physical scan,
+   * on a Tokio worker thread; it must return a fresh, independent {@link
+   * org.apache.arrow.vector.ipc.ArrowReader} on every call, with its buffers allocated from the
+   * {@link org.apache.arrow.memory.BufferAllocator} the framework supplies.
+   *
+   * <p>Override {@link TableProvider#scanWithArgs(ScanArgs)} to plan a lazy scan with projection,
+   * supported filters and a limit supplied by DataFusion. Planning does not open its reader.
    *
    * <p>This is the Java counterpart to DataFusion's Rust {@code SessionContext::register_table}.
    *

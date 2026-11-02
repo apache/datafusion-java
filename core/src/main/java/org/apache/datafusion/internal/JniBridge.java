@@ -21,6 +21,8 @@ package org.apache.datafusion.internal;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowArrayStream;
@@ -31,16 +33,22 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.datafusion.ColumnarValue;
+import org.apache.datafusion.ExecutionPlan;
 import org.apache.datafusion.ScalarFunction;
 import org.apache.datafusion.ScalarFunctionArgs;
+import org.apache.datafusion.ScanArgs;
 import org.apache.datafusion.TableProvider;
+import org.apache.datafusion.protobuf.LogicalExprNode;
+import org.apache.datafusion.protobuf.TableScanOptionsProto;
 
-/** Internal trampoline invoked from native code on every UDF call. Not part of the public API. */
+import com.google.protobuf.InvalidProtocolBufferException;
+
+/** Internal trampolines for native UDF and table-provider callbacks. Not part of the public API. */
 public final class JniBridge {
   /**
-   * Shared allocator for UDF inputs/outputs. Created once at class-load time; never closed.
-   * Outstanding allocations are released by the FFI structs' release callbacks when the native side
-   * drops them after {@code from_ffi}.
+   * Shared allocator for UDF inputs/outputs and table scans. Created once at class-load time; never
+   * closed. Outstanding allocations are released by the FFI structs' release callbacks when the
+   * native side drops them after {@code from_ffi}.
    */
   private static final RootAllocator ALLOCATOR = new RootAllocator();
 
@@ -143,22 +151,73 @@ public final class JniBridge {
     }
   }
 
+  /** Plan one physical scan without opening its reader. Called from native code. */
+  public static ExecutionPlan scanWithArgs(
+      TableProvider provider, byte[] optionsBytes, byte[][] filterProtos)
+      throws InvalidProtocolBufferException {
+    TableScanOptionsProto options = TableScanOptionsProto.parseFrom(optionsBytes);
+    Optional<List<Integer>> projection =
+        options.hasProjection()
+            ? Optional.of(options.getProjection().getIndicesList())
+            : Optional.empty();
+    ExecutionPlan plan =
+        provider.scanWithArgs(
+            new ScanArgs(
+                projection,
+                parseFilters(filterProtos),
+                options.hasLimit() ? OptionalLong.of(options.getLimit()) : OptionalLong.empty()));
+    if (plan == null) {
+      throw new IllegalStateException("TableProvider.scanWithArgs returned null");
+    }
+    return plan;
+  }
+
+  /** Report per-expression capabilities using the native adapter's closed numeric contract. */
+  public static int[] supportsTableFilterPushdown(TableProvider provider, byte[][] filterProtos)
+      throws InvalidProtocolBufferException {
+    List<TableProvider.FilterPushdown> capabilities =
+        provider.supportsFiltersPushdown(parseFilters(filterProtos));
+    if (capabilities == null || capabilities.size() != filterProtos.length) {
+      throw new IllegalArgumentException(
+          "supportsFiltersPushdown must return one capability per filter");
+    }
+    int[] result = new int[capabilities.size()];
+    for (int i = 0; i < result.length; i++) {
+      result[i] =
+          switch (capabilities.get(i)) {
+            case UNSUPPORTED -> 1;
+            case INEXACT -> 2;
+            case EXACT -> 3;
+          };
+    }
+    return result;
+  }
+
+  private static List<LogicalExprNode> parseFilters(byte[][] filterProtos)
+      throws InvalidProtocolBufferException {
+    List<LogicalExprNode> filters = new ArrayList<>(filterProtos.length);
+    for (byte[] filter : filterProtos) {
+      filters.add(LogicalExprNode.parseFrom(filter));
+    }
+    return filters;
+  }
+
   /**
    * Open a fresh batch stream from a Java {@link TableProvider} and export it through the supplied
    * Arrow C Data Interface address. Called from native code; not for application use.
    *
-   * <p>{@link TableProvider#scan(org.apache.arrow.memory.BufferAllocator)} is called with {@link
-   * #ALLOCATOR} so that the reader's buffers share the same allocator root required by {@link
-   * Data#exportArrayStream}.
+   * <p>{@link ExecutionPlan#execute(int, org.apache.arrow.memory.BufferAllocator)} is called with
+   * {@link #ALLOCATOR} so that the reader's buffers share the same allocator root required by
+   * {@link Data#exportArrayStream}.
    *
    * <p>On success, ownership of the returned reader transfers to the FFI stream's release callback,
    * so the native side closing the stream also closes the reader. On any failure during export, the
    * reader is closed here before the exception propagates.
    */
-  public static void invokeTableScan(TableProvider provider, long ffiStreamAddr) {
-    ArrowReader reader = provider.scan(ALLOCATOR);
+  public static void executePlan(ExecutionPlan plan, int partition, long ffiStreamAddr) {
+    ArrowReader reader = plan.execute(partition, ALLOCATOR);
     if (reader == null) {
-      throw new IllegalStateException("TableProvider.scan returned null");
+      throw new IllegalStateException("ExecutionPlan.execute returned null");
     }
     ArrowArrayStream stream = ArrowArrayStream.wrap(ffiStreamAddr);
     try {

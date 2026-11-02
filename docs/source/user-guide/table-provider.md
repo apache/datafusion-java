@@ -81,7 +81,7 @@ try (SessionContext ctx = new SessionContext();
 
 - `schema()` is called exactly once, on the caller's thread, at registration
   time. Throwing from it aborts registration with the original exception.
-- `scan(allocator)` is called once per SQL query that touches the table, on a
+- `scan(allocator)` is called once per physical scan of the table, on a
   worker thread. It must return a fresh, independent `ArrowReader` on every
   call — this is what makes self-joins and `UNION ALL` over the same table
   work.
@@ -107,12 +107,82 @@ errors.
 any DataFusion worker thread. If your implementation maintains mutable state
 across scans, synchronise it.
 
-## Limitations (v1)
+## Scan planning and pushdown
 
-- Single-partition scans only. DataFusion sees the table as one partition;
-  multi-partition parallelism is a follow-up.
-- No projection or filter pushdown. DataFusion applies projection and
-  filters on top of the batches you return; the Java side always sees the
-  full schema. The interface is intentionally minimal so it can grow these
-  capabilities (as default methods) without breaking existing implementations.
-- No `deregisterTable`. Tables live until the `SessionContext` is closed.
+Override `TableProvider.scanWithArgs(ScanArgs)` to receive DataFusion's
+scan request. The default returns a lazy plan that calls the existing
+`scan(allocator)` method, so existing `TableProvider` and
+`SimpleTableProvider` implementations need no changes.
+
+```text
+DataFusion optimizer
+    -> supportsFiltersPushdown(expression protos)
+DataFusion physical planning
+    -> scanWithArgs(args) -> ExecutionPlan (no source rows read)
+DataFusion execution
+    -> ExecutionPlan.execute(partition, allocator) -> fresh ArrowReader
+```
+
+The request has three immutable components:
+
+| Component | Meaning |
+|---|---|
+| `projection()` | Optional ordered indices into the registered schema. Absent means all columns; present but empty means zero columns, not zero rows. |
+| `filters()` | Supported/inexact filters as generated `LogicalExprNode` protobuf messages, not SQL text. |
+| `limit()` | Optional limit supplied by DataFusion's planner. A source may return more matching rows, but must not prematurely truncate before satisfying it. |
+
+`supportsFiltersPushdown` returns one `FilterPushdown` value per expression,
+in input order:
+
+- `UNSUPPORTED`: leave evaluation to DataFusion; the filter is not sent to
+  `scanWithArgs`.
+- `INEXACT`: the source may prune candidates but must retain every matching
+  row. DataFusion keeps a residual filter.
+- `EXACT`: the source fully applies the predicate with DataFusion-compatible
+  semantics; DataFusion can remove its residual filter.
+
+The default declines all filters. Expressions that cannot be represented
+by the expression-protobuf boundary are also treated as unsupported.
+DataFusion, not the Java adapter, decides whether LIMIT can be pushed
+through a residual filter. A provider must not apply additional early
+truncation that would discard matching rows.
+Limits that cannot fit a non-negative Java `long` are omitted as scan
+hints; DataFusion still applies the query's limit.
+
+The provider owns the source-specific planning decisions:
+
+```java
+@Override
+public ExecutionPlan scanWithArgs(ScanArgs args) {
+    // Choose an access path from the request, without reading source rows.
+    var accessPath = chooseAccessPath(args);
+    return (partition, allocator) -> openProjectedReader(accessPath, allocator);
+}
+```
+
+The plan may return the full registered schema or the requested projected
+schema in the requested order. The native adapter projects full-schema
+batches as needed, preserving compatibility with the default `scanWithArgs`.
+Already-projected batches are used directly, without projecting them a
+second time. Other schema mismatches fail the query. A zero-column reader
+must still preserve the number of rows, as required by queries such as
+`COUNT(*)`.
+
+Planning/capability callbacks may be repeated. They must not consume
+source rows, and must be thread-safe when sharing state. Each execution
+opens an independent reader with buffers allocated by the supplied
+allocator (or its child). Reader ownership and cleanup are the same as
+for a base provider.
+
+This API only supplies a Java-backed leaf plan. It does not expose
+arbitrary child-consuming execution operators, install source-specific
+optimizer rules, or add source SDK dependencies to the binding.
+
+## Limitations
+
+- Bounded single-partition scans only. DataFusion sees the table as one partition;
+  execution receives partition index `0`. The explicit partition argument leaves
+  room for future multi-partition support without changing `execute`'s signature.
+- The default `scanWithArgs` retains full-schema reads, and
+  `supportsFiltersPushdown` defaults to `UNSUPPORTED`. Override these methods
+  on `TableProvider` for source-level pushdown.

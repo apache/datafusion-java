@@ -1307,16 +1307,27 @@ pub extern "system" fn Java_org_apache_datafusion_SessionContext_registerTableNa
         let bridge_class = Arc::new(env.new_global_ref(&bridge_class_local)?);
         let invoke_method = env.get_static_method_id(
             &bridge_class_local,
-            "invokeTableScan",
-            "(Lorg/apache/datafusion/TableProvider;J)V",
+            "executePlan",
+            "(Lorg/apache/datafusion/ExecutionPlan;IJ)V",
         )?;
-
+        let plan_method = env.get_static_method_id(
+            &bridge_class_local,
+            "scanWithArgs",
+            "(Lorg/apache/datafusion/TableProvider;[B[[B)Lorg/apache/datafusion/ExecutionPlan;",
+        )?;
+        let pushdown_method = env.get_static_method_id(
+            &bridge_class_local,
+            "supportsTableFilterPushdown",
+            "(Lorg/apache/datafusion/TableProvider;[[B)[I",
+        )?;
         let java_tp = crate::table_provider::JavaTableProvider {
             name: name.clone(),
             schema,
             source_global_ref,
             bridge_class,
             invoke_method,
+            plan_method,
+            pushdown_method,
         };
         let _ = ctx.register_table(name.as_str(), Arc::new(java_tp))?;
         Ok(())
