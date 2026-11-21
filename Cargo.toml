@@ -37,17 +37,17 @@ repository = "https://github.com/apache/datafusion-java"
 # and add per-crate flags (optional, features, default-features) at the use
 # site.
 [workspace.dependencies]
-arrow = { version = "59", features = ["ffi"] }
+arrow = { version = "60", features = ["ffi"] }
 async-trait = "0.1"
-datafusion = { version = "55.0.0" }
-datafusion-proto = "55.0.0"
-datafusion-spark = "55.0.0"
-datafusion-substrait = "55.0.0"
+datafusion = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
+datafusion-proto = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
+datafusion-spark = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
+datafusion-substrait = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
 futures = "0.3"
 jni = "0.21"
-# Pinned to the major DataFusion 55.0 pulls in transitively (0.13.x) so we
+# Pinned to the major DataFusion 56.0 pulls in transitively (0.14.x) so we
 # share the same `dyn ObjectStore` vtable and don't double-link.
-object_store = { version = "0.13", default-features = false }
+object_store = { version = "0.14", default-features = false }
 prost = "0.14"
 prost-build = "0.14"
 protoc-bin-vendored = "3"

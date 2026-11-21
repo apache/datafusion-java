@@ -40,6 +40,7 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ffi_stream::FFI_ArrowArrayStream;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::arrow::record_batch::RecordBatchIterator;
+use datafusion::common::parquet_config::DFParquetCompression;
 use datafusion::common::{JoinType, UnnestOptions};
 use datafusion::config::TableParquetOptions;
 use datafusion::dataframe::DataFrame;
@@ -956,7 +957,7 @@ pub extern "system" fn Java_org_apache_datafusion_DataFrame_writeParquetWithOpti
         let writer_opts: Option<TableParquetOptions> = if !compression.is_null() {
             let c: String = env.get_string(&compression)?.into();
             let mut tpo = TableParquetOptions::default();
-            tpo.global.compression = Some(c);
+            tpo.global.compression = Some(c.parse::<DFParquetCompression>()?);
             Some(tpo)
         } else {
             None
