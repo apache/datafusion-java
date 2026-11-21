@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use datafusion::arrow::ffi_stream::{FFI_ArrowArrayStream, RecordBatchStreamReader};
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::TreeNodeRecursion;
@@ -85,7 +85,7 @@ impl TableProvider for JavaTableProvider {
     async fn scan(
         &self,
         _state: &dyn Session,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
         _filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -103,7 +103,7 @@ impl TableProvider for JavaTableProvider {
             name: self.name.clone(),
             full_schema: Arc::clone(&self.schema),
             projected_schema,
-            projection: projection.cloned(),
+            projection: projection.map(<[usize]>::to_vec),
             source_global_ref: Arc::clone(&self.source_global_ref),
             bridge_class: Arc::clone(&self.bridge_class),
             invoke_method: self.invoke_method,
@@ -234,7 +234,7 @@ impl ExecutionPlan for JavaScanExec {
 
         // 4. Reclaim the FFI struct and import as a RecordBatchReader.
         let ffi_stream: FFI_ArrowArrayStream = *ffi_box;
-        let reader = ArrowArrayStreamReader::try_new(ffi_stream)
+        let reader = RecordBatchStreamReader::try_new(ffi_stream)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
 
         // 5. Verify the producer's declared schema matches our registered schema.
