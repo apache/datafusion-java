@@ -30,9 +30,9 @@ import org.apache.datafusion.protobuf.LogicalExprNode;
 /**
  * A Java-implemented table that can be registered with a {@link SessionContext} via {@link
  * SessionContext#registerTable(String, TableProvider)}. Mirrors the role of DataFusion's Rust
- * {@code TableProvider} trait. Implement {@link #scan(BufferAllocator)} for full-schema reads, or
- * override {@link #scanWithArgs(ScanArgs)} to plan a lazy scan with projection/filter/limit
- * pushdown.
+ * {@code TableProvider} trait. Implement {@link #scan(BufferAllocator)} for full-schema reads.
+ * Optionally override {@link #scanWithArgs(ScanArgs)} to plan a lazy scan with
+ * projection/filter/limit pushdown.
  *
  * <p>{@link SimpleTableProvider} is a ready-made implementation for the common case of "I have a
  * schema and a function that returns an {@link ArrowReader}".
@@ -67,13 +67,8 @@ public interface TableProvider {
    * equal {@link #schema()}. The reader's buffers MUST be allocated from {@code allocator} (or from
    * a child of it) — the framework needs the reader's allocator hierarchy to share a root with the
    * one it passes here. The allocator contract mirrors the one on {@link ScalarFunction#evaluate}.
-   *
-   * <p>Providers that implement only {@link #scanWithArgs(ScanArgs)} may leave this method
-   * unsupported.
    */
-  default ArrowReader scan(BufferAllocator allocator) {
-    throw new UnsupportedOperationException("Implement scan or scanWithArgs");
-  }
+  ArrowReader scan(BufferAllocator allocator);
 
   /**
    * Plan one bounded scan without opening its reader. The default defers to {@link

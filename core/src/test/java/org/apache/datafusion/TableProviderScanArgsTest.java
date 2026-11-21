@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
@@ -74,6 +75,11 @@ class TableProviderScanArgsTest {
     }
 
     @Override
+    public ArrowReader scan(BufferAllocator allocator) {
+      return read(new ScanArgs(Optional.empty(), List.of(), OptionalLong.empty()), allocator);
+    }
+
+    @Override
     public List<FilterPushdown> supportsFiltersPushdown(List<LogicalExprNode> filters) {
       return filters.stream()
           .map(filter -> supported(filter) ? capability : FilterPushdown.UNSUPPORTED)
@@ -88,7 +94,8 @@ class TableProviderScanArgsTest {
       return binary.getOperandsCount() == 2
           && binary.getOperands(0).hasColumn()
           && binary.getOperands(0).getColumn().getName().equals("id")
-          && binary.getOperands(1).hasLiteral()
+          && (binary.getOperands(1).getLiteral().hasInt32Value()
+              || binary.getOperands(1).getLiteral().hasInt64Value())
           && (binary.getOp().equals("Eq") || binary.getOp().equals("GtEq"));
     }
 

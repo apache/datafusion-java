@@ -131,6 +131,14 @@ The request has three immutable components:
 | `filters()` | Supported/inexact filters as generated `LogicalExprNode` protobuf messages, not SQL text. |
 | `limit()` | Optional limit supplied by DataFusion's planner. A source may return more matching rows, but must not prematurely truncate before satisfying it. |
 
+**Filter expression compatibility.** `LogicalExprNode` is generated from the
+`datafusion.proto` of the DataFusion version bundled with the Java binding.
+It is not a separately versioned Java expression API: generated accessors,
+operators, and literal variants may change when the binding upgrades DataFusion.
+Return `UNSUPPORTED` for expression shapes you do not recognize so DataFusion
+evaluates them. When upgrading the binding, recompile your provider and rerun
+its pushdown tests against the new version.
+
 `supportsFiltersPushdown` returns one `FilterPushdown` value per expression,
 in input order:
 

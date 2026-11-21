@@ -30,7 +30,8 @@ import org.apache.datafusion.protobuf.LogicalExprNode;
  *
  * <p>Projection indices refer to the registered table schema. An absent projection means all
  * columns; a present empty list means no columns (for example, {@code COUNT(*)}), not no rows.
- * Filters use the same expression protobufs as DataFusion logical plans, not SQL strings.
+ * Filters use the bundled DataFusion version's expression protobufs, not SQL strings. Their
+ * generated types and expression shapes may change when the binding upgrades DataFusion.
  *
  * <p>The optional limit is the value supplied by DataFusion's planner. Sources may return more
  * rows; they must not return fewer than requested when that many matching rows are available.
