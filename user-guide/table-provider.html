@@ -466,7 +466,7 @@ counterpart to DataFusion’s Rust <code class="docutils literal notranslate"><s
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">schema()</span></code> is called exactly once, on the caller’s thread, at registration
 time. Throwing from it aborts registration with the original exception.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">scan(allocator)</span></code> is called once per SQL query that touches the table, on a
+<li><p><code class="docutils literal notranslate"><span class="pre">scan(allocator)</span></code> is called once per physical scan of the table, on a
 worker thread. It must return a fresh, independent <code class="docutils literal notranslate"><span class="pre">ArrowReader</span></code> on every
 call — this is what makes self-joins and <code class="docutils literal notranslate"><span class="pre">UNION</span> <span class="pre">ALL</span></code> over the same table
 work.</p></li>
@@ -493,16 +493,98 @@ errors.</p>
 any DataFusion worker thread. If your implementation maintains mutable state
 across scans, synchronise it.</p>
 </section>
-<section id="limitations-v1">
-<h2>Limitations (v1)<a class="headerlink" href="#limitations-v1" title="Link to this heading">#</a></h2>
+<section id="scan-planning-and-pushdown">
+<h2>Scan planning and pushdown<a class="headerlink" href="#scan-planning-and-pushdown" title="Link to this heading">#</a></h2>
+<p>Override <code class="docutils literal notranslate"><span class="pre">TableProvider.scanWithArgs(ScanArgs)</span></code> to receive DataFusion’s
+scan request. The default returns a lazy plan that calls the existing
+<code class="docutils literal notranslate"><span class="pre">scan(allocator)</span></code> method, so existing <code class="docutils literal notranslate"><span class="pre">TableProvider</span></code> and
+<code class="docutils literal notranslate"><span class="pre">SimpleTableProvider</span></code> implementations need no changes.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>DataFusion optimizer
+    -&gt; supportsFiltersPushdown(expression protos)
+DataFusion physical planning
+    -&gt; scanWithArgs(args) -&gt; ExecutionPlan (no source rows read)
+DataFusion execution
+    -&gt; ExecutionPlan.execute(partition, allocator) -&gt; fresh ArrowReader
+</pre></div>
+</div>
+<p>The request has three immutable components:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Component</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">projection()</span></code></p></td>
+<td><p>Optional ordered indices into the registered schema. Absent means all columns; present but empty means zero columns, not zero rows.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">filters()</span></code></p></td>
+<td><p>Supported/inexact filters as generated <code class="docutils literal notranslate"><span class="pre">LogicalExprNode</span></code> protobuf messages, not SQL text.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">limit()</span></code></p></td>
+<td><p>Optional limit supplied by DataFusion’s planner. A source may return more matching rows, but must not prematurely truncate before satisfying it.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Filter expression compatibility.</strong> <code class="docutils literal notranslate"><span class="pre">LogicalExprNode</span></code> is generated from the
+<code class="docutils literal notranslate"><span class="pre">datafusion.proto</span></code> of the DataFusion version bundled with the Java binding.
+It is not a separately versioned Java expression API: generated accessors,
+operators, and literal variants may change when the binding upgrades DataFusion.
+Return <code class="docutils literal notranslate"><span class="pre">UNSUPPORTED</span></code> for expression shapes you do not recognize so DataFusion
+evaluates them. When upgrading the binding, recompile your provider and rerun
+its pushdown tests against the new version.</p>
+<p><code class="docutils literal notranslate"><span class="pre">supportsFiltersPushdown</span></code> returns one <code class="docutils literal notranslate"><span class="pre">FilterPushdown</span></code> value per expression,
+in input order:</p>
 <ul class="simple">
-<li><p>Single-partition scans only. DataFusion sees the table as one partition;
-multi-partition parallelism is a follow-up.</p></li>
-<li><p>No projection or filter pushdown. DataFusion applies projection and
-filters on top of the batches you return; the Java side always sees the
-full schema. The interface is intentionally minimal so it can grow these
-capabilities (as default methods) without breaking existing implementations.</p></li>
-<li><p>No <code class="docutils literal notranslate"><span class="pre">deregisterTable</span></code>. Tables live until the <code class="docutils literal notranslate"><span class="pre">SessionContext</span></code> is closed.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">UNSUPPORTED</span></code>: leave evaluation to DataFusion; the filter is not sent to
+<code class="docutils literal notranslate"><span class="pre">scanWithArgs</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">INEXACT</span></code>: the source may prune candidates but must retain every matching
+row. DataFusion keeps a residual filter.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">EXACT</span></code>: the source fully applies the predicate with DataFusion-compatible
+semantics; DataFusion can remove its residual filter.</p></li>
+</ul>
+<p>The default declines all filters. Expressions that cannot be represented
+by the expression-protobuf boundary are also treated as unsupported.
+DataFusion, not the Java adapter, decides whether LIMIT can be pushed
+through a residual filter. A provider must not apply additional early
+truncation that would discard matching rows.
+Limits that cannot fit a non-negative Java <code class="docutils literal notranslate"><span class="pre">long</span></code> are omitted as scan
+hints; DataFusion still applies the query’s limit.</p>
+<p>The provider owns the source-specific planning decisions:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="nd">@Override</span>
+<span class="kd">public</span><span class="w"> </span><span class="n">ExecutionPlan</span><span class="w"> </span><span class="nf">scanWithArgs</span><span class="p">(</span><span class="n">ScanArgs</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Choose an access path from the request, without reading source rows.</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="n">accessPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">chooseAccessPath</span><span class="p">(</span><span class="n">args</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">partition</span><span class="p">,</span><span class="w"> </span><span class="n">allocator</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">openProjectedReader</span><span class="p">(</span><span class="n">accessPath</span><span class="p">,</span><span class="w"> </span><span class="n">allocator</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The plan may return the full registered schema or the requested projected
+schema in the requested order. The native adapter projects full-schema
+batches as needed, preserving compatibility with the default <code class="docutils literal notranslate"><span class="pre">scanWithArgs</span></code>.
+Already-projected batches are used directly, without projecting them a
+second time. Other schema mismatches fail the query. A zero-column reader
+must still preserve the number of rows, as required by queries such as
+<code class="docutils literal notranslate"><span class="pre">COUNT(*)</span></code>.</p>
+<p>Planning/capability callbacks may be repeated. They must not consume
+source rows, and must be thread-safe when sharing state. Each execution
+opens an independent reader with buffers allocated by the supplied
+allocator (or its child). Reader ownership and cleanup are the same as
+for a base provider.</p>
+<p>This API only supplies a Java-backed leaf plan. It does not expose
+arbitrary child-consuming execution operators, install source-specific
+optimizer rules, or add source SDK dependencies to the binding.</p>
+</section>
+<section id="limitations">
+<h2>Limitations<a class="headerlink" href="#limitations" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p>Bounded single-partition scans only. DataFusion sees the table as one partition;
+execution receives partition index <code class="docutils literal notranslate"><span class="pre">0</span></code>. The explicit partition argument leaves
+room for future multi-partition support without changing <code class="docutils literal notranslate"><span class="pre">execute</span></code>’s signature.</p></li>
+<li><p>The default <code class="docutils literal notranslate"><span class="pre">scanWithArgs</span></code> retains full-schema reads, and
+<code class="docutils literal notranslate"><span class="pre">supportsFiltersPushdown</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">UNSUPPORTED</span></code>. Override these methods
+on <code class="docutils literal notranslate"><span class="pre">TableProvider</span></code> for source-level pushdown.</p></li>
 </ul>
 </section>
 </section>
@@ -559,7 +641,8 @@ capabilities (as default methods) without breaking existing implementations.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contract">Contract</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#errors">Errors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#threading">Threading</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations-v1">Limitations (v1)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scan-planning-and-pushdown">Scan planning and pushdown</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limitations">Limitations</a></li>
 </ul>
   </nav></div>
 
