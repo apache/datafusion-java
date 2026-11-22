@@ -230,6 +230,30 @@ class TableProviderTest {
     }
   }
 
+  @Test
+  void defaultScanWithArgsPreservesResidualFilterLimitAndCount() throws Exception {
+    try (BufferAllocator allocator = new RootAllocator();
+        SessionContext ctx = new SessionContext()) {
+      InMemoryTableProvider source =
+          buildTwoColumnTable(new int[] {1, 2, 3}, new String[] {"a", "b", "c"});
+      ctx.registerTable("t", source);
+
+      try (DataFrame frame = ctx.sql("SELECT name FROM t WHERE id >= 2 LIMIT 1");
+          ArrowReader reader = frame.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+        assertEquals("b", reader.getVectorSchemaRoot().getVector("name").getObject(0).toString());
+      }
+      // COUNT(*) requests no columns. The default plan's full-schema reader must still retain
+      // all row counts when the adapter projects its batches to zero columns.
+      try (DataFrame frame = ctx.sql("SELECT COUNT(*) FROM t");
+          ArrowReader reader = frame.collect(allocator)) {
+        assertTrue(reader.loadNextBatch());
+        assertEquals(3L, reader.getVectorSchemaRoot().getVector(0).getObject(0));
+      }
+      assertEquals(2, source.scanCount());
+    }
+  }
+
   static final class ThrowingTableProvider implements TableProvider {
     @Override
     public Schema schema() {
