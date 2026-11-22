@@ -228,6 +228,45 @@ class TableProviderScanArgsTest {
   }
 
   @Test
+  void rejectsProjectedColumnsReturnedInReverseOrder() {
+    var fields =
+        List.of("a", "b", "c").stream()
+            .map(name -> Field.nullable(name, ArrowType.Utf8.INSTANCE))
+            .toList();
+    var table = TableProviderTest.InMemoryTableProvider.fromBatches(new Schema(fields), List.of());
+    var source =
+        new TableProvider() {
+          @Override
+          public Schema schema() {
+            return table.schema();
+          }
+
+          @Override
+          public ArrowReader scan(BufferAllocator allocator) {
+            return table.scan(allocator);
+          }
+
+          @Override
+          public ExecutionPlan scanWithArgs(ScanArgs args) {
+            var columns = new ArrayList<>(args.projection().orElseThrow());
+            Collections.reverse(columns);
+            var reversed = new Schema(columns.stream().map(fields::get).toList());
+            return (partition, allocator) ->
+                TableProviderTest.InMemoryTableProvider.fromBatches(reversed, List.of())
+                    .scan(allocator);
+          }
+        };
+    try (var allocator = new RootAllocator();
+        var context = new SessionContext()) {
+      context.registerTable("source", source);
+      try (var frame = context.sql("SELECT a, c FROM source")) {
+        var error = assertThrows(ExecutionException.class, () -> collect(frame, allocator));
+        assertTrue(error.getMessage().contains("expected projected schema"), error::getMessage);
+      }
+    }
+  }
+
+  @Test
   void emptyProjectionPreservesRowsForCountStar() throws Exception {
     var source = new SelectiveSource(TableProvider.FilterPushdown.EXACT);
     try (var allocator = new RootAllocator();
