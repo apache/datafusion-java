@@ -26,7 +26,8 @@ DataFrame queries execute in native Rust; results return to the JVM as
 Data Interface.
 
 This guide covers installation, the `SessionContext` and `DataFrame` APIs,
-and Parquet ingestion.
+Parquet ingestion, table providers, and using DataFusion as a Spark data
+source over ADBC.
 
 ```{toctree}
 :maxdepth: 1
@@ -39,6 +40,7 @@ parquet
 proto-plans
 scalar-udf
 table-provider
+adbc-spark-connector
 api-reference
 ```
 

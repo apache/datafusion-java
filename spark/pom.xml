@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.datafusion</groupId>
+        <artifactId>datafusion-java-parent</artifactId>
+        <version>0.2.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>datafusion-spark</artifactId>
+    <name>DataFusion Spark DataSource</name>
+    <description>A Spark DataSourceV2 backed by a DataFusion TableProvider, over either the plain-C scan ABI or an ADBC driver.</description>
+
+    <properties>
+        <spark.version>4.0.0</spark.version>
+        <scala.binary.version>2.13</scala.binary.version>
+        <!-- The Arrow the target Spark ships. We compile against it but do not
+             bundle it: at runtime the cluster's Arrow is the single arrow-java
+             in the executor JVM, shared by our stream import AND Spark's
+             ArrowColumnVector -> zero-copy columnar. -->
+        <spark.arrow.version>18.1.0</spark.arrow.version>
+        <!-- arrow-adbc Java driver manager (JNI bindings to the C driver
+             manager, which loads a native ADBC cdylib). -->
+        <!-- Default to the released arrow-adbc (resolves from Maven Central, keeps
+             CI green). Its JNI bridge forwards SetSqlQuery but not SetSubstraitPlan
+             nor executePartitioned/readPartition, so the connector uses the SQL
+             wire and a single partition. For typed Substrait + multi-partition,
+             activate the `adbc-snapshot` profile (needs arrow-adbc `main` built to
+             ~/.m2). -->
+        <adbc.version>0.23.0</adbc.version>
+        <!-- substrait-java: builds the Substrait plan we push to the ADBC
+             statement (setSubstraitPlan). -->
+        <substrait.version>0.57.0</substrait.version>
+    </properties>
+
+    <dependencies>
+        <!-- The JVM scan API (DatafusionScan) + generated protobuf classes.
+             Arrow is excluded so it does not drag datafusion-java's own Arrow
+             19 onto this module's classpath; the Spark-provided Arrow is the
+             single version here. (datafusion-java itself stays on Arrow 19 for
+             its standalone use; only its Arrow transitive is dropped here.) -->
+        <dependency>
+            <groupId>org.apache.datafusion</groupId>
+            <artifactId>datafusion-java</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Spark. `provided`: the host cluster supplies it (and its Arrow) at
+             runtime, and it is on the test classpath for the embedded
+             SparkSession. Brings arrow-vector / arrow-memory transitively. -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_${scala.binary.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Arrow C Data interface (Data.importArrayStream, ArrowArrayStream).
+             Not bundled by Spark, so declared explicitly, but `provided`: it
+             must match whatever Arrow the cluster runs. Pinned to the target
+             Spark's Arrow as the compile baseline. -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-c-data</artifactId>
+            <version>${spark.arrow.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ADBC: the abstract API + the JNI driver manager that loads the
+             native DataFusion ADBC cdylib and returns arrow-java ArrowReaders.
+             Arrow is excluded so these use the single Spark-provided arrow-java
+             in the executor JVM (zero-copy ArrowColumnVector), never their own. -->
+        <dependency>
+            <groupId>org.apache.arrow.adbc</groupId>
+            <artifactId>adbc-core</artifactId>
+            <version>${adbc.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow.adbc</groupId>
+            <artifactId>adbc-driver-jni</artifactId>
+            <version>${adbc.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- substrait-java: model + proto serialization for the pushdown plan. -->
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
+            <version>${substrait.version}</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Mockito: test doubles for the ADBC database/connection/statement
+             interfaces in AdbcConnectionPool unit + concurrency tests, which run
+             without the native cdylib. -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.14.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Spark on Java 17 needs these module opens. -->
+                    <argLine>
+                        --add-opens=java.base/java.lang=ALL-UNNAMED
+                        --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+                        --add-opens=java.base/java.io=ALL-UNNAMED
+                        --add-opens=java.base/java.net=ALL-UNNAMED
+                        --add-opens=java.base/java.nio=ALL-UNNAMED
+                        --add-opens=java.base/java.util=ALL-UNNAMED
+                        --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+                        --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+                        --add-opens=java.base/sun.security.action=ALL-UNNAMED
+                    </argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Opt-in: use a locally built arrow-adbc `main` (0.24.0-SNAPSHOT) whose
+             JNI bridge forwards SetSubstraitPlan + executePartitioned/readPartition.
+             Enables typed Substrait pushdown and multi-partition reads. Build
+             arrow-adbc main into ~/.m2 first, then run with -Padbc-snapshot. -->
+        <profile>
+            <id>adbc-snapshot</id>
+            <properties>
+                <adbc.version>0.24.0-SNAPSHOT</adbc.version>
+            </properties>
+        </profile>
+    </profiles>
+</project>
