@@ -39,10 +39,10 @@ repository = "https://github.com/apache/datafusion-java"
 [workspace.dependencies]
 arrow = { version = "60", features = ["ffi"] }
 async-trait = "0.1"
-datafusion = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
-datafusion-proto = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
-datafusion-spark = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
-datafusion-substrait = { git = "https://github.com/apache/datafusion", tag = "56.0.0-rc2" }
+datafusion = { version = "56.0.0" }
+datafusion-proto = "56.0.0"
+datafusion-spark = "56.0.0"
+datafusion-substrait = "56.0.0"
 futures = "0.3"
 jni = "0.21"
 # Pinned to the major DataFusion 56.0 pulls in transitively (0.14.x) so we
